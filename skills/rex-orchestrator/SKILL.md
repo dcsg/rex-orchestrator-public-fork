@@ -20,6 +20,8 @@ Run it from a shell inside a Rex pane: `launch`, `send`, `keys`, `close` and `wa
 Rex sets in every pane. When `REX_SESSION` is empty, the CLI resolves the session once with `rex whoami --json`;
 an explicit `REX_SESSION` is used unchanged. If your shell strips Rex's environment (Codex does), prefix each call with
 `REX_BLOCK=…` (and optionally `REX_SESSION=…`) from the session-start text Rex's hook printed. Requires `jq`.
+The CLI follows install symlinks to find its cage profile and templates beside the real script; the
+`REX_ORCHESTRATOR_CAGE_PROFILE` and `REX_ORCHESTRATOR_CAGE_TPL` overrides take priority.
 
 ## Workflow
 

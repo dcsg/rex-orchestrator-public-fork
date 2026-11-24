@@ -37,7 +37,17 @@ AGY_VERIFIED_SHA256="34423fc9b0af3841e7646aa72a2d40ffeab8218b22d1cb99eac7355f9eb
 # live, resolved through any install symlink. claude needs a $CAGE_SECRETS/claude-<name>.env per account
 # (claude_account picks one), and agy an agy home with its login, $CAGE_SECRETS/agy-home
 # (REX_ORCHESTRATOR_CAGE_AGY_HOME names another).
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P)
+SCRIPT_SRC=$0
+while [ -L "$SCRIPT_SRC" ]; do
+  # A relative link is relative to its physical parent, including when that parent is itself reached via a link.
+  SCRIPT_PARENT=$(cd "$(dirname "$SCRIPT_SRC")" && pwd -P)
+  SCRIPT_LINK=$(readlink "$SCRIPT_SRC")
+  case "$SCRIPT_LINK" in
+    /*) SCRIPT_SRC=$SCRIPT_LINK ;;
+    *) SCRIPT_SRC="$SCRIPT_PARENT/$SCRIPT_LINK" ;;
+  esac
+done
+SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_SRC")" && pwd -P)
 CAGE_PROFILE="${REX_ORCHESTRATOR_CAGE_PROFILE:-$SCRIPT_DIR/cage.sb}"
 CAGE_TPL="${REX_ORCHESTRATOR_CAGE_TPL:-$SCRIPT_DIR/cage}"
 CAGE_SECRETS="${REX_ORCHESTRATOR_CAGE_SECRETS:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/rex-orchestrator/cage-secrets}"
@@ -180,7 +190,8 @@ Environment:
                             directory that isn't yours is refused)
   REX_ORCHESTRATOR_CAGE_SECRETS   CAGE_SECRETS (default ${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator/cage-secrets)
   REX_ORCHESTRATOR_CAGE           launch's cage default: auto (default), on or off
-  REX_ORCHESTRATOR_CAGE_PROFILE, REX_ORCHESTRATOR_CAGE_TPL, REX_ORCHESTRATOR_CAGE_AGY_HOME   other cage assets
+  REX_ORCHESTRATOR_CAGE_PROFILE, REX_ORCHESTRATOR_CAGE_TPL   cage.sb and cage/ beside the real script (following symlinks)
+  REX_ORCHESTRATOR_CAGE_AGY_HOME   agy home (default CAGE_SECRETS/agy-home)
   REX_ORCHESTRATOR_REX_BIN_DIR    the folder holding the rex CLI, if it isn't on PATH
   REX_ORCHESTRATOR_CONFIG_DIR     the folder of ORCH_FILE, "orchestrators" (default
                                   ${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator)

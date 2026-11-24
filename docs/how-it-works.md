@@ -58,6 +58,8 @@ in any form of its ID. This is what lets several orchestrators share one Rex ses
 ## Without the tool
 
 The underlying `rex` calls are:
+`REX_SESSION` below is the real session ID; when it is empty, the tool obtains it once from `rex whoami --json`
+using `REX_BLOCK`, which Rex sets in each pane.
 
 ```sh
 rex split -s "$REX_SESSION" -b "$REX_BLOCK" --split=right -c "$DIR" --label task --keep-open --focus=false --json -- claude

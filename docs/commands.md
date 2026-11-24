@@ -153,7 +153,7 @@ Neither needs a Rex pane.
 | `REX_ORCHESTRATOR_STATE_DIR` | `${XDG_STATE_HOME:-~/.local/state}/rex-orchestrator` | Pane state, claims, kill switches, harvested runs (mode 700) |
 | `REX_ORCHESTRATOR_CAGE_SECRETS` | `${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator/cage-secrets` | Cage credentials ([cage.md](cage.md)) |
 | `REX_ORCHESTRATOR_CAGE` | `auto` | Cage default: `auto`, `on` or `off` |
-| `REX_ORCHESTRATOR_CAGE_PROFILE`, `REX_ORCHESTRATOR_CAGE_TPL`, `REX_ORCHESTRATOR_CAGE_AGY_HOME` | beside the script | Other cage assets |
+| `REX_ORCHESTRATOR_CAGE_PROFILE`, `REX_ORCHESTRATOR_CAGE_TPL`, `REX_ORCHESTRATOR_CAGE_AGY_HOME` | `cage.sb` and `cage/` beside the real script (following install symlinks); agy home under cage secrets | Other cage assets; environment overrides take priority |
 | `REX_ORCHESTRATOR_REX_BIN_DIR` | `rex` on `PATH`, else the Rex app bundle | Where the `rex` CLI lives |
 | `REX_ORCHESTRATOR_CONFIG_DIR` | `${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator` | Holds `orchestrators`, the designated orchestrators ([orchestrators.md](orchestrators.md)) |
 

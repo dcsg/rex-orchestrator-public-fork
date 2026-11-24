@@ -20,6 +20,7 @@ check() {
 setup() {
   case_dir="$work/$1"; mkdir -p "$case_dir/home" "$case_dir/work"
   session='' set_session=0 caller=$orch whoami_rc=0 whoami_out='{"session_id":"session:resolved"}'
+  cli_script=$SCRIPT profile='' templates=''
   jq -nc --arg orch "$orch" --arg child "$child" \
     '{orch:$orch,new_block:$child,blocks:{($child):{steps:[{records:[{app:"muse",state:"idle",updated_at:"2026-11-01T10:00:00Z"}],screen:"ready",argv0:"muse",pid:4242}]}}}' \
     >"$case_dir/scenario.json"
@@ -31,8 +32,9 @@ cli() {
   env -i HOME="$case_dir/home" PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     "${session_env[@]}" REX_ORCHESTRATOR_REX_BIN_DIR="$here/bin" \
     REX_ORCHESTRATOR_STATE_DIR="$case_dir/state" FAKE_REX_DIR="$case_dir" \
+    REX_ORCHESTRATOR_CAGE_PROFILE="$profile" REX_ORCHESTRATOR_CAGE_TPL="$templates" \
     FAKE_REX_WHOAMI_RC="$whoami_rc" FAKE_REX_WHOAMI_OUT="$whoami_out" \
-    "$test_bash" "$SCRIPT" "$@" >"$case_dir/out" 2>"$case_dir/err" || rc=$?
+    "$test_bash" "$cli_script" "$@" >"$case_dir/out" 2>"$case_dir/err" || rc=$?
 }
 whoami_count() { if [ -f "$case_dir/whoami.log" ]; then wc -l <"$case_dir/whoami.log" | tr -d ' '; else echo 0; fi; }
 launch() { cli launch --no-cage --agent "$here/agents/muse" --kind muse -d "$case_dir/work" -b "$orch" --split right --timeout 10; }
@@ -78,5 +80,36 @@ for command in help claims; do
   check "$command needs no caller session" "$rc" 0
 done
 check 'standalone commands skip whoami' "$(whoami_count)" 0
+
+# Real caged launch setup through installed CLI links; the fake Rex only records the wrapper, never executes it.
+assets=$(dirname "$SCRIPT")
+mkdir -p "$work/install space/bin"
+ln -s "$SCRIPT" "$work/install space/bin/absolute"
+ln -s "$assets" "$work/install space/assets"
+ln -s ../assets/rex-orchestrator.sh "$work/install space/bin/relative"
+ln -s absolute "$work/install space/bin/chain"
+for mode in absolute relative chain overrides; do
+  setup "symlink-$mode"
+  cli_script="$work/install space/bin/$mode"
+  expected_profile="$assets/cage.sb" expected_templates="$assets/cage"
+  if [ "$mode" = overrides ]; then
+    cli_script="$work/install space/bin/chain"
+    profile="$case_dir/override profile.sb" templates="$case_dir/override templates"
+    cp "$assets/cage.sb" "$profile"; mkdir -p "$templates"; cp "$assets/cage/codex.toml" "$templates/"
+    expected_profile=$profile expected_templates=$templates
+  fi
+  mkdir -p "$case_dir/home/.codex"; printf '{}\n' >"$case_dir/home/.codex/auth.json"
+  jq --arg child "$child" '.blocks[$child].steps[0] |= (.argv0="codex" | .records[0].app="codex" | .screen="? for shortcuts")' \
+    "$case_dir/scenario.json" >"$case_dir/scenario.tmp"
+  mv "$case_dir/scenario.tmp" "$case_dir/scenario.json"
+  cli launch --cage --trust --agent "$here/agents/codex" -d "$case_dir/work" -b "$orch" --split right --timeout 10
+  check "$mode symlink caged launch" "$rc" 0
+  check "$mode symlink wrapper uses resolved profile" \
+    "$(grep -F -c "PROF='$expected_profile'" "$case_dir/state/cage/"*/bin/codex)" 1
+  check "$mode symlink wrapper uses resolved templates" \
+    "$(grep -F -c "TPL='$expected_templates'" "$case_dir/state/cage/"*/bin/codex)" 1
+  check "$mode symlink seeds the template" \
+    "$(grep -F -c 'trust_level = "trusted"' "$case_dir/state/cage/"*/codex-home/config.toml)" 1
+done
 printf 'startup: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -8,6 +8,8 @@ project uses [Semantic Versioning](https://semver.org/).
 ### Fixed
 - Resolve the session once from `REX_BLOCK` when `REX_SESSION` is empty, supporting Rex server 0.1.0-preview.23.
   Explicit `REX_SESSION` values remain unchanged; failed resolution reports both environment variables.
+- Find cage assets beside the real CLI script through absolute and relative install symlinks and symlink chains,
+  while keeping environment overrides first.
 
 ## [0.1.0] - 2026-11-11
 

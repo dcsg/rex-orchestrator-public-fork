@@ -53,6 +53,8 @@ cd rex-orchestrator
 ```
 
 The installer only creates symlinks, so `git pull` updates everything. `./install.sh --uninstall` removes them.
+The CLI follows install symlinks to find its cage profile and templates beside the real script; cage environment
+overrides still take priority.
 
 ## Pick your orchestrator
 
