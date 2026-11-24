@@ -24,8 +24,9 @@ Every command works with any agent that reports Rex program status. `launch` pic
   `wait` holds with no `--bg-max` cap. Don't have a codex child start a long-running server, or read `screen` for the
   `Worked for …` line instead of waiting.
 - As an **orchestrator**, Codex strips `REX_*` and Rex's PATH entry from its shell: the CLI falls back to the `rex` inside
-  `Rex.app`/`Rex Beta.app` (or `REX_ORCHESTRATOR_REX_BIN_DIR`), and each call needs `REX_SESSION=… REX_BLOCK=…` in front, from the
-  session-start text Rex's Codex hook prints.
+  `Rex.app`/`Rex Beta.app` (or `REX_ORCHESTRATOR_REX_BIN_DIR`), and each call needs `REX_BLOCK=…` in front, from the
+  session-start text Rex's Codex hook prints. The CLI resolves the session with `rex whoami --json` when `REX_SESSION`
+  is empty; you can also prefix the call with `REX_SESSION=…` explicitly.
 
 ## Grok (`grok`)
 

@@ -20,6 +20,7 @@ for b in $bashes; do
     python3 -I "$here/harness2.py" "$@" || echo "FAIL  harness2.py exited $?"
     python3 -I "$here/harness4.py" "$@" || echo "FAIL  harness4.py exited $?"
     "$b" "$here/unit.sh" || echo "FAIL  unit.sh exited $?"
+    "$b" "$here/startup.sh" || echo "FAIL  startup.sh exited $?"
   ) >"$runs/bash-$v.log" 2>&1 &
 done
 wait

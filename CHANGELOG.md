@@ -3,6 +3,12 @@
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- Resolve the session once from `REX_BLOCK` when `REX_SESSION` is empty, supporting Rex server 0.1.0-preview.23.
+  Explicit `REX_SESSION` values remain unchanged; failed resolution reports both environment variables.
+
 ## [0.1.0] - 2026-11-11
 
 First public release.

@@ -74,6 +74,9 @@ another account's config works).
 
 From a shell **inside a Rex pane** (the orchestrator's pane):
 
+Rex sets `REX_BLOCK`. The CLI resolves the session once with `rex whoami --json` when `REX_SESSION` is empty;
+an explicit `REX_SESSION` is used unchanged.
+
 ```sh
 B=$(rex-orchestrator launch -d ~/code/app -l fix-tests --trust)   # opens a pane to the side, prints its block ID
 rex-orchestrator send "$B" 'Run the tests, fix the failing one, write a summary to /tmp/REPORT.md.'

@@ -1,6 +1,6 @@
 ---
 name: rex-orchestrator
-description: "Run other coding agents (Claude Code, Codex, Grok, Gemini (agy), Muse) in Rex terminal panes and drive them with the rex-orchestrator CLI: launch an agent in a directory, answer its folder-trust dialog safely, send a prompt, wait for the turn by the agent's own reported status (done, blocked on a permission prompt, error), read its screen, press keys, close the pane, optionally inside a macOS sandbox. Use when running inside Rex (REX_SESSION is set) and the user wants to delegate work to, test something in, run tasks in parallel with, or watch another agent session side by side."
+description: "Run other coding agents (Claude Code, Codex, Grok, Gemini (agy), Muse) in Rex terminal panes and drive them with the rex-orchestrator CLI: launch an agent in a directory, answer its folder-trust dialog safely, send a prompt, wait for the turn by the agent's own reported status (done, blocked on a permission prompt, error), read its screen, press keys, close the pane, optionally inside a macOS sandbox. Use when running inside Rex (REX_BLOCK is set) and the user wants to delegate work to, test something in, run tasks in parallel with, or watch another agent session side by side."
 ---
 
 # Orchestrate agents in Rex
@@ -16,9 +16,10 @@ RA=$(command -v rex-orchestrator || echo "<this skill's folder>/scripts/rex-orch
 bash "$RA" help          # full reference: every flag and exit code
 ```
 
-Run it from a shell inside a Rex pane: `launch`, `send`, `keys`, `close` and `wait --approve-in` need `REX_SESSION` and
-`REX_BLOCK`, which Rex sets in every pane. If your shell strips them (Codex does), prefix each call with
-`REX_SESSION=… REX_BLOCK=…` from the session-start text Rex's hook printed. Requires `jq`.
+Run it from a shell inside a Rex pane: `launch`, `send`, `keys`, `close` and `wait --approve-in` need `REX_BLOCK`, which
+Rex sets in every pane. When `REX_SESSION` is empty, the CLI resolves the session once with `rex whoami --json`;
+an explicit `REX_SESSION` is used unchanged. If your shell strips Rex's environment (Codex does), prefix each call with
+`REX_BLOCK=…` (and optionally `REX_SESSION=…`) from the session-start text Rex's hook printed. Requires `jq`.
 
 ## Workflow
 

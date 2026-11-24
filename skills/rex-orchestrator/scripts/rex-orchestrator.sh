@@ -168,8 +168,9 @@ rex-orchestrator close [--force] BLOCK      Close the pane (ends its agent) and 
 
 DUR is N, Ns, Nm or Nh. BLOCK is any form rex takes (full ID, short ID, label). The state is the agent's own (root)
 status record. Any agent running in a Rex pane can be the orchestrator: launch, send, keys, close and wait
---approve-in need REX_SESSION and REX_BLOCK (set in every Rex pane; outside one, prefix the call with
-REX_SESSION=... REX_BLOCK=...). send, keys, close and wait --approve-in act only on panes launched from your pane,
+--approve-in need REX_BLOCK (set in every Rex pane). When REX_SESSION is empty, the session is resolved once with
+rex whoami --json; an explicit REX_SESSION is used unchanged. If your shell strips Rex's environment, prefix the call
+with REX_BLOCK=... (and optionally REX_SESSION=...). send, keys, close and wait --approve-in act only on panes launched from your pane,
 unless --force (only for a pane the user named).
 Kill switches: a file STATE_DIR/disabled stops every launch, and every send and key but escape and ctrl+c;
 STATE_DIR/disabled.AGENT stops AGENT's uncaged launches, approvals and typing into its uncaged panes (exit 2).
@@ -189,7 +190,15 @@ EOF
 [ -x "$JQ" ] || die "jq is required ($JQ)"
 # clone and claims need no caller session; claims carry their holders' sessions.
 case "${1:-help}" in help | -h | --help) usage; exit 0 ;; esac
-[ -n "${REX_SESSION:-}" ] || [ "${1:-}" = clone ] || [ "${1:-}" = claims ] || die "REX_SESSION is not set; run inside a Rex terminal (check with: rex whoami --json)"
+if [ -z "${REX_SESSION:-}" ] && [ "${1:-}" != clone ] && [ "${1:-}" != claims ]; then
+  # New Rex panes set only REX_BLOCK. Resolve once: registry entries and every -s need the session's real ID.
+  REX_SESSION=""
+  if [ -n "${REX_BLOCK:-}" ]; then
+    REX_SESSION=$("$REX" whoami --json 2>/dev/null |
+      jq -ers 'select(length == 1) | .[0].session_id | strings | select(test("^session:[^[:space:]]+$"))' 2>/dev/null) || REX_SESSION=""
+  fi
+  [ -n "$REX_SESSION" ] || die "REX_SESSION is empty and no session could be resolved from REX_BLOCK; run inside a Rex terminal with REX_BLOCK set (check with: rex whoami --json), or set REX_SESSION explicitly"
+fi
 
 # grep -q on a string (matches TEXT GREP_ARGS...). A here-string, because under pipefail `printf | grep -q` is false
 # when grep exits at an early match of a long text and the writer dies of SIGPIPE.
