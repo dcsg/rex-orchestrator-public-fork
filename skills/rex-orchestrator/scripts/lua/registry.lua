@@ -75,11 +75,18 @@ return function(C, M)
     end
   end
 
+  function G.release(block)
+    local release,err=G.acquire()
+    if not release then return nil,err end
+    local ok,removed=pcall(C.fs.unlink,directory .. "/" .. block:gsub("[^A-Za-z0-9_-]","_") .. ".json")
+    release()
+    if not ok then error(removed,0) end
+    if removed then return true end
+    return nil,"cannot remove claim for " .. block
+  end
+
   function G.remove(block)
-    local removed,why=locked(function()
-      if C.fs.unlink(directory .. "/" .. block:gsub("[^A-Za-z0-9_-]","_") .. ".json") then return true end
-      return nil,"cannot remove claim for " .. block
-    end)
+    local removed,why=G.release(block)
     if not removed then C.die(why,1) end
   end
 

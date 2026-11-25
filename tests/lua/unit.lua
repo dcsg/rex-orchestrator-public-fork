@@ -7,6 +7,7 @@ local Commands=dofile(dir .. "commands.lua")
 local Input=dofile(dir .. "input.lua")
 local Mutations=dofile(dir .. "mutations.lua")
 local Registry=dofile(dir .. "registry.lua")
+local Close=dofile(dir .. "close.lua")
 local pass=0
 local function eq(a,b,label)
   if a~=b then error((label or "check") .. ": got [" .. tostring(a) .. "], expected [" .. tostring(b) .. "]",0) end
@@ -143,7 +144,8 @@ local function test(options)
   local A=Approval(C,M); local commands=Commands(C,M,A,args)
   C.rex_bin="/fixture/rex"
   C.script_dir="/fixture"
-  for name,fn in pairs(Mutations(C,M,Input(M),Registry(C,M),args)) do commands[name]=fn end
+  local registry=Registry(C,M)
+  for name,fn in pairs(Mutations(C,M,Input(M),registry,args,Close(C,M,registry))) do commands[name]=fn end
   local function run(command,args,events)
     for _,e in ipairs(events or {}) do
       rex.after(e.at,function()

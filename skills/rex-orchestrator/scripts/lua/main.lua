@@ -19,7 +19,8 @@ C.script_dir=rex.args.script_dir
 C.rex_bin=rex.args.rex_bin
 local registry=dofile(dir .. "registry.lua")(C,M)
 local input=dofile(dir .. "input.lua")(M)
-for name,fn in pairs(dofile(dir .. "mutations.lua")(C,M,input,registry,args)) do commands[name]=fn end
+local close=dofile(dir .. "close.lua")(C,M,registry)
+for name,fn in pairs(dofile(dir .. "mutations.lua")(C,M,input,registry,args,close)) do commands[name]=fn end
 local function launcher()
   local cage=dofile(dir .. "launch_cage.lua")(C,M)
   local dialogs=dofile(dir .. "launch_dialog.lua")(C,M,input)

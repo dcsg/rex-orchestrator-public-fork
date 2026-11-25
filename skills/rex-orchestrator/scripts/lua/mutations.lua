@@ -1,4 +1,4 @@
-return function(C, M, I, registry, P)
+return function(C, M, I, registry, P, close_block)
   local R=C.rex
   local commands={}
   local interrupts={escape=true,esc=true,["ctrl+c"]=true}
@@ -176,19 +176,8 @@ return function(C, M, I, registry, P)
 
   function commands.close(args)
     target("close",args,true)
-    if not C.target_missing and not C.close_pane(C.block) then
-      C.die("rex could not close " .. C.block .. "; its state is kept: run close again",1)
-    end
-    registry.remove(C.block)
-    local leaf=C.line(C.block,"cage",1)
-    if leaf~="" and not M.starts(leaf,".") and not leaf:find("/",1,true) then
-      local base=C.fs.canonical(C.dir .. "/cage")
-      if base then
-        local path=base .. "/" .. leaf
-        if not C.remove_cage(path) then C.note("could not remove the cage home " .. path) end
-      end
-    end
-    if not C.fs.remove_state(C.sf(C.block)) then C.die("could not remove the state of " .. C.block,1) end
+    local closed,why,code=close_block(C.block,C.target_missing)
+    if not closed then C.die(why,code) end
   end
 
   commands.claims=registry.claims
