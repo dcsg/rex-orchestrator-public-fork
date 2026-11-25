@@ -125,6 +125,8 @@
 ;; below it. Its own CAGE_TMP is re-opened after the denies, below.
 (deny file-read-data (subpath (param "CAGE_ROOT")))
 (allow file-read-data (subpath (param "DIR")))
+; Uncaged agy login commands wait in a private sibling of CAGE_ROOT, never in an agent-readable wrapper.
+(deny file-read* file-write* (subpath (string-append (param "CAGE_ROOT") "-commands")))
 (deny file-read*
   ; Secret stores.
   (subpath (param "CAGE_SECRETS"))                                 ; the cage credentials themselves

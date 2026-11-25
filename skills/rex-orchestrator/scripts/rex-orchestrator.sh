@@ -119,8 +119,10 @@ rex-orchestrator launch [-d DIR] [-l LABEL] [--split right|left|above|below] [--
     CODEX_HOME or ~/.codex, grok ~/.grok/auth.json); claude once a credential file CAGE_SECRETS/claude-NAME.env
     (export CLAUDE_CODE_OAUTH_TOKEN=...) exists; agy once its cage home CAGE_SECRETS/agy-home exists. Its login can
     come from REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD (a shell command returning the token JSON on stdout), or that home.
-    The command runs outside the cage; its token is mode 600 in the temporary home and removed when agy exits.
-    Command failure or empty stdout stops the wrapper with exit 71 (launch reports 12 if observed during startup).
+    The command runs outside the cage from / with a fixed environment; its private command file is unreadable by
+    caged children. Output must be one JSON object with a non-empty string refresh_token. The temporary mode 600
+    token is removed after agy exits, including signal shutdown with a bounded wait and KILL if needed.
+    Command failure or invalid output stops the wrapper with exit 71 (launch reports 12 if observed during startup).
     A caged child runs from the cage's own config templates, not your settings: pass a model and other settings after --.
     --account NAME picks claude-NAME.env (a caged claude only); without it the only credential is used, else the
     alphabetically first, and launch says which. --no-cage (or REX_ORCHESTRATOR_CAGE=off) runs uncaged; --cage (or
@@ -884,6 +886,12 @@ unlaunch() {
 # inside, and the cage can't link a file from outside in. The agent may still be writing as it exits: retry once.
 rmcage() {
   local n=0
+  # A launch that never reached its wrapper can still have a private agy command waiting outside CAGE_ROOT.
+  case "${1##*/}" in agy.* | agy-*.*)
+    if [ -d "${1%/*}-commands" ] && [ ! -L "${1%/*}-commands" ] && [ -O "${1%/*}-commands" ]; then
+      rm -f "${1%/*}-commands/${1##*/}"
+    fi ;;
+  esac
   # Restore access to sealed transcript directories before reading them.
   { chflags -R nouchg,nouappnd "$1"; chmod -R -N "$1"; chmod -R u+rwX "$1"; } 2>/dev/null || true
   # Measurement never prevents cleanup, including when Python/storage fails.
@@ -920,7 +928,11 @@ cage_emit() {
   agyset=$(jq -c '{allowNonWorkspaceAccess: false, permissions: {allow: []}} + (if (.model | type) == "string" then
     {model: .model} else {} end)' "$CAGE_AGY_HOME/.gemini/antigravity-cli/settings.json" 2>/dev/null) ||
     agyset='{"allowNonWorkspaceAccess":false,"permissions":{"allow":[]}}'
-  printf '#!/bin/bash\n# rex-orchestrator cage wrapper for %s (generated each launch; do not edit).\nset -e\n' "$name"
+  case "$name" in
+    agy | agy-*) printf '#!/bin/bash -p\n# Ignore startup hooks, imported functions and project PATH entries before any uncaged work.\nunset BASH_ENV ENV CDPATH\nPATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin\n' ;;
+    *) printf '#!/bin/bash\n' ;;
+  esac
+  printf '# rex-orchestrator cage wrapper for %s (generated each launch; do not edit).\nset -e\n' "$name"
   printf 'REAL=%s DIR=%s DRE=%s CT=%s RH=%s AUTH=%s CFGRO=%s HOOKS=%s LRE=%s SEC=%s PROF=%s TPL=%s CRED=%s RH_AGY=%s AGYSET=%s\n' \
     "$(sq "$2")" "$(sq "$3")" "$(sq "$4")" "$(sq "$5")" "$(sq "$6")" "$(sq "$7")" "$(sq "$8")" "$(sq "$9")" "$(sq "${10}")" "$(sq "${11}")" \
     "$(sq "$CAGE_PROFILE")" "$(sq "$CAGE_TPL")" "$(sq "${cage_acct:+$CAGE_SECRETS/claude-$cage_acct.env}")" \
@@ -982,49 +994,106 @@ EOF
       ;;
     # --settings is session-only for agy: no persisted allow rules, no access outside the workspace.
     agy | agy-*)
-      # Rex starts the wrapper in a new pane, not with launch's environment. Store only the command, never its output.
-      if [ "${REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD+x}" = x ]; then
-        printf 'AGY_TOKEN_ENABLED=1 AGY_TOKEN_CMD=%s\n' "$(sq "$REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD")"
-      else
-        printf '%s\n' "AGY_TOKEN_ENABLED=0 AGY_TOKEN_CMD=''"
-      fi
+      # The command itself stays outside the cage, unreadable by every child; only its file name goes in the wrapper.
+      printf 'AGY_CMD_FILE=%s\n' "$(sq "${agy_cmd_file:-}")"
       cat <<'EOF'
+unset REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD AGY_TOKEN_CMD
+AGY_PID='' AGY_TOKEN_FILE='' AGY_GROUP=0 AGY_PENDING=''
+if [ -n "$AGY_CMD_FILE" ]; then
+  AGY_TOKEN_FILE="$CT/home/.gemini/antigravity-cli/antigravity-oauth-token"
+  agy_active() { jobs -pr; jobs -ps; }
+  agy_stop() {
+    local sig="$1" p active pending deadline pids target
+    # A signal can arrive after the fork but before AGY_PID=$!: the shell's job table already owns that child.
+    pids=${AGY_PID:-$(jobs -p)}
+    agy_traps "${2:-ignore}"
+    # A pipeline gives jobs an empty job table in bash 3.2; capture directly, then normalize in the shell.
+    active=$(agy_active); active=" ${active//$'\n'/ } "
+    for p in $pids; do
+      target=$p; [ "$AGY_GROUP" -eq 0 ] || target="-$p"
+      if [ "$AGY_GROUP" -eq 1 ]; then kill -s "$sig" -- "$target" 2>/dev/null || :
+      else case "$active" in *" $p "*) kill -s "$sig" -- "$target" 2>/dev/null || : ;; esac; fi
+    done
+    deadline=$((SECONDS + 5))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+      active=$(agy_active); active=" ${active//$'\n'/ } " pending=0
+      for p in $pids; do
+        if [ "$AGY_GROUP" -eq 1 ]; then
+          kill -0 -- "-$p" 2>/dev/null && pending=1
+        else case "$active" in *" $p "*) pending=1 ;; esac; fi
+      done
+      [ "$pending" -eq 1 ] || break
+      /bin/sleep 0.05
+    done
+    active=$(agy_active); active=" ${active//$'\n'/ } "
+    for p in $pids; do
+      if [ "$AGY_GROUP" -eq 1 ]; then kill -KILL -- "-$p" 2>/dev/null || :
+      else case "$active" in *" $p "*) kill -KILL "$p" 2>/dev/null || : ;; esac; fi
+      wait "$p" 2>/dev/null || :
+    done
+    AGY_PID=
+  }
+  agy_cleanup() {
+    agy_stop TERM
+    /bin/rm -f "$AGY_CMD_FILE"
+    # The child can replace its writable parents with links. Pin the physical directory as cwd before unlinking,
+    # and refuse one outside CT: cleanup runs unsandboxed and must never delete a real-home credential.
+    (cd -P -- "${AGY_TOKEN_FILE%/*}" 2>/dev/null || exit 0
+      case "$PWD/" in "$CT/"*) /bin/rm -f ./antigravity-oauth-token ;; esac)
+  }
+  agy_signal() {
+    local sig="${AGY_PENDING:-$1}" status
+    status=$((128 + $(kill -l "$sig")))
+    # Asynchronous children inherit ignored INT/QUIT without job control. TERM guarantees they can be stopped.
+    case "$sig" in INT | QUIT) sig=TERM ;; esac
+    agy_stop "$sig"
+    exit "$status"
+  }
+  agy_traps() {
+    local sig
+    for sig in HUP INT TERM QUIT PIPE USR1 USR2 ALRM; do
+      case "${1:-handle}" in
+        defer) trap "AGY_PENDING=\${AGY_PENDING:-$sig}" "$sig" ;;
+        ignore) trap '' "$sig" ;;
+        *) trap "agy_signal $sig" "$sig" ;;
+      esac
+    done
+  }
+  trap agy_cleanup EXIT
+  agy_traps
+fi
 mkdir -p "$CT/home"
 # A one-time provisioned agy login (CAGE_AGY_HOME) is copied in so it is writable in the cage.
 [ -n "$RH_AGY" ] && [ -d "$RH_AGY" ] || exit 70
 [ -d "$CT/home/.gemini" ] || cp -R "$RH_AGY/." "$CT/home/"
-unset REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD
-AGY_PID='' AGY_TOKEN_FILE=''
-if [ "$AGY_TOKEN_ENABLED" = 1 ]; then
-  AGY_TOKEN_FILE="$CT/home/.gemini/antigravity-cli/antigravity-oauth-token"
-  agy_cleanup() {
-    # The child can replace its writable parents with links. Pin the physical directory as cwd before unlinking,
-    # and refuse one outside CT: cleanup runs unsandboxed and must never delete a real-home credential.
-    (cd -P -- "${AGY_TOKEN_FILE%/*}" 2>/dev/null || exit 0
-      case "$PWD/" in "$CT/"*) rm -f ./antigravity-oauth-token ;; esac)
-  }
-  agy_signal() {
-    [ -z "$AGY_PID" ] || kill -s "$1" "$AGY_PID" 2>/dev/null || :
-    exit "$2"
-  }
-  trap agy_cleanup EXIT
-  trap 'agy_signal HUP 129' HUP
-  trap 'agy_signal INT 130' INT
-  trap 'agy_signal TERM 143' TERM
+if [ -n "$AGY_CMD_FILE" ]; then
   # Suppress command diagnostics too: a failed shell command can quote its input or the credential in stderr.
-  (umask 077
-    mkdir -p "${AGY_TOKEN_FILE%/*}" && rm -f "$AGY_TOKEN_FILE" &&
-      exec /bin/bash -c "$AGY_TOKEN_CMD" >"$AGY_TOKEN_FILE"
-  ) <&0 2>/dev/null &
-  AGY_PID=$!
-  AGY_TOKEN_RC=0
-  wait "$AGY_PID" || AGY_TOKEN_RC=$?
+  # Only the noninteractive lookup gets its own process group, so cancellation reaches provider subprocesses too.
+  # Disable job control again before agy starts: its TUI must stay in the terminal's foreground group.
+  { set -m; AGY_GROUP=1
+    (umask 077
+      mkdir -p "${AGY_TOKEN_FILE%/*}" && /bin/rm -f "$AGY_TOKEN_FILE" && cd / &&
+        exec /usr/bin/env -i HOME="$RH" PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin \
+          SHELL=/bin/bash LANG=en_US.UTF-8 /bin/bash --noprofile --norc "$AGY_CMD_FILE" >"$AGY_TOKEN_FILE"
+    ) </dev/null &
+    AGY_PID=$!
+    AGY_TOKEN_RC=0
+    wait "$AGY_PID" || AGY_TOKEN_RC=$?
+    # Reap/stop any provider subprocesses left behind even when the command shell has already exited.
+    agy_stop TERM defer
+    set +m; AGY_GROUP=0
+    agy_traps
+    [ -z "$AGY_PENDING" ] || agy_signal "$AGY_PENDING"
+  } 2>/dev/null
   AGY_PID=
-  if [ "$AGY_TOKEN_RC" -ne 0 ] || [ ! -s "$AGY_TOKEN_FILE" ] || ! chmod 600 "$AGY_TOKEN_FILE"; then
-    echo 'rex-orchestrator cage: REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD failed or returned no token; agy not started' >&2
+  /bin/rm -f "$AGY_CMD_FILE"
+  AGY_JQ=/opt/homebrew/bin/jq; [ -x "$AGY_JQ" ] || AGY_JQ=/usr/bin/jq
+  if [ "$AGY_TOKEN_RC" -ne 0 ] || ! "$AGY_JQ" -e -s \
+    'length == 1 and (.[0] | type == "object" and (.refresh_token | type == "string" and length > 0))' \
+    "$AGY_TOKEN_FILE" >/dev/null 2>&1 || ! chmod 600 "$AGY_TOKEN_FILE"; then
+    echo 'rex-orchestrator cage: REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD failed or returned invalid token JSON; agy not started' >&2
     exit 71
   fi
-  unset AGY_TOKEN_CMD
 fi
 agy_run() {
   exec /usr/bin/env -i HOME="$CT/home" USER="${USER:-}" LOGNAME="${LOGNAME:-}" SHELL=/bin/zsh \
@@ -1074,7 +1143,7 @@ claude_account() {
 # (caller runs it uncaged). rc 2: a recipe exists but setup failed, so launch must fail closed (never a silent uncaged
 # fallback); the note says why.
 cage_build() {
-  local name="$1" real="$2" dir="$3" rh auth="" cfgro=.nolock tpl="" t base ct hooks="" dre adir hp top rp lre="" sec
+  local name="$1" real="$2" dir="$3" rh auth="" cfgro=.nolock tpl="" t base ct hooks="" dre adir hp top rp lre="" sec agy_cmd_file=""
   cage_acct="" cage_why=""
   # Recipe? codex/grok always; claude with a cage credential (an account); agy with a provisioned home; nothing else.
   case "$name" in
@@ -1130,11 +1199,28 @@ cage_build() {
   fi
   # mktemp -d: a private (0700), unpredictable dir under STATE_DIR/cage; it holds the agent's isolated home.
   if ! { mkdir -p "$STATE_DIR/cage" && base=$(cd "$STATE_DIR/cage" && pwd -P) && [ -O "$base" ] &&
-         ct=$(mktemp -d "$base/$name.XXXXXX") && mkdir "$ct/bin" &&
-         cage_emit "$name" "$real" "$dir" "$dre" "$ct" "$rh" "${auth:-$ct}" "$ct/$cfgro" "${hooks:-$ct/.nohooks}" "$lre" "$sec" \
-           >"$ct/bin/$name" &&
-         chmod +x "$ct/bin/$name"; }; then
+         ct=$(mktemp -d "$base/$name.XXXXXX") && mkdir "$ct/bin"; }; then
     note "cage: cannot set up a cage under $STATE_DIR/cage"; return 2
+  fi
+  case "$name" in
+    agy | agy-*)
+      if [ "${REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD+x}" = x ]; then
+        agy_cmd_file="$base-commands/${ct##*/}"
+        # shellcheck disable=SC2094  # Unlink a partial write only after this group successfully opened the new file.
+        if ! (umask 077
+          [ ! -L "$base-commands" ] && mkdir -p "$base-commands" && [ -O "$base-commands" ] &&
+            chmod 700 "$base-commands" && set -C && {
+              printf '%s' "$REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD" || { rm -f "$agy_cmd_file"; exit 1; }
+            } >"$agy_cmd_file"
+        ); then
+          note 'cage: cannot store REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD privately'; return 2
+        fi
+      fi ;;
+  esac
+  if ! { cage_emit "$name" "$real" "$dir" "$dre" "$ct" "$rh" "${auth:-$ct}" "$ct/$cfgro" "${hooks:-$ct/.nohooks}" "$lre" "$sec" \
+           >"$ct/bin/$name" && chmod +x "$ct/bin/$name"; }; then
+    [ -z "$agy_cmd_file" ] || rm -f "$agy_cmd_file"
+    note "cage: cannot write $name's cage wrapper"; return 2
   fi
   # A caged codex can't save a folder-trust answer (config.toml is write-locked), so its dialog loops. With --trust
   # (cmd_launch's local), trust exactly DIR in this throwaway config. jq's JSON string is a valid TOML basic string,

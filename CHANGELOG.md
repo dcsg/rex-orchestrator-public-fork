@@ -11,6 +11,9 @@ project uses [Semantic Versioning](https://semver.org/).
   failed or empty commands stop the wrapper with exit 71 before agy starts. Unset preserves copied logins.
 
 ### Fixed
+- Isolate agy's uncaged token lookup from project configs and environment, hide its command text from caged children,
+  and validate the returned refresh-token JSON silently. Stop and reap the child before signal cleanup, with a
+  five-second grace period and forced termination if needed; cover additional signals and the fork startup race.
 - Resolve the session once from `REX_BLOCK` when `REX_SESSION` is empty, supporting Rex server 0.1.0-preview.23.
   Explicit `REX_SESSION` values remain unchanged; failed resolution reports both environment variables.
 - Find cage assets beside the real CLI script through absolute and relative install symlinks and symlink chains,
