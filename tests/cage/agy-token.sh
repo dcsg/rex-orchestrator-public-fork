@@ -4,6 +4,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd -P)
 SCRIPT=${REX_ORCHESTRATOR_SH:-$here/../../skills/rex-orchestrator/scripts/rex-orchestrator-bash.sh}
 assets=$(cd "$(dirname "$SCRIPT")" && pwd -P)
+ASSETS=$assets
 test_bash=${HARNESS_BASH:-$BASH}
 work=$(mktemp -d "${TMPDIR:-/tmp}/rex-agy-token.XXXXXX")
 work=$(cd "$work" && pwd -P)
@@ -20,15 +21,14 @@ check() {
 }
 # shellcheck source=skills/rex-orchestrator/scripts/cage-cleanup.sh
 . "$assets/cage-cleanup.sh"
-for f in note ere_escape sq real_path cage_emit acct_ok claude_account cage_build; do
-  eval "$(awk -v f="$f() {" 'index($0, f) == 1 { on = 1; one = /}[[:space:]]*$/ } on { print } on && (one || /^}/) { exit }' "$SCRIPT")"
-done
+# shellcheck source=tests/cage/build.inc.sh
+. "$here/build.inc.sh"
 export HOME="$work/home"
 unset CODEX_HOME XDG_CONFIG_HOME REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD
-# shellcheck disable=SC2034  # globals read by the extracted cage functions
+# shellcheck disable=SC2034  # read by the fixture driver
 CAGE_PROFILE="$assets/cage.sb" CAGE_TPL="$assets/cage"
 CAGE_SECRETS="$HOME/.config/rex-orchestrator/cage-secrets"
-# shellcheck disable=SC2034  # globals read by the extracted cage functions
+# shellcheck disable=SC2034  # read by the fixture driver
 CAGE_AGY_HOME="$CAGE_SECRETS/agy-home" STATE_DIR="$work/state" SCRIPT_DIR="$assets"
 cage_tmp='' cage_wrapper=''
 mkdir -p "$CAGE_AGY_HOME/.gemini/antigravity-cli" "$work/project" "$work/bin"
@@ -322,10 +322,9 @@ check 'unset command keeps copied login' "$([ -f "$file" ] && echo yes || echo n
 check 'unset command keeps original mode' "$(stat -f %Lp "$file")" 644
 check 'source login unchanged' "$(cmp -s "$work/expected" "$CAGE_AGY_HOME/.gemini/antigravity-cli/antigravity-oauth-token" && echo yes || echo no)" yes
 # Force known cage names to verify refusal never unlinks a pre-existing file or follows a rejected parent link.
+export REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD
 REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=$(command_for success)
 guard_leaf=agy.collision
-# shellcheck disable=SC2329  # Called indirectly by the extracted cage_build function.
-mktemp() { mkdir "$STATE_DIR/cage/$guard_leaf"; printf '%s' "$STATE_DIR/cage/$guard_leaf"; }
 printf 'preserve\n' >"$work/preserve"
 cp "$work/preserve" "$STATE_DIR/cage-commands/$guard_leaf"
 guard_rc=0
@@ -347,7 +346,6 @@ cleanup_cage "$STATE_DIR/cage/$guard_leaf" >"$work/guard-close.log" 2>&1
 check 'close removes the refused cage' "$([ ! -e "$STATE_DIR/cage/$guard_leaf" ] && echo yes || echo no)" yes
 check 'close never follows a linked private-command root' \
   "$(cmp -s "$work/preserve" "$work/linked-command-root/$guard_leaf" && echo yes || echo no)" yes
-unset -f mktemp
 rm "$STATE_DIR/cage-commands"; mv "$work/saved-command-root" "$STATE_DIR/cage-commands"
 printf 'agy token: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

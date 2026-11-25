@@ -1,6 +1,6 @@
 #!/bin/bash
 # zt.sh: a zero-token regression for the rex-orchestrator sandbox-exec cage. No agent, no network, no tokens; a few seconds.
-# Each cage is built the way `launch` builds it (cage_build and cage_emit read out of the script), with a probe in the
+# Each cage is built by the Lua builder used by `launch`, with a probe in the
 # agent's place, and every check runs through the generated wrapper itself: its env -i, the -D set it computes and the
 # flags it gives the agent. A fixture HOME stands in for the real one, so nothing of the user's is read. It checks:
 #   - the profile loads, and fails closed when a required param (DIR_RE, DIR) is missing or HOOKSPATH is empty;
@@ -36,6 +36,7 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 SCRIPT=${REX_ORCHESTRATOR_SH:-$HERE/../../skills/rex-orchestrator/scripts/rex-orchestrator-bash.sh}
 SDIR=$(cd "$(dirname "$SCRIPT")" && pwd -P)
+ASSETS=$SDIR
 PROFILE="$SDIR/cage.sb"
 
 P=0; F=0
@@ -44,15 +45,10 @@ bad() { F=$((F + 1)); printf 'FAIL  %s\n' "$1"; }
 chk() { if [ "$2" = "$3" ]; then ok "$1 ($3)"; else bad "$1: want [$2] got [$3]"; fi; }
 
 [ -r "$PROFILE" ] || { echo "zt: no profile at $PROFILE"; exit 2; }
-command -v jq >/dev/null 2>&1 || { echo "zt: jq required"; exit 2; }
+command -v luajit >/dev/null 2>&1 || { echo "zt: luajit required"; exit 2; }
 
-# --- The script's own cage functions (no agent, no rex): one-line bodies, or ones closed by a '}' in column 0. ---
-# shellcheck source=skills/rex-orchestrator/scripts/cage-cleanup.sh
-. "$SDIR/cage-cleanup.sh"
-for f in die note ere_escape sq real_path cage_emit acct_ok claude_account cage_build; do
-  eval "$(awk -v f="$f() {" 'index($0, f) == 1 { on = 1; one = /}[[:space:]]*$/ } on { print } on && (one || /^}/) { exit }' "$SCRIPT")"
-  declare -F "$f" >/dev/null || { echo "zt: no function $f in $SCRIPT"; exit 2; }
-done
+# shellcheck source=tests/cage/build.inc.sh
+. "$HERE/build.inc.sh"
 
 # --- Hermetic: a work dir outside /private/tmp/claude-<uid> (the profile hides that tree's data), a fixture HOME, a
 #     private STATE_DIR and dummy cage credentials; none of the caller's homes. What a failed check sealed is cleared
@@ -68,12 +64,10 @@ trap 'kill $SLEEPER $LISTENER 2>/dev/null; unseal "$WORK"; rm -rf "$WORK"' EXIT
 FH="$WORK/home"; STATE_DIR="$WORK/state"; mkdir -p "$FH" "$STATE_DIR"
 unset CODEX_HOME GROK_HOME CLAUDE_CONFIG_DIR REX_ORCHESTRATOR_CAGE_AGY_HOME REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD XDG_CONFIG_HOME XDG_STATE_HOME
 export HOME="$FH" REX_SESSION=session:zt REX_BLOCK=block:zt SSH_AUTH_SOCK="$WORK/agent.sock" ZT_TOKEN=zt-secret-must-not-leak
-# These globals are read by the cage_build/cage_emit functions sourced above (dynamic scope), not locally here. The
-# cage credentials sit at the default place under the (fixture) home, ~/.config/rex-orchestrator/cage-secrets.
+# Use fixture secrets and a stand-in skill folder whose parent the cage write-locks.
 # shellcheck disable=SC2034
-{ CAGE_PROFILE="$PROFILE"; CAGE_TPL="$SDIR/cage"; CAGE_SECRETS="$FH/.config/rex-orchestrator/cage-secrets"; trust=0; cage_wrapper=""
-  cage_tmp=""; account=""; CAGE_AGY_HOME="$WORK/no-agy-home"
-  SCRIPT_DIR="$WORK/skill/scripts"; }   # a stand-in for the launcher's folder, whose parent the cage write-locks
+{ CAGE_PROFILE="$PROFILE"; CAGE_TPL="$SDIR/cage"; CAGE_SECRETS="$FH/.config/rex-orchestrator/cage-secrets"
+  account=""; CAGE_AGY_HOME="$WORK/no-agy-home"; SCRIPT_DIR="$WORK/skill/scripts"; }
 OUT="$WORK/outside"; mkdir -p "$OUT"
 # Fixture secrets and agent homes, the AGENT_AUTH files, and files that must stay readable.
 CS=.config/rex-orchestrator/cage-secrets
@@ -92,6 +86,7 @@ for p in .ssh/id_x .aws/credentials .gnupg/x .netrc $CS/claude.env $CS/claude-on
 done
 printf '[user]\n\tname = zt\n\temail = zt@example.invalid\n' | tee "$FH/.gitconfig" >"$FH/.config/git/config"
 mkdir -p "$SCRIPT_DIR/cage"
+cp "$SDIR/cage/"runtime-*.sh "$SCRIPT_DIR/cage/"
 for p in rex-orchestrator.sh cage.sb cage/claude.json ../SKILL.md; do printf 'fixture\n' >"$SCRIPT_DIR/$p"; done
 # One dummy token per account; claude.env keeps the fixture line above, which no wrapper may load.
 mkdir -p "$WORK/agy-home/.gemini"
@@ -120,7 +115,7 @@ chmod +x "$PROBE"
 # mk AGENT DIR: build AGENT's cage for DIR as launch does; sets W (its wrapper), CT (its cage temp) and CWD (DIR).
 mk() { cage_wrapper=""; cage_build "$1" "$PROBE" "$2" >"$WORK/build.log" 2>&1 && W=$cage_wrapper CT=$cage_tmp CWD=$2; }
 cg() { (cd "$CWD" && "$W" "$@") 2>&1; }   # sh ARGS in the current cage, through its real wrapper, started in DIR as rex does
-q() { printf "'%s'" "$1"; }            # splice a test path (no single quote in any) into an in-cage program
+q() { sq "$1"; }
 # want VERB WORD PATH...: run the in-cage helper VERB (w or r) on the PATHs and check each answer is WORD.
 want() {
   local verb="$1" word="$2" line n=0; shift 2
@@ -279,6 +274,9 @@ locks_hold "plain DIR" "$PD"
 for c in '(' ')' '[' ']' '{' '}' '+' '?' '*' '|' '^' '$' '\' '.' ' ' ':~/'; do
   md="$WORK/m/pay${c}x"; mkdir -p "$md"; locks_hold "DIR holding '$c'" "$(cd "$md" && pwd -P)"
 done
+# shellcheck disable=SC2016 # These bytes are literal directory-name characters.
+adversarial="$WORK/"'proj d'"'"'q $(id) `id` [a]+(b) "c" x:~/y'
+locks_hold "adversarial DIR" "$adversarial"
 
 echo "== a repo's core.hooksPath inside DIR is locked =="
 # hooks LABEL HOOKSPATH [SUBDIR]: a repo under the fixture home whose core.hooksPath is HOOKSPATH, caged in its top (or
@@ -302,6 +300,8 @@ if command -v git >/dev/null 2>&1; then
   # bash 3.2's printf %q leaves a "~" after ":" bare, which the wrapper's assignment line would expand.
   mkdir -p "$FH/hk-colon-tilde/tools/x:~/hooks"
   hooks colon-tilde "tools/x:~/hooks"
+  # shellcheck disable=SC2016
+  hooks adversarial 'tools/hook'"'"'s $dir'
 else ok "core.hooksPath checks skipped (no git)"; fi
 
 echo "== a per-task clone can commit inside the cage =="
