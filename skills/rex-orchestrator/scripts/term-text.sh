@@ -1,19 +1,17 @@
 # shellcheck shell=bash
-# rex_term_text TEXT [keep]: print TEXT for a terminal exactly as core.lua's M.terminal_text does, so a byte sequence
-# looks the same whichever side prints it. C0 controls, DEL and C1 bytes outside a valid UTF-8 character, and every
-# byte of invalid UTF-8, show as \xNN; the UTF-8 C1 controls (U+0080-U+009F) and the bidi overrides and isolates
-# (U+202A-U+202E, U+2066-U+2069) as \uNNNN; a backslash as \\. With "keep", backslashes stay single: for text Lua
-# already escaped, such as the diagnostics the CLI forwards.
+# rex_term_text TEXT: print TEXT for a terminal exactly as core.lua's M.terminal_text does, so a byte sequence looks
+# the same whichever side prints it. C0 controls, DEL and C1 bytes outside a valid UTF-8 character, and every byte of
+# invalid UTF-8, show as \xNN; the UTF-8 C1 controls (U+0080-U+009F) and the bidi overrides and isolates
+# (U+202A-U+202E, U+2066-U+2069) as \uNNNN; a backslash as \\.
 # Pure Bash 3.2 in the byte locale, inside one subshell, with no further forks: bytes come from printf -v and output
 # grows by appending, so a long line costs a scan, not a process per byte.
 # shellcheck disable=SC2030 # The byte locale is meant to stay in this subshell.
 rex_term_text() (
   export LC_ALL=C
-  s=$1 keep=${2:-}
-  # Printable ASCII alone needs no work; a backslash does unless it is kept.
+  s=$1
+  # Printable ASCII without a backslash needs no work.
   case $s in
-    *[![:print:]]*) ;;
-    *\\*) if [ "$keep" = keep ]; then printf '%s' "$s"; exit 0; fi ;;
+    *[![:print:]]* | *\\*) ;;
     *) printf '%s' "$s"; exit 0 ;;
   esac
   # Work through the text 512 bytes at a time, with 3 bytes of lookahead for a UTF-8 sequence that crosses the
@@ -53,7 +51,7 @@ rex_term_text() (
         if ((width == 1)); then printf -v hex '\\x%02X' $((code >= 0 ? code : invalid))
         else printf -v hex '\\u%04X' "$code"; fi
         out=$out$hex
-      elif ((a == 92)) && [ "$keep" != keep ]; then out="$out\\\\"
+      elif ((a == 92)); then out="$out\\\\"
       else out=$out${chunk:k:width}
       fi
       k=$((k + width))

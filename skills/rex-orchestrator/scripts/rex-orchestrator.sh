@@ -126,10 +126,13 @@ run_lua() {
       # Rex failed before executing Lua. Preserve startup diagnostics and offline dead-claim pruning.
       if [ "$started$rc" = 04 ]; then "$BASH" -p "$SCRIPT_DIR/local-lua.sh" offline "$@" >&3; return $?; fi ;;
   esac
+  # Lua writes its own notes and refusals straight to fd 5, the terminal; what arrives here is Rex's own output (its
+  # errors, a Lua traceback). Each line is escaped and marked "rex: ", so a line break inside a value Rex echoes can't
+  # start a line that passes for one of this tool's "rex-orchestrator: " diagnostics.
   while IFS= read -r line; do
     case "$line" in
       '' | $'\036rex-orchestrator:started' | $'\036rex-orchestrator:rejected' | 'listening: '*'; Ctrl-C to stop') ;;
-      *) printf '%s\n' "$(rex_term_text "$line" keep)" >&2 ;;
+      *) printf 'rex: %s\n' "$(rex_term_text "$line")" >&2 ;;
     esac
   done <<<"$diagnostics"
   case "$command" in

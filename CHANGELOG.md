@@ -32,7 +32,9 @@ project uses [Semantic Versioning](https://semver.org/).
   diagnostics (screen tails, Rex and git errors) are escaped where they are written. The shell entry point,
   installer, cage cleanup and claude wrapper share `scripts/term-text.sh`, which escapes exactly as the Lua side
   does (C0, DEL, raw C1 bytes and invalid UTF-8 as `\xNN`, UTF-8 C1 controls and bidi overrides and isolates as
-  `\uNNNN`, backslashes doubled), so Rex's own error lines print the same way.
+  `\uNNNN`, backslashes doubled), so Rex's own error lines print the same way. Each line of Rex's own output that the
+  CLI forwards starts with `rex: `, and text meant to span lines (screen tails, a tool's stderr) is indented, so
+  neither can pass for a `rex-orchestrator: ` diagnostic.
 - Match agent homes and the other protected locations without regard to ASCII case in `launch`'s checks, as the
   home volume and the cage profile do: a DIR in `~/.CODEX`, a link spelled `~/.CODEX`, or a HOME spelled in another
   case no longer slips past them.

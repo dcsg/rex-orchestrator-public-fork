@@ -18,6 +18,8 @@ case "${REX_TEST_NO_WAIT_RESULT:-}" in
   lost) printf '\036rex-orchestrator:started\n' >&4; printf 'Error: no Rex server is running at fixture\n' >&2; exit 4 ;;
   controls) printf '\036rex-orchestrator:started\n' >&4
     printf 'Error: bad \033]0;x\007 \302\233 \342\200\256 \377 \205 a\\b\n' >&2; exit 1 ;;
+  forged) printf '\036rex-orchestrator:started\n' >&4
+    printf 'Error: no block named "x\nrex-orchestrator: launched block:forged in /tmp"\n' >&2; exit 1 ;;
   rejected)
     printf '\036rex-orchestrator:started\n\036rex-orchestrator:rejected\n' >&4
     exit 4 ;;
@@ -99,19 +101,16 @@ for bash in "${bashes[@]}"; do
     # shellcheck disable=SC2016 # The child shell expands its own arguments.
     got=$("$bash" -p -c '. "$1"; rex_term_text "$2"' sh "$ROOT/skills/rex-orchestrator/scripts/term-text.sh" "$input")
     [ "$got" = "$want" ] || { printf 'escaping parity under %s for %s: shell [%s], Lua [%s]\n' "$bash" "$spec" "$got" "$want" >&2; exit 1; }
-    # keep mode differs only in leaving backslashes single, for text Lua already escaped.
-    # shellcheck disable=SC2016 # The child shell expands its own arguments.
-    kept=$("$bash" -p -c '. "$1"; rex_term_text "$2" keep' sh "$ROOT/skills/rex-orchestrator/scripts/term-text.sh" "$input")
-    [ "$kept" = "${want//\\\\/\\}" ] || { printf 'keep mode under %s for %s: [%s]\n' "$bash" "$spec" "$kept" >&2; exit 1; }
-    [ "$(printf '%s' "$got$kept" | LC_ALL=C tr -d '\040-\176\200-\377' | wc -c | tr -d ' ')" = 0 ] ||
+    [ "$(printf '%s' "$got" | LC_ALL=C tr -d '\040-\176\200-\377' | wc -c | tr -d ' ')" = 0 ] ||
       { printf 'escaping left a C0 control or DEL for %s\n' "$spec" >&2; exit 1; }
     pass=$((pass+1))
   done
 done
 # The escaper runs on every forwarded diagnostic line, screen tails included: it must not fork per byte. Budget, per
 # Bash: 40 lines of box drawing (as the CLI calls it, one substitution per line) and one 20,000-byte line, each within
-# REX_TEST_ESCAPE_BUDGET seconds (default 0.5). The per-byte version took 11.8 s and 18 s on Bash 3.2.
-budget=${REX_TEST_ESCAPE_BUDGET:-0.5}
+# REX_TEST_ESCAPE_BUDGET seconds (default 1). Each takes about 0.25 s on an idle Mac and 0.55 s at a load average of
+# 40; the per-byte version took 11.8 s and 18 s on Bash 3.2.
+budget=${REX_TEST_ESCAPE_BUDGET:-1}
 box_line="$(printf '─%.0s' {1..90}) │ › ┌┐└┘"
 long_line=$(printf 'a\342\224\200b\\%.0s' {1..3334}); long_line=$(LC_ALL=C; printf '%s' "${long_line:0:20000}")
 for bash in "${bashes[@]}"; do
@@ -120,12 +119,12 @@ for bash in "${bashes[@]}"; do
   timing=$("$bash" -p -c '
     . "$1"; now() { /usr/bin/perl -MTime::HiRes=time -e "printf \"%.3f\\n\", time"; }
     t0=$(now); for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40; do
-      x=$(rex_term_text "$2" keep); done
-    t1=$(now); x=$(rex_term_text "$3" keep); t2=$(now); x=$(rex_term_text "$3"); t3=$(now)
-    printf "%s %s %s\n" "$t0 $t1" "$t1 $t2" "$t2 $t3"' sh "$ROOT/skills/rex-orchestrator/scripts/term-text.sh" \
+      x=$(rex_term_text "$2"); done
+    t1=$(now); x=$(rex_term_text "$3"); t2=$(now)
+    printf "%s %s\n" "$t0 $t1" "$t1 $t2"' sh "$ROOT/skills/rex-orchestrator/scripts/term-text.sh" \
     "$box_line" "$long_line")
-  read -r a0 a1 b0 b1 c0 c1 <<<"$timing"
-  for span in "40 box lines:$a0:$a1" "a 20,000-byte line, keep:$b0:$b1" "a 20,000-byte line:$c0:$c1"; do
+  read -r a0 a1 b0 b1 <<<"$timing"
+  for span in "40 box lines:$a0:$a1" "a 20,000-byte line:$b0:$b1"; do
     IFS=: read -r what t0 t1 <<<"$span"
     /usr/bin/perl -e 'exit(($ARGV[1] - $ARGV[0]) <= $ARGV[2] ? 0 : 1)' "$t0" "$t1" "$budget" ||
       { printf 'escaping %s under %s took %s s, over the %s s budget\n' "$what" "$bash" \
@@ -133,14 +132,23 @@ for bash in "${bashes[@]}"; do
     pass=$((pass+1))
   done
 done
-# Rex's own error lines reach the terminal through the shell alone: escaped the same way, backslashes kept.
+# Rex's own error lines reach the terminal through the shell alone: escaped the same way, each marked "rex: ".
 rc=0
 REX_TEST_NO_WAIT_RESULT=controls REX_ORCHESTRATOR_REX_BIN_DIR="$T/bin" \
   "${REX_TEST_BASH:-/bin/bash}" "$T/install space/chain" status block:fixture > "$T/out" 2> "$T/err" || rc=$?
-if [ "$rc" -ne 1 ] || ! grep -qxF 'Error: bad \x1B]0;x\x07 \u009B \u202E \xFF \x85 a\b' "$T/err"; then
+if [ "$rc" -ne 1 ] || ! grep -qxF 'rex: Error: bad \x1B]0;x\x07 \u009B \u202E \xFF \x85 a\\b' "$T/err"; then
   cat -v "$T/err" >&2; exit 1
 fi
 [ "$(LC_ALL=C tr -d '\040-\176\n' < "$T/err" | wc -c | tr -d ' ')" = 0 ] || { echo 'raw bytes in forwarded Rex errors' >&2; exit 1; }
+pass=$((pass+1))
+# A line break inside a value Rex echoes can't start a line that passes for this tool's own diagnostic.
+rc=0
+REX_TEST_NO_WAIT_RESULT=forged REX_ORCHESTRATOR_REX_BIN_DIR="$T/bin" \
+  "${REX_TEST_BASH:-/bin/bash}" "$T/install space/chain" status block:fixture > "$T/out" 2> "$T/err" || rc=$?
+if [ "$rc" -ne 1 ] || grep -q '^rex-orchestrator: launched' "$T/err" ||
+  ! grep -qxF 'rex: rex-orchestrator: launched block:forged in /tmp"' "$T/err"; then
+  cat -v "$T/err" >&2; echo 'a forwarded Rex line forged a diagnostic' >&2; exit 1
+fi
 pass=$((pass+1))
 for scenario in yes old; do
   rc=0
