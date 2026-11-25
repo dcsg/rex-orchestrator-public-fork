@@ -137,7 +137,7 @@ function O.new(C,M,close_block)
   end
 
   -- Children of a session this Rex server no longer has: their panes went with it. Close nothing; remove their claim,
-  -- cage home and state, at most LIMIT of them per call. Only records launched on this server (its host ID) count,
+  -- cage home and state, at most LIMIT of them per call, without waiting on the claims lock. Only records launched on this server (its host ID) count,
   -- and only once the session and the child's own block have both been not found on calls at least O.forget_after
   -- seconds apart (the first sighting is kept in <block>.forget): a second server on the same state, or one that hides
   -- another account's sessions, says "not found" for a moment, not for a minute of separate looks.
@@ -164,10 +164,11 @@ function O.new(C,M,close_block)
             if not first or first>now then
               if not C.put(mark,now) then C.note("could not save when " .. r.block .. "'s session was first missed") end
             elseif now-first>=O.forget_after then
+              -- Never wait on the claims lock here: when it is busy, a later call tries again.
               limit=limit-1
-              local removed,err=close_block(r.block,true)
+              local removed,err,code=close_block(r.block,true,true)
               if removed then C.note("removed the state of " .. r.block .. ": its session " .. r.session .. " is gone")
-              else C.note("could not remove the state of " .. r.block .. ": " .. tostring(err)) end
+              elseif code~=0 then C.note("could not remove the state of " .. r.block .. ": " .. tostring(err)) end
             end
           end
         end
@@ -252,7 +253,7 @@ function O.new(C,M,close_block)
     tidy(owners,watched)
     if #records==0 then return result end
     local disabled=C.killed()
-    if not disabled then forget(records,2) end
+    if not disabled then forget(records,1) end
     if #children==0 then return result end
     local blocks=W.blocks()
     if not blocks then return result end

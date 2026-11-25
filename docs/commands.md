@@ -162,7 +162,8 @@ child launched with `REX_ORCHESTRATOR_ORPHANS=keep` is never closed as an orphan
 that call from starting a watcher. Closes and orphans left open are logged in
 `STATE_DIR/watch/<orchestrator>.log`; those files go once the orchestrator has no children left. When the Rex server
 that launched a child says both its session and its block are gone, on calls from another session at least a minute
-apart, the child is forgotten (claim, cage home and state; its pane went with the session).
+apart, the child is forgotten (claim, cage home and state; its pane went with the session), one per call, and never
+while another process holds the claims lock.
 
 ## clone, claims
 

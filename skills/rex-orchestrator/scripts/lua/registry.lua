@@ -75,8 +75,16 @@ return function(C, M)
     end
   end
 
-  function G.release(block)
-    local release,err=G.acquire()
+  -- NOWAIT: try the lock once; when another process holds it, return nil, "busy", true.
+  function G.release(block,nowait)
+    local release,err
+    if nowait then
+      if not C.fs.mkdir(directory) then return nil,"cannot create write claims directory" end
+      release=C.fs.lock(C.dir .. "/registry.lock",false)
+      if not release then return nil,"busy",true end
+    else
+      release,err=G.acquire()
+    end
     if not release then return nil,err end
     local ok,removed=pcall(C.fs.unlink,directory .. "/" .. block:gsub("[^A-Za-z0-9_-]","_") .. ".json")
     release()

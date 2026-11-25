@@ -743,6 +743,15 @@ do
   end
 end
 
+-- close without waiting: a busy claims lock changes nothing.
+do
+  local _,BC,_,bfs=test{lock_busy=true,files={["/state/block_child.own"]="block:orch\n"}}
+  local close=Close(BC,M,Registry(BC,M))
+  local ok,why,code=close("block:child",true,true)
+  eq(ok,nil,"close without waiting fails on a busy lock"); eq(why,"busy"); eq(code,0)
+  eq(bfs.read("/state/block_child.own"),"block:orch\n","and keeps the state")
+end
+
 -- Paths cross Rex's JSON byte for byte as Latin-1.
 do
   local raw="/tmp/\255x/\195\169/\128\194"
@@ -872,7 +881,12 @@ do
     os.getenv=function(k) if k=="REX_ORCHESTRATOR_STATE_DIR" then return "/state" end return env[k] end
     local notes={}
     local C=M.new(rex,fs,{out=function() end,note=function(t) notes[#notes+1]=t end,raw=function(t) notes[#notes+1]=t end})
-    local W=Orphans.new(C,M,function(b,missing) closed[#closed+1]=b .. (missing and " missing" or ""); files["/state/" .. b:gsub(":","_") .. ".own"]=nil; return true end)
+    local W=Orphans.new(C,M,function(b,missing,nowait)
+      if nowait and o.claims_busy then return nil,"busy",0 end
+      closed[#closed+1]=b .. (missing and " missing" or "") .. (nowait and " nowait" or "")
+      files["/state/" .. b:gsub(":","_") .. ".own"]=nil
+      return true
+    end)
     os.getenv=saved
     C.session="session:s"; C.me=o.me or "block:me"; C.script_dir="/scripts"; C.rex_bin="/bin/rex"
     local default={"block:o","42","","claude","/w","","/bin/claude","session:s","close",o.grace or "600",o.max_wait or "7200"}
@@ -1021,10 +1035,14 @@ do
   eq(#f.closed,0,"a first miss forgets nothing"); eq(f.files["/state/block_d.forget"],"5000\n","it is saved")
   f.advance(59); f.W.scan(); eq(#f.closed,0,"nor a second miss within a minute")
   f.advance(1); f.W.scan()
-  eq(table.concat(f.closed,","),"block:d missing,block:h missing","a gone session's records go, two per call, as already closed")
+  eq(table.concat(f.closed,","),"block:d missing nowait","a gone session's record goes, one per call, as already closed, never waiting")
+  f.W.scan(); eq(f.closed[2],"block:h missing nowait","the next call goes on")
   eq(f.files["/state/block_e.own"]~=nil and f.files["/state/block_f.own"]~=nil and f.files["/state/block_g.own"]~=nil,true,
     "another server's, a hostless and a live session's records stay")
-  f.W.scan(); eq(f.closed[3],"block:i missing","the next call goes on")
+  f.W.scan(); eq(f.closed[3],"block:i missing nowait","and the next")
+  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/block_d.forget"]="1000\n"},claims_busy=true}
+  f.W.scan(); eq(#f.closed,0,"a busy claims lock skips the forgetting"); eq(#f.notes,0,"quietly")
+  eq(f.files["/state/block_d.own"]~=nil and f.files["/state/block_d.forget"]=="1000\n",true,"for a later call")
   f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/block_d.forget"]="1000\n"},
     block_found={["block:d"]=true}}
   f.W.scan(); eq(#f.closed,0,"a child whose block Rex still finds is kept")
