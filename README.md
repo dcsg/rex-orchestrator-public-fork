@@ -32,6 +32,9 @@ glue an agent needs to delegate reliably:
   (a stray Return would pick "Yes"), and it never targets your own pane or a pane you didn't launch.
 - **Answer dialogs the safe way.** Folder-trust dialogs are confirmed only when they name the exact directory; `keys` can pick a
   one-time *Yes/No* but never *always*, *don't ask again* or a mode switch.
+- **No forgotten children.** When an orchestrator's pane is closed, its finished children close after a grace period
+  (10 minutes by default); busy ones close when their turn ends, never mid-turn. Quitting and resuming the agent in the
+  same pane keeps them. See [orphans](docs/commands.md#orphans).
 - **Keep parallel work apart.** Each launch claims its writable directory or git branch; overlapping launches are refused.
 - **Optional sandbox.** On macOS, children can run inside a `sandbox-exec` cage: writes only inside their directory, secret
   stores unreadable, no local ports, no privilege tools.

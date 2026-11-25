@@ -64,7 +64,8 @@ the wrapper with 71 (`launch` reports 12 if observed during startup). Unset keep
    `keys "$B" enter` while a one-time "Yes" is selected, refuse with `keys "$B" escape`, then `wait` again. When in doubt,
    report the prompt to the user.
 5. **Read the result** from the file you asked for; verify on disk (tests, git diff). The child's summary is not proof.
-6. **Close** when done: `bash "$RA" close "$B"`.
+6. **Close** when done: `bash "$RA" close "$B"`. Closing your pane closes your finished children after a grace period
+   (quitting and resuming your agent in the same pane keeps them), but still close each child when its task is finished.
 
 `status BLOCK` prints JSON (`state`, `kind`, `msg`, `title`, `alive`, `cwd`); `ls` lists agent panes in the session.
 For parallel work give each child its own directory or `clone REPO DEST -b BRANCH`: overlapping launches are refused.

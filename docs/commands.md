@@ -126,7 +126,10 @@ Rex CLI key spellings both run functions bound to those keys in Rex's `init.lua`
   visible now is available: ask children to write results to a file.
 - `status BLOCK` — one-line JSON: `state`, `kind`, `msg` (the pending prompt), `title`, `alive`, `cwd`, and `account` for a
   caged claude.
-- `ls` — live agent panes in the session: block ID, a tab, the status JSON plus `label` and `mine` (launched from your pane).
+- `ls` — live agent panes in the session: block ID, a tab, the status JSON plus `label`, `mine` (launched from your
+  pane) and `orphan`: `null`, or for a child whose orchestrator's pane is gone `grace` (closing after the grace
+  period), `waiting` (closing when its turn ends), `kept` (opt-out or kill switch) or `expired` (left open after the
+  maximum wait: close it yourself).
 
 ## close
 
@@ -137,6 +140,23 @@ rex-orchestrator close [--force] BLOCK
 Closes the pane (ending its agent), harvests a caged child's transcripts into `STATE_DIR/runs/`, and removes its state and
 cage home. Works for a pane already closed in Rex, given its full ID. If `rex` can't close it, `close` exits 1 and keeps the
 state: run it again.
+
+## Orphans
+
+Close your children yourself when their task is finished. As a safety net, the children of an orchestrator whose
+**pane is closed** close automatically: once the orchestrator's block has been gone from the session for the grace
+period (`REX_ORCHESTRATOR_ORPHAN_GRACE`, default 10m, `0` allowed), each child that is done, idle, errored or exited
+is closed as `close` does (pane, claim, state, cage home). One still working or blocked on a prompt is never
+interrupted: it closes when its turn ends, and after `REX_ORCHESTRATOR_ORPHAN_MAX_WAIT` more (default 2h) it is left
+open and reported (`ls` shows `"orphan":"expired"`). Quitting and resuming the orchestrator's agent in the same pane
+keeps its children: only a gone pane counts.
+
+A detached watcher per orchestrator, started by `launch`, does this; every other command (and `ls`) sweeps the session
+too, which catches orphans whose watcher ended with a Rex restart. Panes of another orchestrator whose pane is open,
+the user's own panes, panes without a complete ownership record (launched before this feature, for example) and
+anything in another session are never closed. The kill switch `STATE_DIR/disabled` stops orphan closing, and
+`REX_ORCHESTRATOR_ORPHANS=keep` at launch (recorded with the child) or at any call keeps orphans open. A closing note
+goes to stderr of the call that closed it, or to `STATE_DIR/watch/<orchestrator>.log`.
 
 ## clone, claims
 
@@ -162,11 +182,14 @@ The Lua claim operations wait up to about 30 seconds for the registry lock.
 | `REX_ORCHESTRATOR_CAGE_CODEX_BIN`, `REX_ORCHESTRATOR_CAGE_CLAUDE_BIN`, `REX_ORCHESTRATOR_CAGE_GROK_BIN` | unset: the first match on `PATH` that is compiled or an allowlisted Node launcher | The executable a caged agent launched by name runs; an absolute path ([cage.md](cage.md#which-executable-a-caged-agent-runs)) |
 | `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` | unset | Shell command returning one JSON object with a non-empty string `.token.refresh_token` or legacy `.refresh_token`; runs outside the cage from `/` with a fixed environment. Private command text is hidden from caged children; the temporary mode 600 login is removed after child shutdown. Wrapper exits 71 on failure/invalid output; `launch` reports 12 if seen during startup ([cage.md](cage.md)) |
 | `REX_ORCHESTRATOR_REX_BIN_DIR` | `rex` on `PATH`, else the Rex app bundle | Where the `rex` CLI lives |
+| `REX_ORCHESTRATOR_ORPHANS` | `close` | `keep` leaves the children of a closed orchestrator pane open ([orphans](#orphans)); `launch` refuses other values |
+| `REX_ORCHESTRATOR_ORPHAN_GRACE` | `10m` | How long an orchestrator's pane must be gone before its finished children close; `0` allowed |
+| `REX_ORCHESTRATOR_ORPHAN_MAX_WAIT` | `2h` | How long after the grace period a working or blocked orphan may still close; then it is left open |
 | `REX_ORCHESTRATOR_CONFIG_DIR` | `${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator` | Holds `orchestrators`, the designated orchestrators ([orchestrators.md](orchestrators.md)) |
 
 ## Kill switches
 
-A file `STATE_DIR/disabled` stops every launch and every `send`/`keys` but `escape` and `ctrl+c`.
+A file `STATE_DIR/disabled` stops every launch, every `send`/`keys` but `escape` and `ctrl+c`, and orphan closing.
 `STATE_DIR/disabled.AGENT` stops that agent's uncaged launches, approvals and typing into its uncaged panes. The tool sets
 one itself when an agent's trust store or permission mode changes unexpectedly. Anyone may create one; only a person
 should remove one.

@@ -38,6 +38,15 @@ fragments. The wrappers run the cage, and a shared shell helper restores permiss
 5. **close** closes the pane through Rex's block API, removes its registry record under the shared flock,
    harvests a caged child's transcripts, and removes the pane state. **claims** uses the same flock to prune and list
    live claims across sessions.
+6. **Orphans.** Launch also starts one detached watcher per orchestrator (`rex do watch.lua`, in its own process
+   session, holding `watch/<orchestrator>.lock` for its life, so it never multiplies). It wakes on block-close events
+   and every five seconds. When the orchestrator's block is absent from the session's block list on two checks a
+   second apart, its children become orphans: after the grace period, the done, idle, errored or exited ones are
+   closed as **close** does; a working or blocked one is closed when its turn ends, or left open after the maximum
+   wait. The watcher exits when no child is left, when the session is destroyed, or when its connection to Rex ends.
+   Every other command sweeps its session the same way first, so orphans whose watcher a Rex restart ended are
+   still caught, and starts a watcher again when its heartbeat is stale. Only a gone pane counts: an agent that
+   quits in the orchestrator's pane, or is resumed there, keeps its children.
 
 ## Program status (OSC 7501)
 
@@ -57,7 +66,9 @@ refused) holds:
 | Path | Content |
 |---|---|
 | `<block>` | Last send or keypress baseline and background count |
-| `<block>.own`, `<block>.cage` | Parent pane, process identity, agent kind, pinned mode, and cage metadata |
+| `<block>.own`, `<block>.cage` | Parent pane, process identity, agent kind, pinned mode, session and orphan policy, and cage metadata |
+| `<block>.orphan` | `expired`: an orphan left open after the maximum wait |
+| `watch/` | One watcher lock, log and heartbeat per orchestrator, and when its pane was first seen gone |
 | `registry/` | Write claims, one per launch, guarded by a lock |
 | `cage/` | Throwaway homes of caged children |
 | `runs/<label>-<UTC>/` | Harvested transcripts and logs of caged children, with a `manifest.json` |
