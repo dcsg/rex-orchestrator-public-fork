@@ -133,6 +133,13 @@ return function(C,M)
 
   -- The executable a caged agent runs: --agent's path as given; for a bare name, REX_ORCHESTRATOR_CAGE_<AGENT>_BIN,
   -- else the first one on PATH that is compiled or a Node script.
+  -- Paths in notes and refusals are shown with terminal controls, invalid UTF-8 and bidi controls escaped.
+  local function shown(path) return M.terminal_text(path) end
+  local function shown_list(paths)
+    local escaped={}
+    for i,path in ipairs(paths) do escaped[i]=shown(path) end
+    return table.concat(escaped,", ")
+  end
   local function caged_binary(r,name,opts)
     if not direct[r.runtime] or (opts.agent or r.bin):find("/",1,true) then return r.bin end
     local variable="REX_ORCHESTRATOR_CAGE_" .. name:upper() .. "_BIN"
@@ -140,7 +147,7 @@ return function(C,M)
     if override then
       if not M.starts(override,"/") then return nil,"cage: " .. variable .. " must be an absolute path" end
       if not F.test("-f",override) or not F.test("-x",override) then
-        return nil,"cage: " .. variable .. " (" .. override .. ") is not an executable file"
+        return nil,"cage: " .. variable .. " (" .. shown(override) .. ") is not an executable file"
       end
       return override
     end
@@ -149,14 +156,15 @@ return function(C,M)
       if not M.starts(path,"/") then path=(env("PWD") or F.logical(".")) .. "/" .. path end
       if agent_file(path) then
         if #skipped>0 then
-          C.note("cage: skipped " .. table.concat(skipped,", ") .. ": a script, not " .. name ..
-            " itself (a wrapper or shim the cage would break); running " .. path .. " (" .. variable .. " picks another)")
+          C.note("cage: skipped " .. shown_list(skipped) .. ": a script, not " .. name ..
+            " itself (a wrapper or shim the cage would break); running " .. shown(path) .. " (" .. variable ..
+            " picks another)")
         end
         return path
       end
       skipped[#skipped+1]=path
     end
-    return nil,"cage: every " .. name .. " on PATH is a script that isn't Node (" .. table.concat(skipped,", ") ..
+    return nil,"cage: every " .. name .. " on PATH is a script that isn't Node (" .. shown_list(skipped) ..
       "), a wrapper or shim the cage would break; set " .. variable .. " to the real " .. name .. " executable" ..
       " (or to that script, if it is " .. name .. "'s own launcher and runs without your environment)"
   end
@@ -169,7 +177,7 @@ return function(C,M)
   -- Returns the executable to run, the folder and the file to re-open (either may be nil), or nil and why.
   local function agent_bin_dir(r,name)
     local real=F.realpath(r.bin)
-    if not real then return nil,"cage: cannot resolve " .. name .. "'s executable " .. r.bin end
+    if not real then return nil,"cage: cannot resolve " .. name .. "'s executable " .. shown(r.bin) end
     local h=F.canonical(home) or home
     local prefix=agent_home(real,h)
     if prefix then
@@ -192,7 +200,7 @@ return function(C,M)
           if file and file~="" and not file:find("/",1,true) and F.test("-f",real) then return real,nil,real end
         end
       end
-      return nil,"cage: " .. name .. "'s executable " .. real .. " is under " .. prefix ..
+      return nil,"cage: " .. name .. "'s executable " .. shown(real) .. " is under " .. shown(prefix) ..
         ", which the cage can't read" .. (r.runtime=="codex" and
         " (of a codex home it opens only a standalone release, packages/standalone/releases/<version>/)" or
         r.runtime=="grok" and " (of a grok home it opens only a download, downloads/<file>)" or "") ..
@@ -202,11 +210,11 @@ return function(C,M)
     -- The executable itself is outside the agent homes, but the cage can't follow a link that sits inside one on the
     -- way there (~/.local/bin/codex -> ~/.codex/bin/codex -> /opt/x/codex): run it by its physical path instead.
     local links=F.link_locations(r.bin)
-    if not links then return nil,"cage: cannot resolve " .. name .. "'s executable " .. r.bin end
+    if not links then return nil,"cage: cannot resolve " .. name .. "'s executable " .. shown(r.bin) end
     for _,link in ipairs(links) do
       if agent_home(link,h) then
-        C.note("cage: " .. r.bin .. " reaches " .. real .. " through the link " .. link ..
-          ", which the cage can't follow; running " .. real)
+        C.note("cage: " .. shown(r.bin) .. " reaches " .. shown(real) .. " through the link " .. shown(link) ..
+          ", which the cage can't follow; running " .. shown(real))
         return real
       end
     end

@@ -36,6 +36,7 @@
 #     naming the override, REX_ORCHESTRATOR_CAGE_CODEX_BIN picks the executable, an agent executable elsewhere
 #     under an agent home is refused, and one outside them reached through a link inside one runs by its physical path;
 #     agent homes match whatever their case (a link spelled ~/.CODEX, HOME spelled otherwise, an on-disk ~/.Claude-zt);
+#     paths with terminal controls in launch's notes and refusals are escaped;
 #   - a grok download, HOME/.grok/downloads/<file> reached through ~/.local/bin/grok and ~/.grok/bin/grok, runs in the
 #     cage from its physical path with only that file readable and executable: sibling downloads, the folder, the
 #     links, config, sessions, logs and (with AGENT_AUTH elsewhere) auth.json stay closed;
@@ -583,6 +584,25 @@ else bad "case: cage_build failed with HOME spelled otherwise (rc $SA_RC: $(tr '
 mkdir -p "$FH/.Claude-zt"; cp "$ARGPROBE" "$FH/.Claude-zt/codex"
 rc=0; cage_build codex "$FH/.Claude-zt/codex" "$PD" >/dev/null 2>"$WORK/build.log" || rc=$?
 chk "case: an executable under ~/.Claude-zt is refused" 2 "$rc"
+# Paths in launch's notes and refusals are escaped: a shim folder, a link and an executable with terminal controls in
+# their names show as \x1B and \x09, never as raw bytes.
+ESC=$(printf '\033') TAB=$(printf '\t')
+mkdir -p "$WORK/shim${ESC}[31mred"; cp "$WORK/shims/codex" "$WORK/shim${ESC}[31mred/codex"
+no_raw() { if LC_ALL=C grep -q "[$ESC$TAB]" "$WORK/build.log"; then echo raw; else echo escaped; fi; }
+if sa_build "$WORK/shim${ESC}[31mred:$LINKED"; then
+  chk "escape: the skipped shim's path is escaped" yes "$(grep -qF 'shim\x1B[31mred/codex' "$WORK/build.log" && echo yes || echo no)"
+  chk "escape: no raw control in the skip note" escaped "$(no_raw)"
+else bad "escape: cage_build failed with an escaped shim path (rc $SA_RC)"; fi
+ln -s "$WORK/opt/codex" "$FH/.codex/bin/tab${TAB}link"; ln -s "$FH/.codex/bin/tab${TAB}link" "$FH/.local/bin/codex-tab"
+if cage_build codex "$FH/.local/bin/codex-tab" "$PD" >/dev/null 2>"$WORK/build.log"; then
+  chk "escape: the link in the note is escaped" yes "$(grep -qF 'tab\x09link' "$WORK/build.log" && echo yes || echo no)"
+  chk "escape: no raw control in the link note" escaped "$(no_raw)"
+else bad "escape: cage_build failed for a link with a tab"; fi
+mkdir -p "$FH/.Claude-zt/x${ESC}]0;title${ESC}\\"; cp "$ARGPROBE" "$FH/.Claude-zt/x${ESC}]0;title${ESC}\\/codex"
+rc=0; cage_build codex "$FH/.Claude-zt/x${ESC}]0;title${ESC}\\/codex" "$PD" >/dev/null 2>"$WORK/build.log" || rc=$?
+chk "escape: an agent-home executable with controls is refused" 2 "$rc"
+chk "escape: the refusal shows its path escaped" yes "$(grep -qF 'x\x1B]0;title\x1B\\/codex' "$WORK/build.log" && echo yes || echo no)"
+chk "escape: no raw control in the refusal" escaped "$(no_raw)"
 cp "$REL/bin/codex" "$FH/.grok/grok"; chmod 755 "$FH/.grok/grok"
 rc=0; cage_build grok "$FH/.grok/grok" "$PD" >/dev/null 2>"$WORK/build.log" || rc=$?
 chk "a grok executable under ~/.grok: refused" 2 "$rc"

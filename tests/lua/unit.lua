@@ -676,6 +676,9 @@ reply,seen=run_launch({"--agent","claude","--tab","target"},{missing=true,overri
 eq(reply.code,2); eq(not not reply.text:find("applies to caged launches only",1,true),true); eq(seen.window,nil)
 reply=run_launch({"--agent","claude","--tab","target"},{missing=true})
 eq(reply.code,2)
+-- That refusal shows the command with its terminal controls escaped.
+reply=run_launch({"--agent","cl\27]0;x\7aude","--tab","target"},{missing=true,override="/opt/claude"})
+eq(reply.code,2); eq(not not reply.text:find("cl\\x1B]0;x\\x07aude",1,true),true); eq(reply.text:find("[\27\7]"),nil)
 reply,seen,state=run_launch({"--agent","claude","--tab","target"},{missing=true,override="/opt/claude",
   cage={home="/state/cage/claude.test",wrapper="/state/cage/claude.test/bin/claude",meta={},bin="/opt/claude"}})
 eq(reply.code,0); eq(state["/state/block_child.own"][7],"/opt/claude")

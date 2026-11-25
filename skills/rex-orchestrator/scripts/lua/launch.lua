@@ -377,8 +377,8 @@ return function(C,M,D,I,K,G)
         C.die("cage: no cage recipe for " .. opts.name .. " (claude needs a " .. K.secrets ..
           "/claude-<name>.env, agy a cage home: see docs/cage.md); pass --no-cage to run it uncaged")
       elseif caged_only then
-        C.die("launch: no " .. opts.agent .. " on your PATH to run uncaged (no cage recipe for it here), and " ..
-          "REX_ORCHESTRATOR_CAGE_" .. opts.name:upper() .. "_BIN applies to caged launches only; give --agent a full path")
+        C.die("launch: no " .. M.terminal_text(opts.agent) .. " on your PATH to run uncaged (no cage recipe for it here), and " ..
+          "REX_ORCHESTRATOR_CAGE_" .. M.terminal_text(opts.name:upper()) .. "_BIN applies to caged launches only; give --agent a full path")
       else C.note("running " .. opts.name .. " uncaged: no cage recipe for it (pass --no-cage to silence)") end
     end
     local command=spawn_args(opts,bin,cage)
