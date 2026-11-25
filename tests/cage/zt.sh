@@ -34,7 +34,7 @@
 # Prints one PASS/FAIL line per check; exits non-zero on any FAIL.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd -P)
-SCRIPT=${REX_ORCHESTRATOR_SH:-$HERE/../../skills/rex-orchestrator/scripts/rex-orchestrator.sh}
+SCRIPT=${REX_ORCHESTRATOR_SH:-$HERE/../../skills/rex-orchestrator/scripts/rex-orchestrator-bash.sh}
 SDIR=$(cd "$(dirname "$SCRIPT")" && pwd -P)
 PROFILE="$SDIR/cage.sb"
 

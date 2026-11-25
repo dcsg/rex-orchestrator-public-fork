@@ -1,6 +1,8 @@
 # How it works
 
-`rex-orchestrator` is a single Bash script that only calls documented `rex` CLI commands. It adds state and guard rails around them.
+`rex-orchestrator` has a Bash entry point that resolves install symlinks and runs `status`, `ls`, `screen` and `wait`
+through `rex do` and the Lua API. The other commands and the cage runtime remain in `rex-orchestrator-bash.sh` during
+the phased migration. Both implementations use the same state files and guards.
 
 ## The pieces
 
@@ -22,8 +24,11 @@
    (trust, hooks review, login) and the input footer, never to infer that a turn finished.
 3. **send** reads status and screen again, types with `rex send`, checks that the input box shows the text, then presses
    Return with `rex send-key`.
-4. **wait** polls `rex block call program_status` and takes the newest *root* record (records with an `id` belong to
-   sub-agents and background tasks). Only records newer than the last `send`/`keys` count.
+4. **wait** subscribes to program-status, process, block-close and session-destruction events for its target, then
+   reads the initial snapshot. It takes the newest *root* record (records with an `id` belong to sub-agents and
+   background tasks). Only records newer than the last `send`/`keys` count. Timers implement the timeout, idle grace
+   and stale-dialog deadlines. Screen-derived background counts and permission-mode guards still need screen reads
+   every half second while active: Rex exposes no screen-damage event. Failed reads are retried conservatively.
 5. **close** runs `rex block close`, harvests a caged child's transcripts, and removes state and claims.
 
 ## Program status (OSC 7501)

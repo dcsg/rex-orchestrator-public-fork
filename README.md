@@ -39,7 +39,7 @@ glue an agent needs to delegate reliably:
 ## Requirements
 
 - macOS (the cage uses `sandbox-exec`; the rest is POSIX-ish but only tested on macOS)
-- [Rex](https://www.superlogical.com/rex) with its `rex` CLI on `PATH`
+- [Rex](https://www.superlogical.com/rex) with its `rex` CLI on `PATH`, including `rex do`, Lua event handlers and timers
 - `bash`, `jq`, `git`, `python3`
 - At least one agent CLI that reports Rex program status: `claude`, `codex`, `grok`, `agy` (Gemini)
 
@@ -108,12 +108,14 @@ Full reference with flags and exit codes: [docs/commands.md](docs/commands.md).
 ## How it works
 
 ```text
-orchestrator ──rex split──▶ child pane ──OSC 7501──▶ Rex server ──rex block call program_status──▶ rex-orchestrator wait
+orchestrator ──rex split──▶ child pane ──OSC 7501──▶ Rex server ──status events──▶ rex-orchestrator wait
              ──rex send───▶ (typed only at an idle input box)
              ──rex capture▶ screen (dialogs are parsed only to confirm, never to decide state)
 ```
 
 State lives in `${XDG_STATE_HOME:-~/.local/state}/rex-orchestrator` (mode 700). Details: [docs/how-it-works.md](docs/how-it-works.md).
+`status`, `ls`, `screen` and `wait` use Rex's Lua API; `wait` reacts to status and lifecycle events. The remaining
+commands retain their Bash implementation during the migration. Their public commands and state files are shared.
 
 ## Safety model
 

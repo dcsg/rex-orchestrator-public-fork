@@ -4,6 +4,7 @@
 #   tests/harness/run.sh [NAME_SUBSTRING ...]   (selects scenario functions, e.g. t_approve; unit checks always run)
 # REX_ORCHESTRATOR_SH picks the script under test; HARNESS_RUNS keeps the runs somewhere known (default: a new temp dir).
 set -u
+export REX_ORCHESTRATOR_SH=${REX_ORCHESTRATOR_SH:-$(cd "$(dirname "$0")/../.." && pwd)/skills/rex-orchestrator/scripts/rex-orchestrator-bash.sh}
 here=$(cd "$(dirname "$0")" && pwd)
 runs=${HARNESS_RUNS:-$(mktemp -d "${TMPDIR:-/tmp}/rex-orchestrator-harness.XXXXXX")}
 bashes=/bin/bash
