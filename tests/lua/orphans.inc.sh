@@ -220,8 +220,8 @@ REX_BLOCK=$O2 cli ls > /dev/null
 check 'a record without a session is left alone' "$(orphan_open "$E" && [ -s "$(orphan_sf "$E").own" ] && echo open)" open
 REX_BLOCK=$O2 cli close --force "$E"
 
-# A session that is destroyed takes its panes with it: a call from another session forgets its children's state and
-# claims, and once their watcher is gone, its files.
+# A session that is destroyed takes its panes with it: calls from another session a minute apart forget its children's
+# state and claims, and once their watcher is gone, its files.
 orphan_main_session=$REX_SESSION
 rex_test session new lua-orphans-dead --shell none --keep-open --json -- /bin/cat > "$T/orphan-dead.json"
 REX_SESSION=$(jq -r .session_id "$T/orphan-dead.json")
@@ -233,6 +233,11 @@ check 'launch records the server host' "$(sed -n '12p' "$(orphan_sf "$G").own")"
 rex_test session kill "$REX_SESSION"
 REX_SESSION=$orphan_main_session
 orphan_await_watchers "$O6" 0
+REX_BLOCK=$O2 cli ls > /dev/null 2> "$T/orphan.err"
+check "a first miss of the session keeps the child's state" "$([ -s "$(orphan_sf "$G").own" ] && echo kept)" kept
+check 'and saves when it was missed' "$([ -s "$(orphan_sf "$G").forget" ] && echo saved)" saved
+# A minute later, without waiting it.
+printf '%s\n' "$(( $(date +%s) - 61 ))" > "$(orphan_sf "$G").forget"
 REX_BLOCK=$O2 cli ls > /dev/null 2> "$T/orphan.err"
 check "a destroyed session's child state is removed" "$([ -e "$(orphan_sf "$G").own" ] && echo kept || echo removed)" removed
 check "a destroyed session's child claim is released" \

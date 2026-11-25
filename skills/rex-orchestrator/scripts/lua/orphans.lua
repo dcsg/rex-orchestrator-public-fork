@@ -13,6 +13,8 @@ O.max_wait=7200
 O.closable={done=true,idle=true,error=true}
 -- A gone mark last confirmed longer ago than this is a new first sighting: nothing saw the pane in between.
 O.stale=300
+-- A child whose session and block Rex reports gone is forgotten only when two looks this far apart agree.
+O.forget_after=60
 
 local function duration(value)
   local n,u=(value or ""):match("^(%d+)([smh]?)$")
@@ -118,11 +120,31 @@ function O.new(C,M,close_block)
     end
   end
 
+  -- Whether Rex finds QUERY (a session, or a block in SESSION): true, false (not found), or nil (couldn't tell).
+  -- One call, no retries: a call's look must stay quick.
+  local function found(kind,query,session)
+    local args={kinds={kind},queries={query}}
+    if session then args.scope={session=session} end
+    local r,err=R.call("target.resolve",args)
+    local item=r and r.results and r.results[1]
+    if type(item)=="table" then
+      if item.status=="resolved" then return true end
+      if item.status=="not_found" then return false end
+      return nil
+    end
+    if session and tostring(err):find("session_not_found",1,true) then return false end
+    return nil
+  end
+
   -- Children of a session this Rex server no longer has: their panes went with it. Close nothing; remove their claim,
-  -- cage home and state, at most LIMIT of them per call. Only records launched on this server (its host ID) count.
+  -- cage home and state, at most LIMIT of them per call. Only records launched on this server (its host ID) count,
+  -- and only once the session and the child's own block have both been not found on calls at least O.forget_after
+  -- seconds apart (the first sighting is kept in <block>.forget): a second server on the same state, or one that hides
+  -- another account's sessions, says "not found" for a moment, not for a minute of separate looks.
   local function forget(records,limit)
     local host
     local sessions={}
+    local now=os.time()
     for _,r in ipairs(records) do
       if limit<=0 then return end
       if r.session~="" and r.session~=C.session and r.host~="" and r.owner:match("^block:[%w%-]+$") then
@@ -132,15 +154,21 @@ function O.new(C,M,close_block)
         end
         if not host then return end
         if r.host==host then
-          if sessions[r.session]==nil then
-            local _,code,item=C.resolve(r.session,"session")
-            sessions[r.session]=code==3 and (type(item)~="table" or item.status=="not_found")
-          end
-          if sessions[r.session] then
-            limit=limit-1
-            local removed,err=close_block(r.block,true)
-            if removed then C.note("removed the state of " .. r.block .. ": its session " .. r.session .. " is gone")
-            else C.note("could not remove the state of " .. r.block .. ": " .. tostring(err)) end
+          if sessions[r.session]==nil then sessions[r.session]=found("session",r.session) end
+          local gone=sessions[r.session]==false and found("block",r.block,r.session)==false
+          local mark=C.sf(r.block) .. ".forget"
+          if not gone then
+            if sessions[r.session]~=nil and C.fs.read(mark) then C.fs.unlink(mark) end
+          else
+            local first=tonumber(M.lines(C.fs.read(mark) or "")[1])
+            if not first or first>now then
+              if not C.put(mark,now) then C.note("could not save when " .. r.block .. "'s session was first missed") end
+            elseif now-first>=O.forget_after then
+              limit=limit-1
+              local removed,err=close_block(r.block,true)
+              if removed then C.note("removed the state of " .. r.block .. ": its session " .. r.session .. " is gone")
+              else C.note("could not remove the state of " .. r.block .. ": " .. tostring(err)) end
+            end
           end
         end
       end

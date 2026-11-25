@@ -161,8 +161,8 @@ anything in another session are never closed. The kill switch `STATE_DIR/disable
 child launched with `REX_ORCHESTRATOR_ORPHANS=keep` is never closed as an orphan. Set on a later call, `keep` only stops
 that call from starting a watcher. Closes and orphans left open are logged in
 `STATE_DIR/watch/<orchestrator>.log`; those files go once the orchestrator has no children left. When the Rex server
-that launched a child says its session is gone, the next call from another session forgets the child (claim, cage
-home and state; its pane went with the session).
+that launched a child says both its session and its block are gone, on calls from another session at least a minute
+apart, the child is forgotten (claim, cage home and state; its pane went with the session).
 
 ## clone, claims
 

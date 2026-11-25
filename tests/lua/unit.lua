@@ -840,6 +840,12 @@ do
       if method=="target.resolve" then
         if o.resolve_error then return nil,"offline" end
         local q=a.queries[1]
+        if a.kinds[1]=="block" then
+          local s=a.scope and a.scope.session
+          if (o.block_found or {})[q] then return {results={{status="resolved",target={block_id=q}}}} end
+          if (o.live_sessions or {})[s] or s=="session:s" then return {results={{status="not_found",query=q}}} end
+          return nil,"code=session_not_found"
+        end
         if (o.live_sessions or {})[q] or q=="session:s" then
           return {results={{status="resolved",target={session_id=q}}}}
         end
@@ -1005,20 +1011,33 @@ do
   f.W.scan()
   eq(f.files["/state/watch/block_x.log"],"old\n","a running watcher keeps its files")
   eq(f.files["/state/watch/block_o.log"],"mine\n","an orchestrator with children keeps its files")
-  -- Records of a session the server no longer has are forgotten (state only, nothing closed), two per call.
+  -- Records of a session the server no longer has are forgotten (state only, nothing closed), two per call, once the
+  -- session and the block are both missed on looks a minute apart.
   local dead=function(s,host) return {"block:o","42","","claude","/w","","/bin/claude",s,"close","0","0",host} end
   f=sweep_fixture{records={["block:c"]=dead("session:s","host:a"),["block:d"]=dead("session:gone","host:a"),
     ["block:e"]=dead("session:gone","host:b"),["block:f"]=dead("session:gone",""),["block:g"]=dead("session:live","host:a"),
     ["block:h"]=dead("session:gone","host:a"),["block:i"]=dead("session:gone","host:a")},live_sessions={["session:live"]=true}}
   f.W.scan()
+  eq(#f.closed,0,"a first miss forgets nothing"); eq(f.files["/state/block_d.forget"],"5000\n","it is saved")
+  f.advance(59); f.W.scan(); eq(#f.closed,0,"nor a second miss within a minute")
+  f.advance(1); f.W.scan()
   eq(table.concat(f.closed,","),"block:d missing,block:h missing","a gone session's records go, two per call, as already closed")
   eq(f.files["/state/block_e.own"]~=nil and f.files["/state/block_f.own"]~=nil and f.files["/state/block_g.own"]~=nil,true,
     "another server's, a hostless and a live session's records stay")
   f.W.scan(); eq(f.closed[3],"block:i missing","the next call goes on")
-  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/disabled"]=""}}
+  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/block_d.forget"]="1000\n"},
+    block_found={["block:d"]=true}}
+  f.W.scan(); eq(#f.closed,0,"a child whose block Rex still finds is kept")
+  eq(f.files["/state/block_d.forget"],nil,"and its first miss is dropped")
+  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/block_d.forget"]="1000\n"},
+    live_sessions={["session:gone"]=true}}
+  f.W.scan(); eq(#f.closed,0,"a session found again keeps its child"); eq(f.files["/state/block_d.forget"],nil)
+  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/disabled"]="",["/state/block_d.forget"]="1000\n"}}
   f.W.scan(); eq(#f.closed,0,"the kill switch keeps a gone session's records")
-  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},resolve_error=true}
+  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},resolve_error=true,
+    files={["/state/block_d.forget"]="1000\n"}}
   f.W.scan(); eq(#f.closed,0,"a session Rex can't check is kept")
+  eq(f.files["/state/block_d.forget"],"1000\n","and its first miss stays for a later look")
   -- Rex can't list the blocks: nothing is decided.
   f=sweep_fixture{list_error=true,grace="0"}
   r=f.W.sweep(); eq(#f.closed,0,"no block list, no close"); eq(r.remaining,1,"no block list, still watched")
