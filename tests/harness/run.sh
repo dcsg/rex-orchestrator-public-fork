@@ -21,6 +21,7 @@ for b in $bashes; do
     python3 -I "$here/harness4.py" "$@" || echo "FAIL  harness4.py exited $?"
     "$b" "$here/unit.sh" || echo "FAIL  unit.sh exited $?"
     "$b" "$here/startup.sh" || echo "FAIL  startup.sh exited $?"
+    "$b" "$here/../cage/agy-token.sh" || echo "FAIL  agy-token.sh exited $?"
   ) >"$runs/bash-$v.log" 2>&1 &
 done
 wait

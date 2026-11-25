@@ -5,6 +5,11 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` provisions a caged agy login from a shell command outside the sandbox.
+  The token is private (mode 600), absent from the agent's environment, and deleted on exit or HUP/INT/TERM;
+  failed or empty commands stop the wrapper with exit 71 before agy starts. Unset preserves copied logins.
+
 ### Fixed
 - Resolve the session once from `REX_BLOCK` when `REX_SESSION` is empty, supporting Rex server 0.1.0-preview.23.
   Explicit `REX_SESSION` values remain unchanged; failed resolution reports both environment variables.

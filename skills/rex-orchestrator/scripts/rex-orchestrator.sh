@@ -117,8 +117,11 @@ rex-orchestrator launch [-d DIR] [-l LABEL] [--split right|left|above|below] [--
     only to DIR and a throwaway config home, no reads of the secret stores and agent homes cage.sb lists, web ports
     only. codex and grok always have a recipe (they re-open only their login file: codex the auth.json of your
     CODEX_HOME or ~/.codex, grok ~/.grok/auth.json); claude once a credential file CAGE_SECRETS/claude-NAME.env
-    (export CLAUDE_CODE_OAUTH_TOKEN=...) exists; agy once its cage home CAGE_SECRETS/agy-home holds a login. A caged
-    child runs from the cage's own config templates, not your settings: pass a model and other settings after --.
+    (export CLAUDE_CODE_OAUTH_TOKEN=...) exists; agy once its cage home CAGE_SECRETS/agy-home exists. Its login can
+    come from REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD (a shell command returning the token JSON on stdout), or that home.
+    The command runs outside the cage; its token is mode 600 in the temporary home and removed when agy exits.
+    Command failure or empty stdout stops the wrapper with exit 71 (launch reports 12 if observed during startup).
+    A caged child runs from the cage's own config templates, not your settings: pass a model and other settings after --.
     --account NAME picks claude-NAME.env (a caged claude only); without it the only credential is used, else the
     alphabetically first, and launch says which. --no-cage (or REX_ORCHESTRATOR_CAGE=off) runs uncaged; --cage (or
     REX_ORCHESTRATOR_CAGE=on) fails (exit 2) for an agent with no recipe. An agent that should be caged but can't be
@@ -192,6 +195,7 @@ Environment:
   REX_ORCHESTRATOR_CAGE           launch's cage default: auto (default), on or off
   REX_ORCHESTRATOR_CAGE_PROFILE, REX_ORCHESTRATOR_CAGE_TPL   cage.sb and cage/ beside the real script (following symlinks)
   REX_ORCHESTRATOR_CAGE_AGY_HOME   agy home (default CAGE_SECRETS/agy-home)
+  REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD   shell command returning agy's token JSON; unset keeps the cage home's login
   REX_ORCHESTRATOR_REX_BIN_DIR    the folder holding the rex CLI, if it isn't on PATH
   REX_ORCHESTRATOR_CONFIG_DIR     the folder of ORCH_FILE, "orchestrators" (default
                                   ${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator)
@@ -977,18 +981,70 @@ exec /usr/bin/env -i HOME="$RH" USER="${USER:-}" LOGNAME="${LOGNAME:-}" SHELL=/b
 EOF
       ;;
     # --settings is session-only for agy: no persisted allow rules, no access outside the workspace.
-    agy | agy-*) cat <<'EOF'
+    agy | agy-*)
+      # Rex starts the wrapper in a new pane, not with launch's environment. Store only the command, never its output.
+      if [ "${REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD+x}" = x ]; then
+        printf 'AGY_TOKEN_ENABLED=1 AGY_TOKEN_CMD=%s\n' "$(sq "$REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD")"
+      else
+        printf '%s\n' "AGY_TOKEN_ENABLED=0 AGY_TOKEN_CMD=''"
+      fi
+      cat <<'EOF'
 mkdir -p "$CT/home"
 # A one-time provisioned agy login (CAGE_AGY_HOME) is copied in so it is writable in the cage.
 [ -n "$RH_AGY" ] && [ -d "$RH_AGY" ] || exit 70
 [ -d "$CT/home/.gemini" ] || cp -R "$RH_AGY/." "$CT/home/"
-exec /usr/bin/env -i HOME="$CT/home" USER="${USER:-}" LOGNAME="${LOGNAME:-}" SHELL=/bin/zsh \
+unset REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD
+AGY_PID='' AGY_TOKEN_FILE=''
+if [ "$AGY_TOKEN_ENABLED" = 1 ]; then
+  AGY_TOKEN_FILE="$CT/home/.gemini/antigravity-cli/antigravity-oauth-token"
+  agy_cleanup() {
+    # The child can replace its writable parents with links. Pin the physical directory as cwd before unlinking,
+    # and refuse one outside CT: cleanup runs unsandboxed and must never delete a real-home credential.
+    (cd -P -- "${AGY_TOKEN_FILE%/*}" 2>/dev/null || exit 0
+      case "$PWD/" in "$CT/"*) rm -f ./antigravity-oauth-token ;; esac)
+  }
+  agy_signal() {
+    [ -z "$AGY_PID" ] || kill -s "$1" "$AGY_PID" 2>/dev/null || :
+    exit "$2"
+  }
+  trap agy_cleanup EXIT
+  trap 'agy_signal HUP 129' HUP
+  trap 'agy_signal INT 130' INT
+  trap 'agy_signal TERM 143' TERM
+  # Suppress command diagnostics too: a failed shell command can quote its input or the credential in stderr.
+  (umask 077
+    mkdir -p "${AGY_TOKEN_FILE%/*}" && rm -f "$AGY_TOKEN_FILE" &&
+      exec /bin/bash -c "$AGY_TOKEN_CMD" >"$AGY_TOKEN_FILE"
+  ) <&0 2>/dev/null &
+  AGY_PID=$!
+  AGY_TOKEN_RC=0
+  wait "$AGY_PID" || AGY_TOKEN_RC=$?
+  AGY_PID=
+  if [ "$AGY_TOKEN_RC" -ne 0 ] || [ ! -s "$AGY_TOKEN_FILE" ] || ! chmod 600 "$AGY_TOKEN_FILE"; then
+    echo 'rex-orchestrator cage: REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD failed or returned no token; agy not started' >&2
+    exit 71
+  fi
+  unset AGY_TOKEN_CMD
+fi
+agy_run() {
+  exec /usr/bin/env -i HOME="$CT/home" USER="${USER:-}" LOGNAME="${LOGNAME:-}" SHELL=/bin/zsh \
   PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin \
   TERM="${TERM:-xterm-256color}" TERM_PROGRAM="${TERM_PROGRAM:-}" TERM_PROGRAM_VERSION="${TERM_PROGRAM_VERSION:-}" \
   COLORTERM="${COLORTERM:-}" LANG="${LANG:-en_US.UTF-8}" TMPDIR="$CT/" \
   /usr/bin/sandbox-exec -D DIR="$DIR" -D DIR_RE="$DRE" -D CAGE_TMP="$CT" -D HOME="$RH" -D AGENT_AUTH="$AUTH" -D AGENT_CFG_RO="$CFGRO" -D HOOKSPATH="$HOOKS" -D LOCK_RE="$LRE" -D CAGE_ROOT="${CT%/*}" -D TTY="$TTY" -D CAGE_SECRETS="$SEC" \
     -f "$PROF" "$REAL" --dangerously-skip-permissions --mode auto \
     --settings "$AGYSET" "$@"
+  }
+if [ -n "${AGY_TOKEN_FILE:-}" ]; then
+  # No job control: the child stays in the terminal's foreground process group. Explicit stdin keeps the TUI's
+  # input (bash otherwise gives an asynchronous command /dev/null). wait lets signal traps run immediately.
+  agy_run "$@" <&0 &
+  AGY_PID=$!
+  AGY_RC=0
+  wait "$AGY_PID" || AGY_RC=$?
+  exit "$AGY_RC"
+fi
+agy_run "$@"
 EOF
       ;;
   esac

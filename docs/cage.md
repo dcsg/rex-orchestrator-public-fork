@@ -12,7 +12,7 @@ It is a filesystem, network-port and privilege boundary for agents you don't ful
 | `codex` | always | its normal login (`auth.json` in `CODEX_HOME` or `~/.codex`, re-opened read-only) |
 | `grok` | always | its normal login (`~/.grok/auth.json`, read-only) |
 | `claude` | when a credential exists | `$CAGE_SECRETS/claude-NAME.env` containing `export CLAUDE_CODE_OAUTH_TOKEN=…` |
-| `agy` (Gemini) | when a cage home exists | `$CAGE_SECRETS/agy-home` holding an agy login |
+| `agy` (Gemini) | when a cage home exists | `$CAGE_SECRETS/agy-home` with settings; login from a command or that home |
 | others | none | run uncaged with a note |
 
 `CAGE_SECRETS` defaults to `${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator/cage-secrets`. `--no-cage` (or
@@ -35,6 +35,27 @@ HOME=~/.config/rex-orchestrator/cage-secrets/agy-home agy
 
 With several `claude-*.env` files, `--account NAME` picks one; without it the only file is used, otherwise the
 alphabetically first, and `launch` says which. `status` shows it as `account`.
+
+For agy with a login held in a secret store, keep only non-secret settings in the provisioned cage home and set
+`REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` to a shell command that returns the complete token JSON on stdout. For example:
+
+```sh
+export REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD='fnox get AGY_CAGE_OAUTH_TOKEN'
+```
+
+The command is generic: any secret-store CLI can supply the JSON. It runs with `/bin/bash -c` outside the sandbox,
+after the cage home is copied and before agy starts. The command text is stored in the generated wrapper, so use a
+store lookup rather than a literal credential in the command. Its stdout goes straight to
+`home/.gemini/antigravity-cli/antigravity-oauth-token` under the cage temp directory, created with `umask 077` and mode
+600. Command stderr is suppressed to keep credentials out of diagnostics. Failure or empty stdout (including a set
+but empty command) removes partial output and exits the wrapper with **71**, naming only the variable; agy never starts.
+If observed during startup, `launch` reports its usual **12** for an exited child.
+
+The wrapper keeps agy in the terminal's foreground process group and forwards its exit status. It removes the token
+on normal exit, a non-zero exit, or HUP/INT/TERM to the wrapper, forwarding those signals to the child and exiting with
+129/130/143. The command and token are absent from agy's environment (`env -i`). The token is still readable by agy
+during the session; it is never written back to the store. SIGKILL and a machine crash cannot run cleanup traps.
+When the variable is unset, the existing copied-login behavior is unchanged, including keeping that copy until `close`.
 
 ## What a caged child gets
 

@@ -64,7 +64,7 @@ unseal() {
 }
 trap 'kill $SLEEPER $LISTENER 2>/dev/null; unseal "$WORK"; rm -rf "$WORK"' EXIT
 FH="$WORK/home"; STATE_DIR="$WORK/state"; mkdir -p "$FH" "$STATE_DIR"
-unset CODEX_HOME GROK_HOME CLAUDE_CONFIG_DIR REX_ORCHESTRATOR_CAGE_AGY_HOME XDG_CONFIG_HOME XDG_STATE_HOME
+unset CODEX_HOME GROK_HOME CLAUDE_CONFIG_DIR REX_ORCHESTRATOR_CAGE_AGY_HOME REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD XDG_CONFIG_HOME XDG_STATE_HOME
 export HOME="$FH" REX_SESSION=session:zt REX_BLOCK=block:zt SSH_AUTH_SOCK="$WORK/agent.sock" ZT_TOKEN=zt-secret-must-not-leak
 # These globals are read by the cage_build/cage_emit functions sourced above (dynamic scope), not locally here. The
 # cage credentials sit at the default place under the (fixture) home, ~/.config/rex-orchestrator/cage-secrets.
