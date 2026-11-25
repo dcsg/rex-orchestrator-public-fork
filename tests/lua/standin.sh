@@ -34,6 +34,11 @@ while IFS= read -r line; do
     '') printf 'enter\n' >> "$work/presses"
         [ ! -e "$work/mode-change" ] || printf '────────────────────────────────────────────────────────────────────────────────\n ⏵⏵ accept edits on\n'
         report 'done' ;;
+    hostile)
+      # Text a child can put on its screen: bidi controls, UTF-8 C1 controls, DEL, invalid UTF-8, a backslash (screen
+      # escapes whatever of it Rex keeps in its capture).
+      printf '\033[2J\033[Hhostile \342\200\256gnp.exe \342\201\246iso \302\205nel \302\233csi \177del \377bad back\\slash\n'
+      report 'done' ;;
     exit) exit 0 ;;
     *) printf '%s\n' "$line" >> "$work/prompts"
        stty -echo

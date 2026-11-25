@@ -21,6 +21,9 @@ project uses [Semantic Versioning](https://semver.org/).
   too, and its panes run in the same cage. See [docs/cage.md](docs/cage.md#a-private-rex-server).
 
 ### Changed
+- `screen` escapes the child's screen by default, line by line, with the same rules as diagnostics (terminal
+  controls, C1 and bidi controls, invalid UTF-8; backslashes doubled), so an OSC 52 or title sequence a child prints
+  can't reach the caller's terminal. `screen --raw` prints the capture as before.
 - `wait` exits 124 (still working), not 0, when background work the turn started is still running after `--bg-max`.
   It keeps the note and prints `timeout (state=done, background: N shells still running after --bg-max 300s)`; the
   next `wait` holds for a fresh `--bg-max`.

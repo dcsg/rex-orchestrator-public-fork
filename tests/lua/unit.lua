@@ -296,6 +296,30 @@ eq(test()("screen",{child,"0"}).out,"")
 eq(test({screen="first\nsecond\n\n  \n"})("screen",{child,"1"}).out,"second")
 eq(test({screen="first\nsecond"})("screen",{child,""}).out,"first\nsecond")
 eq(test()("screen",{child,"x"}).code,2)
+-- screen escapes the child's text by default, line by line, as every diagnostic is: OSC 52 (a clipboard write), a
+-- title, C1 controls raw and as UTF-8, bidi overrides and isolates, invalid UTF-8; --raw prints it as captured.
+do
+  local hostile="clip \27]52;c;cHduZWQ=\7 title \27]0;owned\7\nC1 \155 utf8 \194\155[31m csi\n" ..
+    "bidi \226\128\174gnp.exe \226\129\166iso\nbad \255 back\\slash \226\149\173 box ❯ 中文\nlast\n\n"
+  local escaped=table.concat({
+    "clip \\x1B]52;c;cHduZWQ=\\x07 title \\x1B]0;owned\\x07",
+    "C1 \\x9B utf8 \\u009B[31m csi",
+    "bidi \\u202Egnp.exe \\u2066iso",
+    "bad \\xFF back\\\\slash \226\149\173 box ❯ 中文",
+    "last"},"\n")
+  r=test({screen=hostile})("screen",{child})
+  eq(r.code,0); eq(r.out,escaped)
+  eq(M.prompt_control(r.out),false,"no raw control, bidi control or invalid UTF-8 on stdout")
+  eq(r.out:find("\226\128\174",1,true),nil,"no raw bidi override")
+  eq(test({screen=hostile})("screen",{child,"2"}).out,"bad \\xFF back\\\\slash \226\149\173 box ❯ 中文\nlast")
+  for _,args in ipairs({{child,"--raw"},{"--raw",child},{child,"60","--raw"}}) do
+    r=test({screen=hostile})("screen",args)
+    eq(r.code,0); eq(r.out,(hostile:gsub("\n+$","")),"raw " .. table.concat(args," "))
+  end
+  eq(test({screen=hostile})("screen",{child,"--raw","1"}).out,"last")
+  eq(test()("screen",{child,"1","2"}).code,2)
+  eq(test()("screen",{"--raw"}).code,2)
+end
 eq(test({fail={format=true}})("screen",{child}).code,1)
 local st=test({fail={program_status=true,process=true,title=true}})("status",{child})
 eq(st.out,'{"state":null,"kind":null,"msg":null,"title":"","alive":null,"cwd":null}')

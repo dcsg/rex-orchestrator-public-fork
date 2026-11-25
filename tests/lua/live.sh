@@ -133,7 +133,17 @@ for delay in 0 0.02 0.05 0.1 0.2 0.4; do
   check "status transition during wait startup after $delay s" "$(cat "$T/wait.out")" 'done'
   check 'wait has no Rex banner' "$(cat "$T/wait.err")" ''
 done
-check 'screen agrees with Rex capture' "$(cli screen "$B")" "$(rex_test capture -s "$REX_SESSION" -b "$B" --trim --unwrap)"
+check 'screen --raw agrees with Rex capture' "$(cli screen "$B" --raw)" "$(rex_test capture -s "$REX_SESSION" -b "$B" --trim --unwrap)"
+type_line hostile; await_state 'done'
+for ((n=0;n<100;n++)); do cli screen "$B" --raw | grep -q '^hostile' && break; sleep 0.03; done
+raw_line=$(cli screen "$B" --raw | grep '^hostile')
+check 'screen --raw prints the child text unescaped' "$(printf '%s\n' "$raw_line" | grep -Fc 'back\slash')" 1
+# shellcheck source=skills/rex-orchestrator/scripts/term-text.sh
+. "$ROOT/skills/rex-orchestrator/scripts/term-text.sh"
+check 'screen escapes the child text by default' "$(cli screen "$B" | grep '^hostile')" "$(rex_term_text "$raw_line")"
+check 'escaped screen doubles the backslash' "$(cli screen "$B" | grep -c 'back\\\\slash')" 1
+check 'escaped screen prints no raw control' "$(cli screen "$B" | tr -d '\n' | LC_ALL=C grep -c '[[:cntrl:]]' || :)" 0
+check 'escaped screen keeps the line count' "$(cli screen "$B" | wc -l)" "$(cli screen "$B" --raw | wc -l)"
 check 'default screen lines with an empty argument' "$(cli screen "$B" '')" "$(cli screen "$B")"
 cli ls > "$T/lua.out"
 check 'ls emits the block ID and status JSON' \

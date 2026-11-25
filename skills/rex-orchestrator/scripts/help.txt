@@ -85,7 +85,9 @@ rex-orchestrator wait [--force] BLOCK [--timeout DUR] [--ignore-background] [--b
     124 timeout, or background work still running after --bg-max.
 rex-orchestrator status BLOCK               One-line JSON: state, kind, msg, title, alive, cwd (and account, for a caged
                                             claude).
-rex-orchestrator screen BLOCK [LINES]       The visible screen, last LINES lines (default 60).
+rex-orchestrator screen [--raw] BLOCK [LINES]   The visible screen, last LINES lines (default 60), each line escaped
+                                            like a diagnostic (terminal controls, C1 and bidi controls, invalid UTF-8 as
+                                            \xNN or \uNNNN, backslashes doubled); --raw prints it as captured.
 rex-orchestrator keys [--force] BLOCK KEY...   Press keys (e.g. enter, down, escape, ctrl+c).
     At a dialog on an uncaged pane (a question excepted) only escape, ctrl+c, up and down pass, and enter or a digit
     alone in its call when the option it picks is a one-time Yes, No or Continue (never "always", "don't ask again",

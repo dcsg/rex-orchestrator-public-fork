@@ -40,9 +40,10 @@ elseif command=="offline" then
   elseif verb=="send" or verb=="keys" or verb=="close" then
     target=P.mutation(verb,arg)
     if verb=="send" then P.prompt(arg) end
-  elseif verb=="status" or verb=="screen" then
+  elseif verb=="screen" then
+    target=P.screen(arg)
+  elseif verb=="status" then
     target=P.block(arg[1])
-    if verb=="screen" then P.screen_lines(arg[2]) end
   end
   local session,caller=M.env("REX_SESSION"),M.env("REX_BLOCK")
   if not session then C.missing_context() end

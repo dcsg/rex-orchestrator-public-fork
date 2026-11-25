@@ -6,6 +6,15 @@ return function(C,M)
     if M.starts(query,"-") then C.die("no such block in this session: " .. query) end
     return query
   end
+  -- screen [--raw] BLOCK [LINES] (--raw also after BLOCK or LINES).
+  function P.screen(args)
+    local rest,raw={},false
+    for _,arg in ipairs(args) do
+      if arg=="--raw" then raw=true else rest[#rest+1]=arg end
+    end
+    if #rest>2 then C.die("screen: expected [--raw] BLOCK [LINES]") end
+    return P.block(rest[1]),P.screen_lines(rest[2]),raw
+  end
   function P.screen_lines(n)
     if not n or n=="" then return 60 end
     if not n:match("^%d+$") then C.die("screen: LINES takes a whole number, not '" .. n .. "'") end

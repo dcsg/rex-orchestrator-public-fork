@@ -119,6 +119,7 @@ offline_error() {
 }
 offline_error 'missing BLOCK' status
 offline_error 'LINES takes a whole number' screen block:fixture bad
+offline_error 'screen: expected [--raw] BLOCK [LINES]' screen block:fixture 1 2
 offline_error '--timeout needs a value' wait block:fixture --timeout
 offline_error 'wait: unknown option' wait --force block:fixture --bogus
 offline_error 'keys: no keys given' keys --force block:fixture

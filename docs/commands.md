@@ -123,8 +123,12 @@ Rex CLI key spellings both run functions bound to those keys in Rex's `init.lua`
 
 ## screen, status, ls
 
-- `screen BLOCK [LINES]` — the last LINES visible rows (default 60). Agents draw on the alternate screen, so only what is
-  visible now is available: ask children to write results to a file.
+- `screen [--raw] BLOCK [LINES]` — the last LINES visible rows (default 60). Agents draw on the alternate screen, so only
+  what is visible now is available: ask children to write results to a file. The screen is the child's text, so each
+  line is escaped as diagnostics are: C0 controls, DEL, raw C1 bytes and invalid UTF-8 as `\xNN`, UTF-8 C1 controls
+  and bidi overrides and isolates as `\uNNNN`, backslashes doubled. Nothing a child prints (an OSC 52 clipboard
+  write, a title change, a bidi override) reaches your terminal raw, and the lines stay as they are. `--raw` prints
+  the capture unescaped.
 - `status BLOCK` — one-line JSON: `state`, `kind`, `msg` (the pending prompt), `title`, `alive`, `cwd`, and `account` for a
   caged claude.
 - `ls` — live agent panes in the session: block ID, a tab, the status JSON plus `label`, `mine` (launched from your

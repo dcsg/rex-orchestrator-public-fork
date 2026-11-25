@@ -5,14 +5,15 @@ return function(C, M, A, P)
     C.target(P.block(args[1]))
     C.out(C.status(C.block))
   end
+  -- The child's screen is the child's text: escaped line by line like every diagnostic (terminal controls, OSC 52,
+  -- titles, C1 and bidi controls, invalid UTF-8; backslashes doubled), the lines kept. --raw prints it as captured.
   function commands.screen(args)
-    local query=P.block(args[1])
-    local n=P.screen_lines(args[2])
+    local query,n,raw=P.screen(args)
     C.target(query)
     local text=C.screen(C.block)
     if not text then C.die("rex could not capture " .. C.block,1) end
     local a=M.lines(text); while #a>0 and not a[#a]:match("%S") do a[#a]=nil end
-    for i=math.max(1,#a-n+1),#a do C.out(a[i]) end
+    for i=math.max(1,#a-n+1),#a do C.out(raw and a[i] or M.terminal_text(a[i])) end
   end
   function commands.ls()
     local orphans={}
