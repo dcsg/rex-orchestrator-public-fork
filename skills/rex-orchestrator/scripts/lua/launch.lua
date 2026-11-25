@@ -346,6 +346,8 @@ return function(C,M,D,I,K,G)
       C.die("launch: stopped: the kill switch " .. C.dir .. "/disabled is set; report it, never remove it yourself")
     end
     local opts=L.parse(args)
+    local orphans=C.orphans
+    if orphans and orphans.bad then C.die("launch: " .. orphans.bad) end
     if #opts.rules>0 then
       table.insert(opts.args,1,R.json.encode({permissions={allow=opts.rules}}))
       table.insert(opts.args,1,"--settings")
@@ -416,12 +418,17 @@ return function(C,M,D,I,K,G)
     end
     release()
     local sf=C.sf(C.block)
+    -- The session goes on record only when the caller's pane is in it: the orphan checks look for the caller there.
+    local watched=orphans~=nil and C.gone(C.me)==false
+    local keep=orphans~=nil and orphans.settings.keep
     local function save_owner(owner,pill)
-      if not C.put(sf .. ".own",C.me,pid or "",owner,opts.kind,opts.dir,pill,bin) then
+      if not C.put(sf .. ".own",C.me,pid or "",owner,opts.kind,opts.dir,pill,bin,watched and C.session or "",
+        keep and "keep" or "close") then
         C.note("could not save the state of " .. C.block)
       end
     end
     save_owner("","")
+    if watched and not keep then orphans.ensure(C.me,30) end
     if cage then
       cage.meta.block=C.block
       if not C.put(cage.home .. "/run-meta.json",R.json.encode(cage.meta)) then C.note("could not save harvest block") end

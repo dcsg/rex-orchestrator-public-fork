@@ -21,6 +21,7 @@ local registry=dofile(dir .. "registry.lua")(C,M)
 local input=dofile(dir .. "input.lua")(M)
 local close=dofile(dir .. "close.lua")(C,M,registry)
 for name,fn in pairs(dofile(dir .. "mutations.lua")(C,M,input,registry,args,close)) do commands[name]=fn end
+C.orphans=dofile(dir .. "orphans.lua").new(C,M,close)
 local function launcher()
   local cage=dofile(dir .. "launch_cage.lua")(C,M)
   local dialogs=dofile(dir .. "launch_dialog.lua")(C,M,input)
@@ -42,7 +43,14 @@ for i,arg in ipairs(argv) do argv[i]=decode(arg) end
 C.context={session=decode(rex.args.session),block=decode(rex.args.block)}
 local command=table.remove(argv,1)
 if command=="claims" then C.init_state()
-else C.init() end
+else
+  C.init()
+  -- Close the orphans in this session whose time has come; ls sweeps itself to show the rest.
+  if command~="ls" then
+    local ok,err=pcall(C.orphans.sweep)
+    if not ok then C.note("orphan sweep: " .. tostring(err)) end
+  end
+end
 if command=="launch" then
   C.git=fs.git()
   commands.launch=launcher().launch

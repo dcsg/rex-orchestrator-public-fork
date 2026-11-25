@@ -15,6 +15,11 @@ return function(C, M, A, P)
     for i=math.max(1,#a-n+1),#a do C.out(a[i]) end
   end
   function commands.ls()
+    local orphans={}
+    if C.orphans then
+      local ok,swept=pcall(C.orphans.sweep)
+      if ok then orphans=swept.status else C.note("orphan sweep: " .. tostring(swept)) end
+    end
     if not C.attach() then C.die("rex could not list the blocks",1) end
     local r=R.session.list_blocks{session_id=C.session}
     if not r then C.die("rex could not list the blocks",1) end
@@ -34,7 +39,9 @@ return function(C, M, A, P)
           if live or agent(p.foreground) or agent(p.child) then
             local json=C.status(id)
             local mine=C.me~="" and C.line(id,"own",1)==C.me
-            C.out(id .. "\t" .. json:sub(1,-2) .. ',"label":' .. M.json_string(M.tsv(b.label or "")) .. ',"mine":' .. tostring(mine) .. '}')
+            local orphan=orphans[id]
+            C.out(id .. "\t" .. json:sub(1,-2) .. ',"label":' .. M.json_string(M.tsv(b.label or "")) .. ',"mine":' ..
+              tostring(mine) .. ',"orphan":' .. (orphan and M.json_string(orphan) or "null") .. '}')
           end
         end
       end

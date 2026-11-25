@@ -115,6 +115,46 @@ return function(rex)
     for path in out:gmatch("([^%z]+)%z") do paths[#paths+1]=path end
     return paths
   end
+  -- Every ownership record (*.own) in the state dir.
+  function F.own_paths(directory)
+    local ok,out=sh('for path in "$1"/*.own; do [ ! -f "$path" ] || printf "%s\\0" "$path" || exit 1; done',directory)
+    if not ok then return nil end
+    local paths={}
+    for path in out:gmatch("([^%z]+)%z") do paths[#paths+1]=path end
+    return paths
+  end
+  -- Start ARGV as a daemon that holds LOCK for its whole life, or do nothing when another process holds it.
+  -- TRIES attempts 0.1s apart (a watcher that is just exiting releases it). The daemon has its own session, no
+  -- terminal and SIGHUP ignored, so it outlives the shell and the pane that started it; its output goes to LOG.
+  function F.daemon(lock,log,tries,argv)
+    local args={"/usr/bin/perl","-e",[=[
+      use Fcntl qw(:flock F_GETFD F_SETFD FD_CLOEXEC);
+      use POSIX ();
+      my ($lock,$log,$tries)=splice(@ARGV,0,3);
+      umask 077;
+      open(my $f,">>",$lock) or exit 3;
+      my $held=0;
+      for my $n (1..$tries) {
+        if (flock($f,LOCK_EX|LOCK_NB)) { $held=1; last }
+        select(undef,undef,undef,0.1) if $n<$tries;
+      }
+      exit 0 unless $held;
+      my $pid=fork();
+      exit 3 unless defined $pid;
+      exit 0 if $pid;
+      POSIX::setsid();
+      $SIG{HUP}="IGNORE";
+      fcntl($f,F_SETFD,fcntl($f,F_GETFD,0) & ~FD_CLOEXEC) or exit 3;
+      open(STDIN,"<","/dev/null") or exit 3;
+      open(STDOUT,">",$log) or exit 3;
+      open(STDERR,">&",\*STDOUT) or exit 3;
+      exec {$ARGV[0]} @ARGV;
+      exit 4;
+    ]=],lock,log,tostring(tries)}
+    for _,v in ipairs(argv) do args[#args+1]=v end
+    local h=rex.exec.start(args,{detach=true,stdout=false,stderr=false})
+    return h~=nil
+  end
   function F.append(path, text)
     return sh('(umask 077; printf "%s" "$2" >> "$1")', path, text)
   end
