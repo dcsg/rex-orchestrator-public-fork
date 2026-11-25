@@ -149,13 +149,16 @@ period (`REX_ORCHESTRATOR_ORPHAN_GRACE`, default 10m, `0` allowed), each child t
 is closed as `close` does (pane, claim, state, cage home). One still working or blocked on a prompt is never
 interrupted: it closes when its turn ends, and after `REX_ORCHESTRATOR_ORPHAN_MAX_WAIT` more (default 2h) it is left
 open and reported (`ls` shows `"orphan":"expired"`). Quitting and resuming the orchestrator's agent in the same pane
-keeps its children: only a gone pane counts.
+keeps its children: only a gone pane counts. `REX_ORCHESTRATOR_ORPHANS`, `REX_ORCHESTRATOR_ORPHAN_GRACE` and
+`REX_ORCHESTRATOR_ORPHAN_MAX_WAIT` are read at `launch` and recorded with each child: a child always follows the
+settings it was launched with, whichever call or watcher later finds it orphaned.
 
 A detached watcher per orchestrator, started by `launch`, does this; every other command (and `ls`) sweeps the session
 too, which catches orphans whose watcher ended with a Rex restart. Panes of another orchestrator whose pane is open,
 the user's own panes, panes without a complete ownership record (launched before this feature, for example) and
-anything in another session are never closed. The kill switch `STATE_DIR/disabled` stops orphan closing, and
-`REX_ORCHESTRATOR_ORPHANS=keep` at launch (recorded with the child) or at any call keeps orphans open. A closing note
+anything in another session are never closed. The kill switch `STATE_DIR/disabled` stops orphan closing, and a
+child launched with `REX_ORCHESTRATOR_ORPHANS=keep` is never closed as an orphan. Set on a later call, `keep` only stops
+that one call from closing anything. A closing note
 goes to stderr of the call that closed it, or to `STATE_DIR/watch/<orchestrator>.log`.
 
 ## clone, claims
@@ -182,9 +185,9 @@ The Lua claim operations wait up to about 30 seconds for the registry lock.
 | `REX_ORCHESTRATOR_CAGE_CODEX_BIN`, `REX_ORCHESTRATOR_CAGE_CLAUDE_BIN`, `REX_ORCHESTRATOR_CAGE_GROK_BIN` | unset: the first match on `PATH` that is compiled or an allowlisted Node launcher | The executable a caged agent launched by name runs; an absolute path ([cage.md](cage.md#which-executable-a-caged-agent-runs)) |
 | `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` | unset | Shell command returning one JSON object with a non-empty string `.token.refresh_token` or legacy `.refresh_token`; runs outside the cage from `/` with a fixed environment. Private command text is hidden from caged children; the temporary mode 600 login is removed after child shutdown. Wrapper exits 71 on failure/invalid output; `launch` reports 12 if seen during startup ([cage.md](cage.md)) |
 | `REX_ORCHESTRATOR_REX_BIN_DIR` | `rex` on `PATH`, else the Rex app bundle | Where the `rex` CLI lives |
-| `REX_ORCHESTRATOR_ORPHANS` | `close` | `keep` leaves the children of a closed orchestrator pane open ([orphans](#orphans)); `launch` refuses other values |
-| `REX_ORCHESTRATOR_ORPHAN_GRACE` | `10m` | How long an orchestrator's pane must be gone before its finished children close; `0` allowed |
-| `REX_ORCHESTRATOR_ORPHAN_MAX_WAIT` | `2h` | How long after the grace period a working or blocked orphan may still close; then it is left open |
+| `REX_ORCHESTRATOR_ORPHANS` | `close` | At launch, recorded with the child: `keep` leaves it open when its orchestrator's pane closes ([orphans](#orphans)); `launch` refuses other values |
+| `REX_ORCHESTRATOR_ORPHAN_GRACE` | `10m` | At launch, recorded with the child: how long its orchestrator's pane must be gone before it closes; `0` allowed |
+| `REX_ORCHESTRATOR_ORPHAN_MAX_WAIT` | `2h` | At launch, recorded with the child: how long after the grace period it may still close while working or blocked; then it is left open |
 | `REX_ORCHESTRATOR_CONFIG_DIR` | `${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator` | Holds `orchestrators`, the designated orchestrators ([orchestrators.md](orchestrators.md)) |
 
 ## Kill switches

@@ -119,9 +119,10 @@ Environment:
   REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD   shell command returning agy's token JSON; unset keeps the cage home's login
   REX_ORCHESTRATOR_CAGE_CODEX_BIN (also _CLAUDE_BIN, _GROK_BIN)   the executable a caged agent runs (absolute);
                                  unset: the first on PATH that is compiled or an allowlisted Node launcher
-  REX_ORCHESTRATOR_ORPHANS        close (default) or keep: keep leaves orphans open
+  REX_ORCHESTRATOR_ORPHANS        close (default) or keep: keep leaves the children launched with it open
   REX_ORCHESTRATOR_ORPHAN_GRACE   how long after its orchestrator's pane closes a child closes (default 10m; 0 allowed)
   REX_ORCHESTRATOR_ORPHAN_MAX_WAIT   how long after that a busy orphan may still close (default 2h)
+                                 these three are read at launch and recorded with the child
   REX_ORCHESTRATOR_REX_BIN_DIR    the folder holding the rex CLI, if it isn't on PATH
   REX_ORCHESTRATOR_CONFIG_DIR     the folder of ORCH_FILE, "orchestrators" (default
                                   ${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator)

@@ -199,7 +199,7 @@ grep -q 'REX_ORCHESTRATOR_ORPHANS takes close or keep' "$T/orphan.err"
 # A record without a session (an older launch) is never an orphan, nor is an unreadable one.
 O4=$(orphan_pane)
 E=$(orphan_launch "$O4" legacy-child)
-sed -i '' '8,9d' "$(orphan_sf "$E").own"
+sed -i '' '8,$d' "$(orphan_sf "$E").own"
 rex_test block close -s "$REX_SESSION" "$O4"
 REX_BLOCK=$O2 cli ls > /dev/null
 check 'a record without a session is left alone' "$(orphan_open "$E" && [ -s "$(orphan_sf "$E").own" ] && echo open)" open

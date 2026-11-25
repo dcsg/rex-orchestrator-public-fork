@@ -421,9 +421,10 @@ return function(C,M,D,I,K,G)
     -- The session goes on record only when the caller's pane is in it: the orphan checks look for the caller there.
     local watched=orphans~=nil and C.gone(C.me)==false
     local keep=orphans~=nil and orphans.settings.keep
+    local limits=orphans and orphans.settings or {}
     local function save_owner(owner,pill)
       if not C.put(sf .. ".own",C.me,pid or "",owner,opts.kind,opts.dir,pill,bin,watched and C.session or "",
-        keep and "keep" or "close") then
+        keep and "keep" or "close",limits.grace or "",limits.max_wait or "") then
         C.note("could not save the state of " .. C.block)
       end
     end

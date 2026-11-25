@@ -3,8 +3,9 @@
 -- an orphan whose turn is over is closed through the normal close path; one still working or blocked is closed when its
 -- turn ends, and left open (and reported) once a maximum wait has passed. Never killed mid-turn.
 --
--- An ownership record (STATE_DIR/<block>.own) names the orchestrator on line 1, the Rex session on line 8 and the
--- launch's orphan policy on line 9. A record without a session (an older launch, or a recovery stub) is never an orphan.
+-- An ownership record (STATE_DIR/<block>.own) names the orchestrator on line 1, the Rex session on line 8, and the
+-- launch's orphan policy, grace period and maximum wait on lines 9 to 11: each child keeps the settings it was launched
+-- with, whoever looks at it later. A record without a session (an older launch, or a recovery stub) is never an orphan.
 local O={}
 O.grace=600
 O.max_wait=7200
@@ -35,10 +36,11 @@ end
 
 -- What to do with one child. Pure: everything it needs is in t.
 --   owner, session, policy        lines 1, 8 and 9 of the child's ownership record
+--   grace, max_wait               lines 10 and 11, the child's own limits
 --   here, me, block               the session swept, the calling pane (if any), the child
 --   presence                      "present", "gone" (absent on consecutive checks) or nil (couldn't tell)
---   gone_for, grace, max_wait     seconds since the orchestrator's pane was first seen gone, and the limits
---   keep, disabled, expired       opt-out, kill switch, already left open
+--   gone_for                      seconds since the orchestrator's pane was first seen gone
+--   keep, disabled, expired       this call's opt-out, kill switch, already left open
 --   checked, exited, state, background   the child's own state, once action "check" asked for it
 -- Actions: skip (not an orphan), grace, keep, expired, check, close, wait, expire.
 function O.decide(t)
@@ -83,7 +85,8 @@ function O.new(C,M,close_block)
       local text=block and C.sf(block) .. ".own"==path and C.fs.read(path)
       if text then
         local l=M.lines(text)
-        list[#list+1]={block=block,owner=l[1] or "",session=l[8] or "",policy=l[9] or ""}
+        list[#list+1]={block=block,owner=l[1] or "",session=l[8] or "",policy=l[9] or "",
+          grace=tonumber(l[10]) or O.grace,max_wait=tonumber(l[11]) or O.max_wait}
       end
     end
     return list
@@ -98,7 +101,7 @@ function O.new(C,M,close_block)
     return set
   end
 
-  -- "present", or "gone" with the seconds since it was first seen gone and the limits saved then, or nil.
+  -- "present", or "gone" with the seconds since it was first seen gone, or nil.
   -- Gone means absent from the session's block list on two checks; the first sighting is saved, so the grace
   -- period runs across processes. A pane that comes back cancels it.
   function W.presence(orch,blocks)
@@ -119,12 +122,11 @@ function O.new(C,M,close_block)
       local again=W.blocks()
       if not again then return nil end
       if again[orch] then return "present" end
-      mark={first,W.settings.grace,W.settings.max_wait}
-      if not (C.fs.mkdir(C.dir .. "/watch") and C.put(path,unpack(mark))) then
+      if not (C.fs.mkdir(C.dir .. "/watch") and C.put(path,first)) then
         C.note("could not save when " .. orch .. " was first seen gone")
       end
     end
-    return "gone",math.max(0,os.time()-first),tonumber(mark[2]) or O.grace,tonumber(mark[3]) or O.max_wait
+    return "gone",math.max(0,os.time()-first)
   end
 
   -- Start ORCH's watcher unless one runs. TRIES>1 waits up to TRIES/10 s for a watcher that is just exiting.
@@ -163,9 +165,9 @@ function O.new(C,M,close_block)
     local disabled=C.killed()
     for _,r in ipairs(children) do
       if not seen[r.owner] then seen[r.owner]={W.presence(r.owner,blocks)} end
-      local presence,gone_for,grace,max_wait=unpack(seen[r.owner])
+      local presence,gone_for=unpack(seen[r.owner])
       local t={owner=r.owner,session=r.session,policy=r.policy,here=here,me=C.me,block=r.block,presence=presence,
-        gone_for=gone_for,grace=grace,max_wait=max_wait,keep=W.settings.keep,disabled=disabled,
+        gone_for=gone_for,grace=r.grace,max_wait=r.max_wait,keep=W.settings.keep,disabled=disabled,
         expired=C.line(r.block,"orphan",1)=="expired"}
       if presence=="present" and t.expired then C.fs.unlink(C.sf(r.block) .. ".orphan"); t.expired=false end
       local action,why=O.decide(t)
@@ -208,7 +210,7 @@ function O.new(C,M,close_block)
       end
       if only and r.owner==only and presence=="gone" then
         result.gone=true
-        result.deadline=os.time()-gone_for+grace+max_wait+60
+        result.deadline=math.max(result.deadline or 0,os.time()-gone_for+r.grace+r.max_wait+60)
       end
     end
     if not only then

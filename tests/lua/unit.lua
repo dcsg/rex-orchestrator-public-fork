@@ -841,7 +841,8 @@ do
     local W=Orphans.new(C,M,function(b,missing) closed[#closed+1]=b .. (missing and " missing" or ""); files["/state/" .. b:gsub(":","_") .. ".own"]=nil; return true end)
     os.getenv=saved
     C.session="session:s"; C.me=o.me or "block:me"; C.script_dir="/scripts"; C.rex_bin="/bin/rex"
-    for block,record in pairs(o.records or {["block:c"]={"block:o","42","","claude","/w","","/bin/claude","session:s","close"}}) do
+    local default={"block:o","42","","claude","/w","","/bin/claude","session:s","close",o.grace or "600",o.max_wait or "7200"}
+    for block,record in pairs(o.records or {["block:c"]=default}) do
       files["/state/" .. block:gsub(":","_") .. ".own"]=table.concat(record,"\n") .. "\n"
     end
     for path,text in pairs(o.files or {}) do files[path]=text end
@@ -867,14 +868,14 @@ do
   f=sweep_fixture{blocks={"block:c"}}
   r=f.W.sweep()
   eq(#f.closed,0,"the grace period holds the orphan"); eq(r.status["block:c"],"grace","ls shows the grace period")
-  eq(f.files["/state/watch/block_o.gone"],"5000\n600\n7200\n","the first sighting and limits are saved")
+  eq(f.files["/state/watch/block_o.gone"],"5000\n","the first sighting is saved")
   f.advance(598); r=f.W.sweep()
   eq(f.sleeps(),1,"a saved sighting needs no recheck"); eq(#f.closed,0,"still in the grace period")
   f.advance(1); r=f.W.sweep()
   eq(f.closed[1],"block:c","a finished orphan closes when the grace period ends")
   eq(f.notes[#f.notes],"closed block:c, an orphan (its orchestrator block:o's pane is gone): done","the close is reported")
   -- A working orphan waits and then closes; the pane coming back cancels everything.
-  f=sweep_fixture{blocks={"block:c"},env={REX_ORCHESTRATOR_ORPHAN_GRACE="0"},states={["block:c"]="working"}}
+  f=sweep_fixture{blocks={"block:c"},grace="0",states={["block:c"]="working"}}
   r=f.W.sweep()
   eq(r.status["block:c"],"waiting","a working orphan waits"); eq(#f.closed,0)
   eq(#f.daemons,1,"a waiting orphan gets a watcher")
@@ -883,41 +884,50 @@ do
   eq(f.files["/state/watch/block_o.gone"],nil,"a pane that comes back cancels the orphan"); eq(r.status["block:c"],nil)
   f.set({"block:c"}); f.state("block:c","done"); f.W.sweep()
   eq(f.closed[1],"block:c","a gone orchestrator's done child closes at grace 0")
+  -- The child's own limits count, never the sweeping process's: a child launched with 1h is not closed by a sweep
+  -- run with a zero grace period, nor is the grace saved with the first sighting.
+  f=sweep_fixture{blocks={"block:c"},grace="3600",env={REX_ORCHESTRATOR_ORPHAN_GRACE="0",REX_ORCHESTRATOR_ORPHAN_MAX_WAIT="0"}}
+  r=f.W.sweep(); f.advance(60); r=f.W.sweep()
+  eq(#f.closed,0,"a sweep's own grace never applies to another launch's child"); eq(r.status["block:c"],"grace")
+  f.advance(3600); f.W.sweep(); eq(f.closed[1],"block:c","the child's own grace period ends")
+  f=sweep_fixture{blocks={"block:c"},records={["block:c"]={"block:o","42","","claude","/w","","/bin/claude","session:s","close"}},
+    env={REX_ORCHESTRATOR_ORPHAN_GRACE="0"}}
+  r=f.W.sweep(); eq(r.status["block:c"],"grace","a record without limits takes the defaults, not the caller's")
   -- A closed child pane is cleaned up as missing.
-  f=sweep_fixture{blocks={},env={REX_ORCHESTRATOR_ORPHAN_GRACE="0"}}
+  f=sweep_fixture{blocks={},grace="0"}
   f.W.sweep(); eq(f.closed[1],"block:c missing","an orphan whose pane is already closed is cleaned up")
   -- Background work holds a done orphan.
-  f=sweep_fixture{blocks={"block:c"},env={REX_ORCHESTRATOR_ORPHAN_GRACE="0"},screen=fixture("bg/live-1-shell")}
+  f=sweep_fixture{blocks={"block:c"},grace="0",screen=fixture("bg/live-1-shell")}
   r=f.W.sweep(); eq(r.status["block:c"],"waiting","background work holds the orphan"); eq(#f.closed,0)
   -- The maximum wait marks the orphan left open, and it stays open after its turn ends.
-  f=sweep_fixture{blocks={"block:c"},env={REX_ORCHESTRATOR_ORPHAN_GRACE="0",REX_ORCHESTRATOR_ORPHAN_MAX_WAIT="10"},
+  f=sweep_fixture{blocks={"block:c"},grace="0",max_wait="10",
     states={["block:c"]="working"}}
   f.W.sweep(); f.advance(10); r=f.W.sweep()
   eq(r.status["block:c"],"expired","the maximum wait leaves the orphan open"); eq(f.files["/state/block_c.orphan"],"expired\n")
   eq(r.remaining,0,"an orphan left open is no longer watched"); eq(r.left,1,"it is counted as left open")
   f.state("block:c","done"); f.W.sweep(); eq(#f.closed,0,"an orphan left open is never closed")
   -- Kill switch, opt-out, another session, a missing session, another orchestrator.
-  f=sweep_fixture{blocks={"block:c"},env={REX_ORCHESTRATOR_ORPHAN_GRACE="0"},files={["/state/disabled"]=""}}
+  f=sweep_fixture{blocks={"block:c"},grace="0",files={["/state/disabled"]=""}}
   r=f.W.sweep(); eq(r.status["block:c"],"kept","the kill switch keeps the orphan"); eq(#f.closed,0)
-  f=sweep_fixture{blocks={"block:c"},env={REX_ORCHESTRATOR_ORPHAN_GRACE="0",REX_ORCHESTRATOR_ORPHANS="keep"}}
+  f=sweep_fixture{blocks={"block:c"},grace="0",env={REX_ORCHESTRATOR_ORPHANS="keep"}}
   r=f.W.sweep(); eq(r.status["block:c"],"kept","the opt-out keeps the orphan"); eq(#f.closed,0); eq(#f.daemons,0,"opted out: no watcher")
-  f=sweep_fixture{blocks={"block:c"},env={REX_ORCHESTRATOR_ORPHAN_GRACE="0"},
-    records={["block:c"]={"block:o","42","","claude","/w","","/bin/claude","session:s","keep"}}}
+  f=sweep_fixture{blocks={"block:c"},grace="0",
+    records={["block:c"]={"block:o","42","","claude","/w","","/bin/claude","session:s","keep","0"}}}
   r=f.W.sweep(); eq(r.status["block:c"],"kept","a launch's opt-out keeps the orphan"); eq(#f.closed,0)
-  f=sweep_fixture{blocks={"block:c"},env={REX_ORCHESTRATOR_ORPHAN_GRACE="0"},
-    records={["block:c"]={"block:o","42","","claude","/w","","/bin/claude","session:other","close"},
+  f=sweep_fixture{blocks={"block:c"},grace="0",
+    records={["block:c"]={"block:o","42","","claude","/w","","/bin/claude","session:other","close","0"},
       ["block:d"]={"block:o","43","","claude","/w","","/bin/claude"},
-      ["block:e"]={"block:p","44","","claude","/w","","/bin/claude","session:s","close"}},
+      ["block:e"]={"block:p","44","","claude","/w","","/bin/claude","session:s","close","0"}},
     states={["block:c"]="done",["block:d"]="done",["block:e"]="done"}}
   f.set({"block:c","block:d","block:e","block:p"})
   r=f.W.sweep()
   eq(#f.closed,0,"other sessions, sessionless records and live orchestrators are untouched")
   eq(r.remaining,1,"only the live orchestrator's child in this session is counted")
   -- Rex can't list the blocks: nothing is decided.
-  f=sweep_fixture{list_error=true,env={REX_ORCHESTRATOR_ORPHAN_GRACE="0"}}
+  f=sweep_fixture{list_error=true,grace="0"}
   r=f.W.sweep(); eq(#f.closed,0,"no block list, no close"); eq(r.remaining,1,"no block list, still watched")
   -- A watcher sweeps only its orchestrator and reports when it may stop.
-  f=sweep_fixture{blocks={"block:c"},env={REX_ORCHESTRATOR_ORPHAN_GRACE="0"},states={["block:c"]="working"}}
+  f=sweep_fixture{blocks={"block:c"},grace="0",states={["block:c"]="working"}}
   f.W.watcher=true
   r=f.W.sweep("block:o")
   eq(r.gone,true,"the watcher learns its orchestrator is gone"); eq(r.deadline,5000+0+7200+60,"and when it may stop")
