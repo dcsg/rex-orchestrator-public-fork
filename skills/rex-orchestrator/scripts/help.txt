@@ -113,7 +113,7 @@ Environment:
                                  relative paths use the launcher's cwd
   REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD   shell command returning agy's token JSON; unset keeps the cage home's login
   REX_ORCHESTRATOR_CAGE_CODEX_BIN (also _CLAUDE_BIN, _GROK_BIN)   the executable a caged agent runs (absolute);
-                                 unset: the first on PATH that is compiled or a Node script (a shim is skipped)
+                                 unset: the first on PATH that is compiled or an allowlisted Node launcher
   REX_ORCHESTRATOR_REX_BIN_DIR    the folder holding the rex CLI, if it isn't on PATH
   REX_ORCHESTRATOR_CONFIG_DIR     the folder of ORCH_FILE, "orchestrators" (default
                                   ${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator)

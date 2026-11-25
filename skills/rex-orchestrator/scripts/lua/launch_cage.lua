@@ -118,13 +118,12 @@ return function(C,M)
   end
 
   -- The cage runs codex, claude and grok as their own executables: a compiled one, or a Node script (an npm install
-  -- of codex runs bin/codex.js through `#!/usr/bin/env node`). Any other file on PATH under the agent's name is a
-  -- script (a shell, fish, Python, Perl or Ruby one, or text with no #! line that execvp hands to sh): a wrapper or
-  -- shim, one that injects tokens and execs the real agent, say. The cage skips it, because its env -i and fixed PATH
-  -- would break it, and what it adds is what the cage strips. An unreadable file can't be told apart, so it is
-  -- skipped too.
+  -- of codex runs bin/codex.js through `#!/usr/bin/env node`) whose #! line has one of M.node_launcher's exact shapes
+  -- and names a compiled node. Any other file on PATH under the agent's name is a script: a wrapper or shim (one that
+  -- injects tokens and execs the real agent, say), or a line the cage won't model. The cage skips it, because its env -i
+  -- and fixed PATH would break it, and what it adds is what the cage strips. An unreadable file can't be told apart, so
+  -- it is skipped too. Skipping is always safe: launch then takes the next match or names the override.
   local direct={codex=true,claude=true,grok=true}
-  local runnable={node=true,nodejs=true}
   local function head_of(path)
     local f=io.open(path,"rb")
     if not f then return nil end
@@ -132,39 +131,27 @@ return function(C,M)
     f:close()
     return head
   end
-  -- The cage's fixed PATH (the runtime wrappers' env -i), where env finds a utility named without a slash.
-  local cage_path="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-  -- A program the cage will exec: an absolute path, or a name looked up in SEARCH (a colon list). A search list with an
-  -- empty or relative entry is refused whole: env would look there, in the cage's working directory (DIR, which the
-  -- agent writes), before or after the entry that holds a compiled node.
-  local function program_path(word,search)
-    if word:find("/",1,true) then return M.starts(word,"/") and word or nil end
-    if search==nil then return nil end
-    local dirs={}
-    for dir in ((search or cage_path) .. ":"):gmatch("([^:]*):") do
-      if not M.starts(dir,"/") then return nil end
-      dirs[#dirs+1]=dir
-    end
-    for _,dir in ipairs(dirs) do
-      local path=dir .. "/" .. word
-      if F.test("-f",path) and F.test("-x",path) then return path end
-    end
+  -- The cage's fixed PATH (the runtime wrappers' env -i), where `#!/usr/bin/env node` finds node.
+  local cage_path={"/opt/homebrew/bin","/usr/bin","/bin","/usr/sbin","/sbin"}
+  local function compiled(path)
+    local head=path and head_of(path)
+    return head~=nil and M.compiled(head)
   end
   local function agent_file(path)
     local head=head_of(path)
     if not head then return false end
-    local interpreter,chain=M.script_interpreter(head)
-    if interpreter==nil then return true end
-    if not runnable[interpreter] then return false end
-    -- A Node script runs only if each program on its #! line is compiled: the kernel won't start a script as an
-    -- interpreter, and sandbox-exec then hands the file itself to /bin/sh. So the #! path and every utility env runs
-    -- (found through -P or the cage's PATH) must be Mach-O.
-    for _,step in ipairs(chain) do
-      local program=program_path(step.program,step.search)
-      local program_head=program and head_of(program)
-      if not program_head or not M.compiled(program_head) then return false end
+    if M.compiled(head) then return true end
+    local node=M.node_launcher(head)
+    if not node then return false end
+    -- macOS won't start a script as an interpreter (sandbox-exec would then run the agent file with /bin/sh), so env
+    -- and node must both be compiled.
+    if M.starts(node,"/") then return compiled(node) end
+    if not compiled("/usr/bin/env") then return false end
+    for _,dir in ipairs(cage_path) do
+      local candidate=dir .. "/" .. node
+      if F.test("-f",candidate) and F.test("-x",candidate) then return compiled(candidate) end
     end
-    return true
+    return false
   end
   function K.override(name)
     return direct[name] and env("REX_ORCHESTRATOR_CAGE_" .. name:upper() .. "_BIN") or nil

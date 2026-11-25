@@ -32,7 +32,9 @@
 #     runs in the cage from its physical path with only its release folder readable: auth.json (with CODEX_HOME
 #     elsewhere), config, sessions, history, logs and a sibling release stay unreadable and unexecutable, the release
 #     folder unwritable; script shims first on PATH (shell in every #! form, no #!, fish, Python, Perl, Ruby) are
-#     skipped and never run while a Node script is taken, a PATH of shims only is refused
+#     skipped and never run; a Node script is taken only in an allowlisted #! shape naming a compiled node, and every
+#     other env form (options, assignments, long-looking words, nested env) is skipped with no script or planted
+#     node running; a PATH of shims only is refused
 #     naming the override, REX_ORCHESTRATOR_CAGE_CODEX_BIN picks the executable, an agent executable elsewhere
 #     under an agent home is refused, and one outside them reached through a link inside one runs by its physical path;
 #     agent homes match whatever their case (a link spelled ~/.CODEX, HOME spelled otherwise, an on-disk ~/.Claude-zt,
@@ -498,30 +500,41 @@ for form in 'none' '#!/usr/bin/env -u NAME sh' '#!/usr/bin/env -P /usr/bin bash'
   else printf '%s\n%s\n' "$form" "# would mark $SHIM_MARK" >"$d/codex"; fi
   chmod 755 "$d/codex"; SHIMS="$SHIMS$d:"
 done
-# A Node script counts only when its node is compiled. realnode/node is a Mach-O; scriptnode/node a shell script,
-# which the kernel won't start as an interpreter, so sandbox-exec would hand the agent file to /bin/sh instead.
-mkdir -p "$WORK/realnode" "$WORK/scriptnode" "$WORK/nodebin" "$WORK/nodepath" "$WORK/node-script" "$WORK/node-p-script"
+# Node launchers (core.lua's M.node_launcher): a Node script is taken only as #!/ABS/node, #!/usr/bin/env node or
+# #!/usr/bin/env -S node, with plain dashed options, naming a compiled node. Every other #! line is skipped: env's own
+# options and PATH rules are not modelled. realnode/node is a Mach-O; scriptnode/node a shell script, which the kernel
+# won't start as an interpreter (sandbox-exec would then hand the agent file to /bin/sh).
+mkdir -p "$WORK/realnode" "$WORK/scriptnode"
 cp "$ARGPROBE" "$WORK/realnode/node"
-printf '#!/bin/sh\necho RAN_AS_SH\n' >"$WORK/scriptnode/node"
-printf '#!/usr/bin/env -P %s node\n' "$WORK/realnode" >"$WORK/nodebin/codex"
-printf '#!%s\n' "$WORK/realnode/node" >"$WORK/nodepath/codex"
-printf '#!%s\n' "$WORK/scriptnode/node" >"$WORK/node-script/codex"
-printf '#!/usr/bin/env -P %s node\n' "$WORK/scriptnode" >"$WORK/node-p-script/codex"
-# env also searches a PATH its #! line assigns.
-mkdir -p "$WORK/node-path-script" "$WORK/node-path-real"
-printf '#!/usr/bin/env PATH=%s node\n' "$WORK/scriptnode" >"$WORK/node-path-script/codex"
-printf '#!/usr/bin/env PATH=%s node\n' "$WORK/realnode" >"$WORK/node-path-real/codex"
-# A search list with an empty or relative entry makes env look in the working directory (DIR, agent-written), so it is
-# refused even when another entry holds a compiled node. And options end at the first assignment: after PATH=, "-P" is
-# the program env runs.
-for form in "PATH=.:$WORK/realnode node" "PATH=:$WORK/realnode node" "PATH=$WORK/realnode: node" \
-  "-P .:$WORK/realnode node" "-P sub:$WORK/realnode node" "PATH=$WORK/realnode -P $WORK/realnode node"; do
-  d=$WORK/node-form-$(printf '%s' "$form" | cksum | cut -d' ' -f1); mkdir -p "$d"
-  printf '#!/usr/bin/env %s\n' "$form" >"$d/codex"; chmod 755 "$d/codex"
-  NODE_FORMS="${NODE_FORMS:-}$d "
+printf '#!/bin/sh\necho RAN_AS_SH\n' >"$WORK/scriptnode/node"; chmod 755 "$WORK/scriptnode/node"
+# node_dir LINE: a PATH folder holding a codex whose first line is LINE; prints the folder.
+node_dir() {
+  local d
+  d=$WORK/node-$(printf '%s' "$1" | cksum | cut -d' ' -f1); mkdir -p "$d"
+  printf '%s\n' "$1" >"$d/codex"; chmod 755 "$d/codex"; printf '%s' "$d"
+}
+NODE_TAKEN=("#!$WORK/realnode/node" "#!$WORK/realnode/node --no-warnings --enable-source-maps")
+NODE_SKIPPED=("#!$WORK/scriptnode/node" "#!$WORK/realnode/node ./other.js" "#!$WORK/realnode/node --title=x"
+  "#!$WORK/realnode/node \$HOME" "#!/usr/bin/env -P $WORK/scriptnode node" "#!/usr/bin/env PATH=$WORK/scriptnode node"
+  "#!/usr/bin/env --P$WORK/scriptnode node" "#!/usr/bin/env --iP $WORK/scriptnode node"
+  "#!/usr/bin/env --P $WORK/scriptnode node" "#!/usr/bin/env PATH=.:$WORK/realnode node"
+  "#!/usr/bin/env PATH=:$WORK/realnode node" "#!/usr/bin/env PATH=$WORK/realnode: node"
+  "#!/usr/bin/env -P .:$WORK/realnode node" "#!/usr/bin/env -P sub:$WORK/realnode node"
+  "#!/usr/bin/env PATH=$WORK/realnode -P $WORK/realnode node" "#!/usr/bin/env -P $WORK/realnode node"
+  "#!/usr/bin/env PATH=$WORK/realnode node" "#!/usr/bin/env -S PATH=$WORK/scriptnode node" "#!/usr/bin/env -i node"
+  "#!/usr/bin/env - node" "#!/usr/bin/env -- node" "#!/usr/bin/env -u PATH node" "#!/usr/bin/env env node"
+  "#!/usr/bin/env node ./other.js" "#!/usr/bin/env -S 'node --x'" "#!/bin/env node" "#!node")
+# #!/usr/bin/env node and its -S form resolve node in the cage's fixed PATH: taken if the first node there is compiled
+# (Homebrew's node), skipped otherwise. Either way the expectation comes from that file, not from this machine's luck.
+cage_node=''
+for dir in /opt/homebrew/bin /usr/bin /bin /usr/sbin /sbin; do
+  if [ -f "$dir/node" ] && [ -x "$dir/node" ]; then cage_node=$dir/node; break; fi
 done
-chmod 755 "$WORK/scriptnode/node" "$WORK/nodebin/codex" "$WORK/nodepath/codex" "$WORK/node-script/codex" \
-  "$WORK/node-p-script/codex" "$WORK/node-path-script/codex" "$WORK/node-path-real/codex"
+case "$([ -n "$cage_node" ] && head -c 4 "$cage_node" | od -An -tx1 | tr -d ' \n')" in
+  cffaedfe | cefaedfe | feedfacf | feedface | cafebabe | cafebabf | bebafeca | bfbafeca)
+    NODE_TAKEN+=("#!/usr/bin/env node" "#!/usr/bin/env -S node --no-warnings") ;;
+  *) NODE_SKIPPED+=("#!/usr/bin/env node" "#!/usr/bin/env -S node --no-warnings") ;;
+esac
 # sa_build PATH [VAR=VALUE...]: build a codex cage for PD as launch does for a bare --agent codex, with only PATH (and
 # the variables) changed; sets W, CT and CWD on success and SA_RC to the build's exit code, its notes in build.log.
 sa_build() {
@@ -558,32 +571,23 @@ if sa_build "$SHIMS$LINKED"; then
   chk "every script form is skipped for the release" "REAL='$REL/bin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
   chk "the note names all ten skipped scripts" 10 "$(grep -o "$WORK/shims-[^ ,:]*/codex" "$WORK/build.log" | sort -u | wc -l | tr -d ' ')"
 else bad "script forms: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
-for d in node-script node-p-script node-path-script; do
-  if sa_build "$WORK/$d:$LINKED"; then
-    chk "a Node script whose node is a script ($d) is skipped" "REAL='$REL/bin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
-    chk "$d: the agent never runs as sh" no "$(cg -c 'echo RAN' 2>&1 | grep -q RAN_AS_SH && echo yes || echo no)"
-  else bad "$d: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
-done
-# A node planted in DIR would run first for the relative entries.
+# Every skipped form leaves the release to run; neither a script node nor a node planted in DIR (the cage's working
+# directory, which env would search for "." or an empty PATH entry) ever runs.
 printf '#!/bin/sh\necho PLANTED_NODE_RAN\n' >"$PD/node"; chmod 755 "$PD/node"
-for d in $NODE_FORMS; do
-  if sa_build "$d:$LINKED"; then
-    chk "skipped: #!$(sed -n '1s/^#!//p' "$d/codex")" "REAL='$REL/bin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
-    chk "$(sed -n '1s/^#!//p' "$d/codex"): no planted node runs" no \
-      "$(cg -c 'echo RAN' 2>&1 | grep -q PLANTED_NODE_RAN && echo yes || echo no)"
-  else bad "$d: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
+for form in "${NODE_SKIPPED[@]}"; do
+  if sa_build "$(node_dir "$form"):$LINKED"; then
+    chk "skipped: $form" "REAL='$REL/bin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
+    chk "$form: no script or planted node runs" no \
+      "$(cg -c 'echo RAN' 2>&1 | grep -Eq 'RAN_AS_SH|PLANTED_NODE_RAN' && echo yes || echo no)"
+  else bad "$form: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
 done
 rm -f "$PD/node"
-if sa_build "$WORK/nodepath:$LINKED"; then
-  chk "a Node script with a compiled #! node is taken" "REAL='$WORK/nodepath/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
-else bad "Node script by path: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
-if sa_build "$WORK/node-path-real:$LINKED"; then
-  chk "a Node script whose PATH= finds a compiled node is taken" "REAL='$WORK/node-path-real/codex'" \
-    "$(grep -m1 -o "^REAL='[^']*'" "$W")"
-else bad "Node script with PATH=: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
-if sa_build "$WORK/shims:$WORK/nodebin:$LINKED"; then
-  chk "a Node script on PATH is taken as the agent" "REAL='$WORK/nodebin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
-else bad "Node script: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
+for form in "${NODE_TAKEN[@]}"; do
+  d=$(node_dir "$form")
+  if sa_build "$WORK/shims:$d:$LINKED"; then
+    chk "taken: $form" "REAL='$d/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
+  else bad "$form: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
+done
 # With CODEX_HOME elsewhere AGENT_AUTH is that home's auth.json, so only the release folder could open
 # HOME/.codex/auth.json: it must stay unreadable, and, made executable, must not run.
 CXH="$WORK/codex-alt-home"; mkdir -p "$CXH"; printf 'fixture\n' >"$CXH/auth.json"

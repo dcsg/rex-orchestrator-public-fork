@@ -30,24 +30,33 @@ grok launched by name (`--agent codex`):
   the executable. It must be an absolute path to an executable file. It applies to caged launches only: when nothing
   on `PATH` matches and the cage doesn't apply after all (claude with no cage credential under `auto`), `launch` exits
   2 instead of running the variable's file uncaged.
-- Otherwise `launch` takes the first one on your `PATH` that is a compiled executable (Mach-O) or a Node script whose
-  `node` is compiled too: the `#!` path, or the one `env` finds through `-P`, a `PATH=` it sets (or execvp's default
-  after `-i` or `-u PATH`), or else the cage's fixed `PATH` (`/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`). A
-  search list with an empty or relative entry is refused, since `env` would look in the cage's working directory,
-  DIR. As in macOS `env`, options end at the first `NAME=VALUE`, so in `env PATH=/d -P /p node` the program is `-P`. macOS won't start a script as an interpreter, and
-  `sandbox-exec` would then run the agent file with `/bin/sh`. Those
-  are what the agents install: codex's and claude's native binaries and grok's download are Mach-O, an npm install of
-  codex runs `bin/codex.js` through `#!/usr/bin/env node`, and npm's claude package puts its native binary in place
-  at install time. Every other match is a script: a shell script in any `#!` form (directly, or through `env` with any
-  options, `NAME=VALUE` assignments or a `-S` string, joined or not), a text file with no `#!` line (which `execvp`
-  hands to `/bin/sh`), or a fish, Python, Perl or Ruby script, or any other interpreter. Such a file is a wrapper or
-  shim, such as one that fetches MCP tokens and then runs the real agent. Inside the cage its environment is gone,
-  its `PATH` lookup usually finds nothing, and the cage config has no MCP servers to give tokens to, so `launch`
-  skips it and says which file it skipped and which one it runs. It never runs the shim. An unreadable file is skipped
-  too, since it can't be told apart. When nothing on `PATH` qualifies, `launch` exits 2 and names the variable to set.
-  If such a script is the agent's own launcher (a pnpm or asdf wrapper, say), set the variable to it. Uncaged launches
-  still run the first match, shim included. agy is not affected: its Homebrew launcher is itself a Bash script, and
-  `launch` runs it as before.
+- Otherwise `launch` takes the first one on your `PATH` that is a compiled executable (Mach-O) or a Node launcher.
+  Those are what the agents install: codex's and claude's native binaries and grok's download are Mach-O, an npm
+  install of codex runs `bin/codex.js` through `#!/usr/bin/env node`, and npm's claude package puts its native binary
+  in place at install time. A Node launcher is a script whose first line has exactly one of these shapes (`nodejs`
+  works for `node`):
+
+  | First line | `node` that must be compiled |
+  |---|---|
+  | `#!/ABS/PATH/node [OPTIONS]` | `/ABS/PATH/node` |
+  | `#!/usr/bin/env node [OPTIONS]` | the first `node` in the cage's fixed `PATH`, `/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin` |
+  | `#!/usr/bin/env -S node [OPTIONS]` | the same |
+
+  OPTIONS are plain dashed words such as `--no-warnings`, with no `=`, `/`, quotes or `$`: nothing that names a file,
+  sets a value or reads the environment. `node` must be a compiled Mach-O, because macOS won't start a script as an
+  interpreter and `sandbox-exec` would then run the agent file with `/bin/sh`. Any other first line is a script and
+  is skipped. That includes any other `env` option or assignment (`-P`, `-i`, `-u`, `-`, `--`, `PATH=…`), a word
+  that only looks like a long option (macOS `env` reads `--P/dir` as `-P /dir`), a nested `env`, an argument naming a
+  file, and every other interpreter: shell scripts, a text file with no `#!` line (which `execvp` hands to
+  `/bin/sh`), and fish, Python, Perl or Ruby. `launch` doesn't model `env`'s option and `PATH` rules; it takes only
+  these shapes, and skipping a file is always safe. Such a file is usually a wrapper or shim, such as one that
+  fetches MCP tokens and then runs the real agent. Inside the cage its environment is gone, its `PATH` lookup usually
+  finds nothing, and the cage config has no MCP servers to give tokens to, so `launch` skips it and says which file
+  it skipped and which one it runs. It never runs the shim. An unreadable file is skipped too, since it can't be told
+  apart. When nothing on `PATH` qualifies, `launch` exits 2 and names the variable to set. If the skipped script is
+  the agent's own launcher (a pnpm or asdf wrapper, say), set the variable to it. Uncaged launches still run the first
+  match, shim included. agy is not affected: its Homebrew launcher is itself a Bash script, and `launch` runs it as
+  before.
 - `--agent` given as a path is used as given.
 
 The cage denies reads and execution under every agent home (`~/.claude*`, `~/.codex*`, `~/.grok*`, `~/.gemini*`), so an

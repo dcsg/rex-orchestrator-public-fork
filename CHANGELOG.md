@@ -42,7 +42,7 @@ project uses [Semantic Versioning](https://semver.org/).
   that one file by its physical path and re-opens only it, read and execute only, for that launch.
 - Run a caged codex from a standalone install (`~/.codex/packages/standalone/releases/<version>/`): the cage runs it by
   its physical path and re-opens only that release folder, read and execute only, for that launch. A caged codex,
-  claude or grok launched by name skips script shims on `PATH` (anything but a compiled executable or a Node script)
+  claude or grok launched by name skips script shims on `PATH` (anything but a compiled executable or a Node launcher of an exact shape)
   instead of running them in the cage. The cage
   now denies execution under agent homes as well as reads, and `launch` refuses an agent executable it can't start
   there with exit 2. An executable reached through a link inside an agent home runs by its physical path.

@@ -188,44 +188,6 @@ local expected={
 for name,want in pairs(expected) do eq(M.background(fixture("bg/" .. name)):match("^(%d+)") or "",want,"background " .. name) end
 local run,C,A=test()
 eq(M.duration("--timeout","008m",C.die),480)
--- The programs a #! line runs in turn, for checking that each one is compiled.
-do
-  local function chain(head)
-    local _,steps=M.script_interpreter(head)
-    local shown={}
-    for _,step in ipairs(steps) do
-      shown[#shown+1]=step.program .. "@" .. (step.search==nil and "kernel" or step.search==false and "PATH" or step.search)
-    end
-    return table.concat(shown," ")
-  end
-  eq(chain("#!/opt/node/bin/node\n"),"/opt/node/bin/node@kernel")
-  eq(chain("#!/usr/bin/env node\n"),"/usr/bin/env@kernel node@PATH")
-  eq(chain("#!/usr/bin/env -P /x:/y node\n"),"/usr/bin/env@kernel node@/x:/y")
-  eq(chain("#!/usr/bin/env -P/x node\n"),"/usr/bin/env@kernel node@/x")
-  eq(chain("#!/usr/bin/env -S -P /x node --flag\n"),"/usr/bin/env@kernel node@/x")
-  eq(chain("#!/usr/bin/env -i /usr/bin/env -P /z node\n"),"/usr/bin/env@kernel /usr/bin/env@/usr/bin:/bin node@/z")
-  -- env searches the PATH it sets: an assignment, or execvp's default once PATH is cleared; -P still wins.
-  eq(chain("#!/usr/bin/env PATH=/some/dir node\n"),"/usr/bin/env@kernel node@/some/dir")
-  eq(chain("#!/usr/bin/env A=1 PATH=/d:/e B=2 node\n"),"/usr/bin/env@kernel node@/d:/e")
-  eq(chain("#!/usr/bin/env -S PATH=/s node\n"),"/usr/bin/env@kernel node@/s")
-  eq(chain("#!/usr/bin/env -P /p PATH=/d node\n"),"/usr/bin/env@kernel node@/p")
-  -- Options end at the first assignment, as in macOS env: what follows without "=" is the utility, dashes and all.
-  eq(chain("#!/usr/bin/env PATH=/d -P /p node\n"),"/usr/bin/env@kernel -P@/d")
-  eq(chain("#!/usr/bin/env FOO=1 -P /usr/bin node\n"),"/usr/bin/env@kernel -P@PATH")
-  eq(chain("#!/usr/bin/env A=1 -i node\n"),"/usr/bin/env@kernel -i@PATH")
-  eq(chain("#!/usr/bin/env A=1 -- node\n"),"/usr/bin/env@kernel --@PATH")
-  eq(chain("#!/usr/bin/env -S 'PATH=/d -P /p node'\n"),"/usr/bin/env@kernel -P@/d")
-  eq(chain("#!/usr/bin/env a.b=1 PATH=/d node\n"),"/usr/bin/env@kernel node@/d")
-  eq(chain("#!/usr/bin/env -i node\n"),"/usr/bin/env@kernel node@/usr/bin:/bin")
-  eq(chain("#!/usr/bin/env -u PATH node\n"),"/usr/bin/env@kernel node@/usr/bin:/bin")
-  eq(chain("#!/usr/bin/env --unset=PATH node\n"),"/usr/bin/env@kernel node@/usr/bin:/bin")
-  eq(chain("#!/usr/bin/env -i PATH=/n node\n"),"/usr/bin/env@kernel node@/n")
-  eq(chain("#!/usr/bin/env PATH=/a env node\n"),"/usr/bin/env@kernel env@/a node@/a")
-  eq(chain("#!/usr/bin/env PATH= node\n"),"/usr/bin/env@kernel node@")
-  eq(chain("\207\250\237\254"),"")
-  eq(chain("no shebang"),"")
-  eq(M.compiled("\207\250\237\254rest"),true); eq(M.compiled("#!/bin/sh"),false)
-end
 -- Every note, refusal and raw diagnostic reaches the terminal escaped at the sink, whatever the caller put in it.
 do
   local written={}
@@ -250,50 +212,40 @@ do
     end
   end
 end
--- What runs an executable file: nil for a compiled Mach-O, else the interpreter's basename ("sh" without #!).
+-- A compiled executable, by its first bytes: thin or universal Mach-O, either byte order.
+for _,magic in ipairs({"\207\250\237\254\7\0\0\1","\206\250\237\254","\254\237\250\207","\254\237\250\206",
+  "\202\254\186\190\0\0\0\2","\202\254\186\191","\190\186\254\202","\191\186\254\202"}) do
+  eq(M.compiled(magic),true,"compiled " .. M.terminal_text(magic)); eq(M.node_launcher(magic),nil)
+end
+for _,head in ipairs({"#!/bin/sh\n","echo x\n","","\127ELF"}) do eq(M.compiled(head),false) end
+-- The only Node launchers the cage takes: three exact #! shapes with plain dashed options.
 for _,case in ipairs({
-  {"\207\250\237\254\7\0\0\1",nil},                      -- Mach-O 64-bit, little-endian (arm64, x86_64)
-  {"\206\250\237\254",nil},                              -- Mach-O 32-bit
-  {"\254\237\250\207",nil},{"\254\237\250\206",nil},     -- big-endian
-  {"\202\254\186\190\0\0\0\2",nil},                      -- universal
-  {"\202\254\186\191",nil},{"\190\186\254\202",nil},{"\191\186\254\202",nil},
-  {"#!/bin/bash\nexec x","bash"},
-  {"#! /bin/sh -e\n","sh"},
-  {"#!/bin/zsh","zsh"},
-  {"#!/usr/bin/env bash\n","bash"},
   {"#!/usr/bin/env node\n","node"},
-  {"#!/usr/bin/env -S node --no-warnings\n","node"},
-  {"#!/usr/bin/env -i bash\n","bash"},
-  {"#!/usr/bin/env -iv bash\n","bash"},
-  {"#!/usr/bin/env - bash\n","bash"},
-  {"#!/usr/bin/env -u NAME sh\n","sh"},
-  {"#!/usr/bin/env -uNAME python3\n","python3"},
-  {"#!/usr/bin/env -P /opt/bin sh\n","sh"},
-  {"#!/usr/bin/env -P/opt/bin perl\n","perl"},
-  {"#!/usr/bin/env -S bash -e\n","bash"},
-  {"#!/usr/bin/env -S 'bash -e'\n","bash"},
-  {"#!/usr/bin/env -S\"ruby -w\"\n","ruby"},
-  {"#!/usr/bin/env -Ssh\n","sh"},
-  {"#!/usr/bin/env -S -u X fish\n","fish"},
-  {"#!/usr/bin/env -iS bash\n","bash"},
-  {"#!/usr/bin/env --split-string=bash\n","bash"},
-  {"#!/usr/bin/env --unset NAME node\n","node"},
-  {"#!/usr/bin/env --unset=NAME zsh\n","zsh"},
-  {"#!/usr/bin/env -C /tmp dash\n","dash"},
-  {"#!/usr/bin/env A=1 B=2 bash\n","bash"},
-  {"#!/usr/bin/env -i PATH=/x -- ksh\n","--"},
-  {"#!/usr/bin/env env bash\n","bash"},
-  {"#!/usr/bin/env -i /usr/bin/env -u X node\n","node"},
-  {"#!/usr/bin/env\n","sh"},
-  {"#!\n","sh"},
-  {"#!/usr/local/bin/fish\n","fish"},
-  {"#!/usr/bin/python3 -I\n","python3"},
-  {"#!/usr/bin/perl -w\n","perl"},
-  {"#!/usr/bin/ruby\n","ruby"},
-  {"#!/opt/homebrew/bin/node\n","node"},
-  {"echo no shebang\n","sh"},
-  {"","sh"},
-}) do eq(M.script_interpreter(case[1]),case[2],"script_interpreter " .. M.terminal_text(case[1]:sub(1,40))) end
+  {"#!/usr/bin/env nodejs\n","nodejs"},
+  {"#!/usr/bin/env node --no-warnings\n","node"},
+  {"#!/usr/bin/env -S node --no-warnings --stack-size\n","node"},
+  {"#!/opt/homebrew/bin/node\n","/opt/homebrew/bin/node"},
+  {"#!/usr/local/bin/nodejs -r\n","/usr/local/bin/nodejs"},
+  {"#! /opt/node/bin/node --enable-source-maps\nrest","/opt/node/bin/node"},
+}) do eq(M.node_launcher(case[1]),case[2],"node launcher " .. case[1]) end
+-- Everything else is not one, so the cage skips it: other interpreters, no #!, every env option, assignment, "--",
+-- "-", nested env, long-looking words (macOS env reads --P as -P), arguments that name a file, set or expand a value.
+for _,head in ipairs({
+  "no shebang\n", "#!\n", "#!/bin/bash\n", "#!/usr/bin/env bash\n", "#!/usr/bin/env python3\n", "#!/usr/bin/env\n",
+  "#!node\n", "#!./node\n", "#!bin/node\n", "#!/usr/bin/nodeish\n", "#!/bin/env node\n", "#!/usr/bin/env.sh node\n",
+  "#!/usr/bin/env --P/some/dir node\n", "#!/usr/bin/env --iP /d node\n", "#!/usr/bin/env --P /d node\n",
+  "#!/usr/bin/env --split-string=node\n", "#!/usr/bin/env --unset=PATH node\n", "#!/usr/bin/env --ignore-environment node\n",
+  "#!/usr/bin/env PATH=/d node\n", "#!/usr/bin/env PATH=.:/opt/homebrew/bin node\n", "#!/usr/bin/env FOO=1 node\n",
+  "#!/usr/bin/env -P /d node\n", "#!/usr/bin/env -P/d node\n", "#!/usr/bin/env -i node\n", "#!/usr/bin/env - node\n",
+  "#!/usr/bin/env -u PATH node\n", "#!/usr/bin/env -uX node\n", "#!/usr/bin/env -v node\n", "#!/usr/bin/env -- node\n",
+  "#!/usr/bin/env -S -P /d node\n", "#!/usr/bin/env -S PATH=/d node\n", "#!/usr/bin/env -S 'node --x'\n",
+  "#!/usr/bin/env -Snode\n", "#!/usr/bin/env -S node $HOME\n", "#!/usr/bin/env -S -S node\n",
+  "#!/usr/bin/env env node\n", "#!/usr/bin/env /usr/bin/env node\n", "#!/usr/bin/env PATH=/d -P /p node\n",
+  "#!/usr/bin/env node /tmp/other.js\n", "#!/usr/bin/env node other.js\n", "#!/usr/bin/env node --require=x\n",
+  "#!/usr/bin/env node --title \"x\"\n", "#!/usr/bin/env node -\n", "#!/usr/bin/env node --\n",
+  "#!/opt/node/bin/node /tmp/x.js\n", "#!/opt/node/bin/node script.js\n", "#!/opt/node/bin/node --a=b\n",
+  "#!/opt/node/bin/node $X\n", "#!/opt/node/bin/node 'x'\n",
+}) do eq(M.node_launcher(head),nil,"not a node launcher: " .. M.terminal_text(head)) end
 for _,v in ipairs({"-1","1.5","","1d","1M"," 1","1sfoo"}) do
   local r=test() -- the command parser must return public exit 2
   eq(r("wait",{child,"--timeout",v}).code,2,"duration " .. v)

@@ -40,94 +40,39 @@ end
 function M.trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 function M.starts(s, p) return s:sub(1, #p) == p end
 function M.below(s, p) return M.starts(s, p .. "/") and #s > #p+1 end
--- What the kernel runs for an executable file, from its first bytes: nil for a compiled Mach-O (thin or universal,
--- either byte order), else the basename of the interpreter its #! line names, or "sh" without a #! line (execvp hands
--- such a file to /bin/sh). Through env, it skips options (also those taking a value: -u NAME, -P DIR, -S STRING,
--- joined or not, and the long forms), NAME=VALUE assignments and "--", and reads a -S string as more arguments.
+-- Whether an executable file's first bytes are a compiled Mach-O (thin or universal, either byte order).
 local machos={}
 for _,magic in ipairs({"\206\250\237\254","\207\250\237\254","\254\237\250\206","\254\237\250\207",
   "\202\254\186\190","\202\254\186\191","\190\186\254\202","\191\186\254\202"}) do machos[magic]=true end
-local env_values={P=true,S=true,u=true,L=true,U=true,C=true}
-local env_long={["split-string"]="S",unset="u",chdir="C"}
-local function unquote(word) return (word:gsub("^['\"]",""):gsub("['\"]$","")) end
--- execvp's search path when PATH is unset (env -i, env -u PATH).
-local default_path="/usr/bin:/bin"
-local function env_utility(words)
-  -- path: the PATH this env leaves for its utility (nil: unchanged), which it also searches unless -P names another.
-  -- As macOS env does, options end at the first NAME=VALUE (a word holding "="): after it, the first word without
-  -- "=" is the utility, even one starting with "-".
-  local stack,altpath,path,assigned={},nil,nil,false
-  for i=#words,1,-1 do stack[#stack+1]=words[i] end
-  local function pop() local word=stack[#stack]; stack[#stack]=nil; return word end
-  local function rest()
-    local words={}
-    for i=#stack,1,-1 do words[#words+1]=stack[i] end
-    return words
-  end
-  local function split(value)
-    local parts={}
-    for part in unquote(value):gmatch("%S+") do parts[#parts+1]=unquote(part) end
-    for i=#parts,1,-1 do stack[#stack+1]=parts[i] end
-  end
-  while #stack>0 do
-    local word=pop()
-    if assigned and not word:find("=",1,true) then return word,rest(),altpath,path end
-    if word=="--" and not assigned then return pop(),rest(),altpath,path end
-    if assigned then
-      if M.starts(word,"PATH=") then path=word:sub(6) end
-    elseif M.starts(word,"--") then
-      local name,value=word:match("^%-%-([^=]+)=(.*)$")
-      local long=name or word:sub(3)
-      local kind=env_long[long]
-      if kind then
-        value=value or pop()
-        if kind=="S" and value then split(value) end
-        if kind=="u" and value=="PATH" then path=default_path end
-      elseif long=="ignore-environment" then path=default_path
-      end
-    elseif M.starts(word,"-") then
-      if word=="-" then path=default_path end
-      for k=2,#word do
-        local option=word:sub(k,k)
-        if option=="i" then path=default_path end
-        if env_values[option] then
-          local value=word:sub(k+1)
-          if value=="" then value=pop() end
-          if option=="S" and value then split(value) end
-          if option=="P" then altpath=value end
-          if option=="u" and value=="PATH" then path=default_path end
-          break
-        end
-      end
-    elseif word:find("=",1,true) then
-      assigned=true
-      if M.starts(word,"PATH=") then path=word:sub(6) end
-    else
-      return word,rest(),altpath,path
-    end
-  end
-end
 function M.compiled(head) return machos[head:sub(1,4)]==true end
--- Also returns the programs that run in turn, as {program=WORD, search=PATHS}: the #! word itself, which the kernel
--- takes as a path (search nil), then each utility env runs, which env looks up in -P's directories, else in the PATH
--- it sets (an assignment, or execvp's default after -i or -u PATH), else in the PATH it got (search false: the
--- caller's). A nested env passes its PATH on.
-function M.script_interpreter(head)
-  if machos[head:sub(1,4)] then return nil,{} end
+-- The node a Node script's #! line runs, if the line has one of three exact shapes, else nil:
+--   #!/ABS/PATH/node [OPTIONS]                -> "/ABS/PATH/node"
+--   #!/usr/bin/env node [OPTIONS]             -> "node", for the caller to look up in a fixed PATH
+--   #!/usr/bin/env -S node [OPTIONS]          -> "node"
+-- (nodejs too.) OPTIONS are plain dashed words such as --no-warnings: no "=", no "/", no quotes or "$", so none names a
+-- file, sets a value or reads the environment. Anything else, any other env option, assignment, "--", nested env or
+-- argument, is not a Node launcher: env's own option and PATH rules are not modelled, so an odd line is never trusted.
+local node_names={node=true,nodejs=true}
+function M.node_launcher(head)
+  if machos[head:sub(1,4)] then return nil end
   local line=head:match("^#!([^\n]*)")
-  if not line then return "sh",{} end
+  if not line then return nil end
   local words={}
   for word in line:gmatch("%S+") do words[#words+1]=word end
-  local interpreter=table.remove(words,1)
-  local chain={interpreter and {program=interpreter,search=nil} or nil}
-  local path=false
-  while interpreter and M.basename(interpreter)=="env" do
-    local altpath,set
-    interpreter,words,altpath,set=env_utility(words)
-    if set~=nil then path=set end
-    if interpreter then chain[#chain+1]={program=interpreter,search=altpath or path} end
+  local first,program,options=words[1] or "",nil,2
+  if first=="/usr/bin/env" then
+    options=3
+    if words[2]=="-S" then options=4; program=words[3] else program=words[2] end
+    if not program or not node_names[program] then return nil end
+  elseif M.starts(first,"/") and node_names[M.basename(first)] then
+    program=first
+  else
+    return nil
   end
-  return interpreter and M.basename(interpreter) or "sh",chain
+  for i=options,#words do
+    if not words[i]:match("^%-%-?[%w][%w%-]*$") then return nil end
+  end
+  return program
 end
 function M.region(s)
   local a = {}; for _, l in ipairs(M.lines(s)) do
