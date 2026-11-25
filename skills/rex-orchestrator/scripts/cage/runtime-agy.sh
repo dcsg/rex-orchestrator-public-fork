@@ -72,8 +72,12 @@ agy_refuse_home() {
   if [ -n "$AGY_CMD_FILE" ]; then exit 71; fi
   exit 70
 }
+agy_at_dir() {
+  # Cached PWD can describe the path Bash walked before chdir. Keep any trailing newlines in getcwd's result.
+  [ "$(/bin/pwd -P && printf .)" = "$1"$'\n.' ]
+}
 agy_enter_token_dir() {
-  cd -P -- "$token_dir" && [ "$PWD" = "$token_dir" ] &&
+  cd -P -- "$token_dir" && agy_at_dir "$token_dir" &&
     [ "$(/usr/bin/stat -f '%d:%i' .)" = "$token_identity" ]
 }
 # Copy physically, and check the private copy before doing any uncaged token work.
@@ -89,7 +93,8 @@ while [ "$source_home" != / ]; do
   esac
 done
 # Resolve the parent without following the home itself, then require the physical cwd to match.
-source_parent=$(cd -P -- "${source_home%/*}/" && pwd -P) || agy_refuse_home
+source_parent=$(cd -P -- "${source_home%/*}/" && /bin/pwd -P && printf .) || agy_refuse_home
+source_parent=${source_parent%$'\n.'}
 case "${source_home##*/}" in
   '') source_dir=/ ;;
   ..) source_dir=${source_parent%/*}; source_dir=${source_dir:-/} ;;
@@ -100,13 +105,13 @@ case "${DIR%/}/" in "${source_dir%/}/"*) agy_refuse_home 'the agy provisioned ho
 agy_safe_home "$source_dir" || agy_refuse_home
 if [ -L "$CT/home" ] || ! /bin/mkdir -p "$CT/home"; then agy_refuse_home; fi
 if [ ! -d "$CT/home/.gemini" ]; then
-  (cd -P -- "$source_dir" && [ "$PWD" = "$source_dir" ] && /bin/cp -RP . "$CT/home/") 2>/dev/null || agy_refuse_home
+  (cd -P -- "$source_dir" && agy_at_dir "$source_dir" && /bin/cp -RP . "$CT/home/") 2>/dev/null || agy_refuse_home
 fi
 agy_safe_home "$CT/home" || agy_refuse_home
 if [ -n "$AGY_CMD_FILE" ]; then
   token_dir="$CT/home/.gemini/antigravity-cli"
   (umask 077; /bin/mkdir -p "$token_dir") || agy_refuse_home
-  token_identity=$(cd -P -- "$token_dir" && [ "$PWD" = "$token_dir" ] && /usr/bin/stat -f '%d:%i' .) || agy_refuse_home
+  token_identity=$(cd -P -- "$token_dir" && agy_at_dir "$token_dir" && /usr/bin/stat -f '%d:%i' .) || agy_refuse_home
   AGY_TOKEN_FILE="$token_dir/antigravity-oauth-token"
   # Suppress command diagnostics too: a failed shell command can quote its input or the credential in stderr.
   # Only the noninteractive lookup gets its own process group, so cancellation reaches provider subprocesses too.

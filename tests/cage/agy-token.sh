@@ -290,6 +290,96 @@ mv "$ct/bin/swap" "$cage_wrapper"; chmod +x "$cage_wrapper"
 run normal 0
 check 'swapping the provisioned home after the scan stops startup' "$rc:$(started):$([ -L "$CAGE_AGY_HOME" ] && echo swapped || echo missing)" '71:no:swapped'
 check 'the source swap never runs the provider or writes a token' "$([ ! -e "$marker" ] && [ ! -e "$CAGE_AGY_HOME.decoy/.gemini/antigravity-cli/antigravity-oauth-token" ] && echo safe)" safe
+# Split the copy's cd into its path walk and chdir so every attempt exercises a stale cached PWD.
+rm "$CAGE_AGY_HOME"; mv "$CAGE_AGY_HOME.before" "$CAGE_AGY_HOME"
+build
+cat >"$work/split-cd" <<'FIXTURE'
+  cd() {
+    local walked
+    walked=$(builtin cd "$@" && /bin/pwd -P) || return
+    /bin/mv "$source_dir" "$source_dir.before" || return
+    /bin/ln -s "$REX_TEST_AGY_DECOY" "$source_dir" || return
+    builtin cd "$@" || return
+    [ "$(/bin/pwd -P && printf .)" = "$REX_TEST_AGY_DECOY"$'\n.' ] || return
+    PWD=$walked
+    : >"$CT/swapped-during-cd"
+  }
+FIXTURE
+awk -v fixture="$work/split-cd" '/^[[:space:]]*\(cd -P -- "\$source_dir"/ {
+  while ((getline line < fixture) > 0) print line
+  close(fixture)
+} {print}' "$cage_wrapper" >"$ct/bin/split-cd"
+mv "$ct/bin/split-cd" "$cage_wrapper"; chmod +x "$cage_wrapper"
+attempts=0 refused=0 copied=0
+for decoy in "$CAGE_AGY_HOME.decoy" "$CAGE_AGY_HOME"$'\n'; do
+  mkdir -p "$decoy"
+  : >"$decoy/decoy-marker"
+  for ((attempt=0; attempt<16; attempt++)); do
+    rm -f "$ct/swapped-during-cd"
+    (umask 077; printf '%s\n' "$REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD" >"$cmd_file")
+    REX_TEST_AGY_DECOY="$decoy" run normal 0
+    [ ! -f "$ct/swapped-during-cd" ] || attempts=$((attempts + 1))
+    [ "$rc:$(started)" != '71:no' ] || refused=$((refused + 1))
+    [ ! -e "$ct/home/decoy-marker" ] || copied=$((copied + 1))
+    if [ -L "$CAGE_AGY_HOME" ]; then rm "$CAGE_AGY_HOME"; mv "$CAGE_AGY_HOME.before" "$CAGE_AGY_HOME"; fi
+  done
+done
+check 'all 32 split cd attempts reach the decoy with a stale PWD' "$attempts" 32
+check 'a swap during cd always stops startup before copying from the decoy' "$refused:$copied" '32:0'
+check 'a swap during cd never runs the provider' "$([ ! -e "$marker" ] && echo safe)" safe
+# Swap the unmodified wrapper's source home for a symlink concurrently. Whatever the interleaving, a launch either
+# copies the real home or refuses; the bounded attempt count keeps pass/fail independent of timing.
+race_home="$work/race-home"
+mkdir -p "$race_home/.gemini/antigravity-cli" "$race_home.decoy/.gemini/antigravity-cli"
+: >"$race_home/real-marker"
+: >"$race_home.decoy/decoy-marker"
+printf 'legacy fixture\n' >"$race_home/.gemini/antigravity-cli/antigravity-oauth-token"
+printf 'legacy fixture\n' >"$race_home.decoy/.gemini/antigravity-cli/antigravity-oauth-token"
+saved_token_cmd=$REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD
+unset REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD
+CAGE_AGY_HOME=$race_home build
+export REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=$saved_token_cmd
+# Flip the state every few milliseconds with direct syscalls, so launches see both states and the moments between.
+# The real home stays longer, so some launches get through the whole copy while a flip is due.
+/usr/bin/perl -e '
+  my ($home, $stop, $count) = @ARGV;
+  my $flips = 0;
+  while (!-e $stop && -d "$home.decoy") {
+    rename($home, "$home.before") or next;
+    symlink("$home.decoy", $home) or die "cannot plant the race symlink\n";
+    select(undef, undef, undef, rand(0.003));
+    unlink($home) or die "cannot remove the race symlink\n";
+    rename("$home.before", $home) or die "cannot restore the race home\n";
+    $flips++;
+    select(undef, undef, undef, rand(0.02));
+  }
+  open(my $out, ">", $count) or die "cannot record the race flips\n";
+  print $out "$flips\n";' "$race_home" "$work/race-stop" "$work/race-flips" & swapper_pid=$!
+race_runs=0 race_copied=0 race_decoy=0 race_refused=0 race_other=0
+for ((attempt=0; attempt<300; attempt++)); do
+  rm -rf "${ct:?}/home"
+  run legacy 0
+  race_runs=$((race_runs + 1))
+  if [ -e "$ct/home/decoy-marker" ]; then race_decoy=$((race_decoy + 1)); fi
+  case "$rc" in
+    0) if [ -e "$ct/home/real-marker" ]; then race_copied=$((race_copied + 1)); else race_other=$((race_other + 1)); fi ;;
+    70) if [ "$(started)" = no ]; then race_refused=$((race_refused + 1)); else race_other=$((race_other + 1)); fi ;;
+    *) race_other=$((race_other + 1)) ;;
+  esac
+done
+: >"$work/race-stop"
+swapper_rc=0
+wait "$swapper_pid" || swapper_rc=$?
+rm -f "$work/race-stop"
+if [ -L "$race_home" ]; then rm "$race_home"; fi
+if [ ! -e "$race_home" ]; then mv "$race_home.before" "$race_home"; fi
+printf 'INFO  agy token: concurrent swap race copied %s and refused %s of %s launches across %s flips\n' \
+  "$race_copied" "$race_refused" "$race_runs" "$(cat "$work/race-flips" 2>/dev/null || echo 0)"
+check 'concurrent swapper flipped the home and stopped cleanly' \
+  "$swapper_rc:$([ "$(cat "$work/race-flips" 2>/dev/null || echo 0)" -gt 0 ] && echo flipped)" '0:flipped'
+check 'concurrent symlink swaps run 300 bounded launches' "$race_runs" 300
+check 'concurrent symlink swaps never copy from the other folder' "$race_decoy" 0
+check 'concurrent symlink swaps either copy the real home or refuse with 70' "$race_other" 0
 CAGE_AGY_HOME="$work/project/shared-login"
 mkdir -p "$CAGE_AGY_HOME" "$CAGE_AGY_HOME/task"
 ln -s "$CAGE_AGY_HOME" "$work/alias-login"
