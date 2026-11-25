@@ -872,12 +872,24 @@ do
   f=sweep_fixture{blocks={"block:c"}}
   r=f.W.sweep()
   eq(#f.closed,0,"the grace period holds the orphan"); eq(r.status["block:c"],"grace","ls shows the grace period")
-  eq(f.files["/state/watch/block_o.gone"],"5000\n","the first sighting is saved")
-  f.advance(598); r=f.W.sweep()
+  eq(f.files["/state/watch/block_o.gone"],"5000\n5001\n","the first sighting and the confirming check are saved")
+  f.advance(299); f.W.sweep(); f.advance(299); r=f.W.sweep()
   eq(f.sleeps(),1,"a saved sighting needs no recheck"); eq(#f.closed,0,"still in the grace period")
   f.advance(1); r=f.W.sweep()
   eq(f.closed[1],"block:c","a finished orphan closes when the grace period ends")
   eq(f.notes[#f.notes],"closed block:c, an orphan (its orchestrator block:o's pane is gone): done","the close is reported")
+  -- A mark nothing confirmed for longer than O.stale is a new first sighting with two new checks.
+  f=sweep_fixture{blocks={"block:c"},grace="0",files={["/state/watch/block_o.gone"]="1000\n1000\n"}}
+  r=f.W.sweep()
+  eq(f.sleeps(),1,"a stale mark is checked twice again"); eq(f.files["/state/watch/block_o.gone"],"5000\n5001\n","and restarts")
+  f=sweep_fixture{blocks={"block:c"},grace="600",files={["/state/watch/block_o.gone"]="4000\n4900\n"}}
+  r=f.W.sweep()
+  eq(f.sleeps(),0,"a recently confirmed mark needs no recheck"); eq(r.status["block:c"],nil,"and its grace period has run")
+  eq(f.closed[1],"block:c","so the orphan closes"); eq(f.files["/state/watch/block_o.gone"],"4000\n5000\n","the mark is confirmed again")
+  f=sweep_fixture{blocks={"block:c"},grace="0",files={["/state/watch/block_o.gone"]="junk\n"}}
+  f.W.sweep(); eq(f.sleeps(),1,"a broken mark starts over")
+  f=sweep_fixture{blocks={"block:c"},grace="0",after_sleep={"block:o","block:c"},files={["/state/watch/block_o.gone"]="1000\n1000\n"}}
+  f.W.sweep(); eq(f.files["/state/watch/block_o.gone"],nil,"a stale mark is removed when the pane is found"); eq(#f.closed,0)
   -- A working orphan waits and then closes; the pane coming back cancels everything.
   f=sweep_fixture{blocks={"block:c"},grace="0",states={["block:c"]="working"}}
   r=f.W.sweep()
@@ -893,7 +905,8 @@ do
   f=sweep_fixture{blocks={"block:c"},grace="3600",env={REX_ORCHESTRATOR_ORPHAN_GRACE="0",REX_ORCHESTRATOR_ORPHAN_MAX_WAIT="0"}}
   r=f.W.sweep(); f.advance(60); r=f.W.sweep()
   eq(#f.closed,0,"a sweep's own grace never applies to another launch's child"); eq(r.status["block:c"],"grace")
-  f.advance(3600); f.W.sweep(); eq(f.closed[1],"block:c","the child's own grace period ends")
+  for _=1,13 do f.advance(290); f.W.sweep() end
+  eq(f.closed[1],"block:c","the child's own grace period ends")
   f=sweep_fixture{blocks={"block:c"},records={["block:c"]={"block:o","42","","claude","/w","","/bin/claude","session:s","close"}},
     env={REX_ORCHESTRATOR_ORPHAN_GRACE="0"}}
   r=f.W.sweep(); eq(r.status["block:c"],"grace","a record without limits takes the defaults, not the caller's")

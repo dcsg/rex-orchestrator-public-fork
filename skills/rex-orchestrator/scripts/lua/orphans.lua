@@ -10,6 +10,8 @@ local O={}
 O.grace=600
 O.max_wait=7200
 O.closable={done=true,idle=true,error=true}
+-- A gone mark last confirmed longer ago than this is a new first sighting: nothing saw the pane in between.
+O.stale=300
 
 local function duration(value)
   local n,u=(value or ""):match("^(%d+)([smh]?)$")
@@ -105,31 +107,37 @@ function O.new(C,M,close_block)
   end
 
   -- "present", or "gone" with the seconds since it was first seen gone, or nil.
-  -- Gone means absent from the session's block list on two checks; the first sighting is saved, so the grace
-  -- period runs across processes. A pane that comes back cancels it.
+  -- Gone means absent from the session's block list on two checks a second apart. The mark saves the first sighting
+  -- and the last check that confirmed it, so the grace period runs across processes. A pane that comes back cancels
+  -- it, and a mark no check confirmed for O.stale seconds (or a broken one) starts over with two new checks.
   function W.presence(orch,blocks)
     if not blocks then return nil end
     local path=W.path(orch) .. ".gone"
+    local text=C.fs.read(path)
     if blocks[orch] then
-      if C.fs.read(path) then
+      if text then
         C.fs.unlink(path)
         C.note(orch .. " is in the session again: its children are not orphans")
       end
       return "present"
     end
-    local mark=M.lines(C.fs.read(path) or "")
-    local first=tonumber(mark[1])
-    if not first then
-      first=os.time()
+    local mark=M.lines(text or "")
+    local first,last=tonumber(mark[1]),tonumber(mark[2])
+    local now=os.time()
+    if not (first and last and first<=last and last<=now and now-last<=O.stale) then
+      first=now
       R.sleep(1)
       local again=W.blocks()
       if not again then return nil end
-      if again[orch] then return "present" end
-      if not (C.fs.mkdir(C.dir .. "/watch") and C.put(path,first)) then
-        C.note("could not save when " .. orch .. " was first seen gone")
+      if again[orch] then
+        if text then C.fs.unlink(path) end
+        return "present"
       end
+      now=os.time()
+      if not C.fs.mkdir(C.dir .. "/watch") then C.note("could not create " .. C.dir .. "/watch") end
     end
-    return "gone",math.max(0,os.time()-first)
+    if not C.put(path,first,now) then C.note("could not save when " .. orch .. " was first seen gone") end
+    return "gone",math.max(0,now-first)
   end
 
   -- Start ORCH's watcher unless one runs. TRIES>1 waits up to TRIES/10 s for a watcher that is just exiting.
