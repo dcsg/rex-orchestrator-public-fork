@@ -222,6 +222,7 @@ function O.new(C,M,close_block)
       if r.session==C.session and r.owner:match("^block:[%w%-]+$") then children[#children+1]=r end
     end
     tidy(owners,watched)
+    if #records==0 then return result end
     local disabled=C.killed()
     if not disabled then forget(records,2) end
     if #children==0 then return result end
