@@ -754,14 +754,15 @@ do
     return (Orphans.decide(t))
   end
   eq(case(),"check","a gone orchestrator's child past the grace period is checked")
-  eq(case{checked=true,state="done"},"close","done orphan closes")
-  eq(case{checked=true,state="idle"},"close","idle orphan closes")
-  eq(case{checked=true,state="error"},"close","errored orphan closes")
+  eq(case{checked=true,background="",state="done"},"close","done orphan closes")
+  eq(case{checked=true,background="",state="idle"},"close","idle orphan closes")
+  eq(case{checked=true,background="",state="error"},"close","errored orphan closes")
   eq(case{checked=true,exited=true,state="working"},"close","exited orphan closes")
   eq(case{checked=true,state="working"},"wait","working orphan waits")
   eq(case{checked=true,state="blocked"},"wait","blocked orphan waits")
   eq(case{checked=true},"wait","an orphan without a status waits")
   eq(case{checked=true,state="done",background="1 shell"},"wait","background work holds a done orphan")
+  eq(case{checked=true,state="done"},"wait","a done orphan whose screen can't be read waits")
   eq(case{checked=true,state="working",gone_for=600+7200},"expire","the maximum wait leaves a busy orphan open")
   eq(case{checked=true,state="working",gone_for=600+7199},"wait","the maximum wait counts from the end of the grace period")
   eq(case{expired=true,checked=true,state="done"},"expired","an orphan left open stays open")
@@ -832,7 +833,10 @@ do
         return {child={pid=tonumber(M.lines(files["/state/" .. a.block_id:gsub(":","_") .. ".own"])[2])}}
       end
       if method=="program_status" then return {records={{app="claude-code",state=states[a.block_id],updated_at="t"}}} end
-      if method=="format" then return {content=o.screen or ""} end
+      if method=="format" then
+        if o.screen==false then return nil,"offline" end
+        return {content=o.screen or ""}
+      end
     end
     local saved=os.getenv
     os.getenv=function(k) if k=="REX_ORCHESTRATOR_STATE_DIR" then return "/state" end return env[k] end
@@ -899,6 +903,8 @@ do
   -- Background work holds a done orphan.
   f=sweep_fixture{blocks={"block:c"},grace="0",screen=fixture("bg/live-1-shell")}
   r=f.W.sweep(); eq(r.status["block:c"],"waiting","background work holds the orphan"); eq(#f.closed,0)
+  f=sweep_fixture{blocks={"block:c"},grace="0",screen=false}
+  r=f.W.sweep(); eq(r.status["block:c"],"waiting","an unreadable screen holds a done orphan"); eq(#f.closed,0)
   -- The maximum wait marks the orphan left open, and it stays open after its turn ends.
   f=sweep_fixture{blocks={"block:c"},grace="0",max_wait="10",
     states={["block:c"]="working"}}

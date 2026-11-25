@@ -41,7 +41,8 @@ end
 --   presence                      "present", "gone" (absent on consecutive checks) or nil (couldn't tell)
 --   gone_for                      seconds since the orchestrator's pane was first seen gone
 --   keep, disabled, expired       this call's opt-out, kill switch, already left open
---   checked, exited, state, background   the child's own state, once action "check" asked for it
+--   checked, exited, state, background   the child's own state, once action "check" asked for it; background is nil
+--                                 when its screen couldn't be read, and then a finished turn still waits
 -- Actions: skip (not an orphan), grace, keep, expired, check, close, wait, expire.
 function O.decide(t)
   if type(t.owner)~="string" or not t.owner:match("^block:[%w%-]+$") then return "skip","no ownership record" end
@@ -61,9 +62,11 @@ function O.decide(t)
   if not t.checked then return "check" end
   if t.exited then return "close","exited" end
   local state=t.state or ""
-  local background=t.background or ""
+  local background=t.background
   if O.closable[state] and background=="" then return "close",state end
-  local busy=(state~="" and state or "no status") .. (background~="" and " with background work (" .. background .. ")" or "")
+  local busy=(state~="" and state or "no status") ..
+    (background==nil and O.closable[state] and " (its screen can't be read)" or
+     (background or "")~="" and " with background work (" .. background .. ")" or "")
   if gone_for-grace>=(t.max_wait or O.max_wait) then
     return "expire",busy .. " after " .. (t.max_wait or O.max_wait) .. "s"
   end
@@ -178,7 +181,7 @@ function O.new(C,M,close_block)
         t.state=rec and rec.state or nil
         if O.closable[t.state or ""] then
           local screen=C.screen(r.block)
-          t.background=screen and M.background(screen) or ""
+          t.background=screen and M.background(screen) or nil
         end
         action,why=O.decide(t)
       end
