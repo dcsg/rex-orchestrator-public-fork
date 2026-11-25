@@ -87,7 +87,7 @@ return function(rex)
         if [ -L "$next" ]; then
           n=$((n + 1)); [ "$n" -le 64 ] || exit 1
           printf '%s\0' "$next"
-          target=$(readlink -- "$next" && printf .) || exit 1
+          target=$(/usr/bin/readlink -- "$next" && printf .) || exit 1
           target=${target%.}; target=${target%?}
           case $target in /*) cur= ;; esac
           rest=$target${rest:+/$rest}
