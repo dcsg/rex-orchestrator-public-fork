@@ -57,12 +57,14 @@ command -v luajit >/dev/null 2>&1 || { echo "zt: luajit required"; exit 2; }
 #     too. ---
 WORK=$(mktemp -d "$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || echo /tmp)/rex-cage-zt.XXXXXX") || exit 2
 WORK=$(cd "$WORK" && pwd -P)
-SLEEPER="" LISTENER=""
+SLEEPER="" LISTENER="" SCRATCH_FIXTURE="" SCRATCH_ROOT=""
 unseal() {
   find "$1" -type d -exec chflags nouchg,nouappnd {} \; -exec chmod -N {} \; -exec chmod u+rwx {} \; 2>/dev/null
   chflags -R nouchg,nouappnd "$1" 2>/dev/null; chmod -R -N "$1" 2>/dev/null
 }
-trap 'kill $SLEEPER $LISTENER 2>/dev/null; unseal "$WORK"; rm -rf "$WORK"' EXIT
+trap 'kill $SLEEPER $LISTENER 2>/dev/null; unseal "$WORK"; rm -rf "$WORK"
+  [ -z "$SCRATCH_FIXTURE" ] || rm -rf "$SCRATCH_FIXTURE"
+  [ -z "$SCRATCH_ROOT" ] || rmdir "$SCRATCH_ROOT" 2>/dev/null || :' EXIT
 FH="$WORK/home"; STATE_DIR="$WORK/state"; mkdir -p "$FH" "$STATE_DIR"
 export HOME="$FH" REX_SESSION=session:zt REX_BLOCK=block:zt SSH_AUTH_SOCK="$WORK/agent.sock" ZT_TOKEN=zt-secret-must-not-leak
 # Use fixture secrets and a stand-in skill folder whose parent the cage write-locks.
@@ -180,31 +182,32 @@ want r DENY "$RH/.codex/other" "$RH/.codex" "$RH/.ssh" "$RH/.ssh/id_x" "$RH/.aws
   "$RH/Library/Application Support/Claude/x" "$RH/Library/Application Support/Codex/x" \
   "$RH/Library/Application Support/com.openai.codex/x" "$RH/Library/Application Support/Muse/x"
 CT5="/private/tmp/claude-$(id -u)"
-if [ -d "$CT5" ] && [ -O "$CT5" ] && S5=$(mktemp -d "$CT5/rex-cage-zt.XXXXXX"); then
-  printf 'other session\n' >"$S5/f"; want r DENY "$S5/f"; rm -rf "$S5"
-else ok "read another session's scratchpad (no $CT5 of yours, skipped)"; fi
+if [ ! -e "$CT5" ] && [ ! -L "$CT5" ] && (umask 077; mkdir "$CT5" 2>/dev/null); then SCRATCH_ROOT=$CT5; fi
+if [ -d "$CT5" ] && [ ! -L "$CT5" ] && [ -O "$CT5" ] && SCRATCH_FIXTURE=$(mktemp -d "$CT5/rex-cage-zt.XXXXXX"); then
+  printf 'other session\n' >"$SCRATCH_FIXTURE/f"; want r DENY "$SCRATCH_FIXTURE/f"
+else test_skip "scratchpad check requires a private fixture in $CT5"; fi
 
 echo "== the pty: own tty, /dev/tty and other ptys are writable (sub-ptys must work) =="
 # The wrapper looks up its own tty (stdin) at run time, so this runs it on a pty of its own (python's pty.fork) next to
 # a second pty it must not write: the stand-in for another pane. /dev/tty (the controlling terminal) stays open.
 if ! command -v python3 >/dev/null 2>&1; then
   test_skip 'cage pty checks require python3'
-elif ! test_has_pty; then
-  test_skip 'cage pty checks cannot allocate a pty in this environment'
 else
   mk codex "$PD" || bad "pty: cage_build failed"
+  pty_status=0
   # shellcheck disable=SC2016  # the child's shell expands it
   ptyout=$(python3 -I -c '
-import os, pty, sys
+import errno, os, pty, sys
 w, cwd = sys.argv[1], sys.argv[2]
-m2, s2 = pty.openpty()
-other = os.ttyname(s2)
 try:
+    m2, s2 = pty.openpty()
+    other = os.ttyname(s2)
     open(other, "w").close()
-except OSError:
-    print("PRECONDITION: the second pty is not writable even uncaged"); sys.exit(0)
+    pid, fd = pty.fork()
+except OSError as exc:
+    print(f"PRECONDITION: {exc}", file=sys.stderr)
+    sys.exit(77)
 prog = "own=$(tty); echo OWN=$own; (: >\"$own\") 2>/dev/null && echo OWN=ALLOW || echo OWN=DENY; (: >\"$1\") 2>/dev/null && echo OTHER=ALLOW || echo OTHER=DENY; (: >/dev/tty) 2>/dev/null && echo DEVTTY=ALLOW || echo DEVTTY=DENY"
-pid, fd = pty.fork()
 if pid == 0:
     os.chdir(cwd)
     os.execv(w, [w, "-c", prog, "sh", other])
@@ -212,25 +215,27 @@ out = b""
 while True:
     try:
         d = os.read(fd, 4096)
-    except OSError:
+    except OSError as exc:
+        if exc.errno != errno.EIO:
+            raise
         break
     if not d:
         break
     out += d
-os.waitpid(pid, 0)
+_, status = os.waitpid(pid, 0)
 print(out.decode(errors="replace").replace("\r", ""))
-' "$W" "$CWD" 2>&1)
-  case "$ptyout" in
-  *PRECONDITION*) test_skip "$ptyout" ;;
-  *'Operation not permitted'*|*'Permission denied'*|*'out of pty devices'*)
-    if [ "${ptyout#*Traceback}" != "$ptyout" ]; then
-      test_skip 'cage pty checks cannot allocate the second uncaged pty'
-    else bad "pty: $ptyout"; fi ;;
-  *)
+sys.exit(1 if status else 0)
+' "$W" "$CWD" 2>&1) || pty_status=$?
+  pty_detail=$(printf '%s\n' "$ptyout" | tail -1)
+  if [ "$pty_status" -eq 77 ] && [[ "$pty_detail" == PRECONDITION:* ]]; then
+    test_skip "cage pty checks: $pty_detail"
+  elif [ "$pty_status" -ne 0 ]; then
+    bad "pty fixture exited $pty_status: $pty_detail"
+  else
     chk "pty: write to the child's own tty" ALLOW "$(sed -nE 's/^OWN=(ALLOW|DENY)$/\1/p' <<<"$ptyout")"
     chk "pty: write to a second pty (sub-pty case)" ALLOW "$(sed -nE 's/^OTHER=(ALLOW|DENY)$/\1/p' <<<"$ptyout")"
-    chk "pty: write to /dev/tty" ALLOW "$(sed -nE 's/^DEVTTY=(ALLOW|DENY)$/\1/p' <<<"$ptyout")" ;;
-  esac
+    chk "pty: write to /dev/tty" ALLOW "$(sed -nE 's/^DEVTTY=(ALLOW|DENY)$/\1/p' <<<"$ptyout")"
+  fi
 fi
 
 echo "== other repos under ~/Repos are unreadable, DIR's own is not =="
@@ -313,7 +318,7 @@ if command -v git >/dev/null 2>&1; then
   hooks colon-tilde "tools/x:~/hooks"
   # shellcheck disable=SC2016
   hooks adversarial 'tools/hook'"'"'s $dir'
-else ok "core.hooksPath checks skipped (no git)"; fi
+else test_skip 'core.hooksPath checks require git'; fi
 
 echo "== a per-task clone can commit inside the cage =="
 CS="$WORK/clone-source"; CD="$WORK/clone-task"
@@ -339,20 +344,36 @@ if ! command -v python3 >/dev/null 2>&1 || ! command -v nc >/dev/null 2>&1; then
   test_skip 'cage network checks require python3 and nc'
 else
   # A loopback port and a unix socket that accept and close each connection, so nc returns at once.
-  python3 -I -c 'import select, socket, sys, time
-s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(5)
-u = socket.socket(socket.AF_UNIX); u.bind(sys.argv[1]); u.listen(5)
+  python3 -I -c 'import errno, select, socket, sys, time
+try:
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(5)
+    u = socket.socket(socket.AF_UNIX); u.bind(sys.argv[1]); u.listen(5)
+except OSError as exc:
+    if exc.errno not in (errno.EACCES, errno.EPERM, errno.EAFNOSUPPORT,
+                         errno.EPROTONOSUPPORT, errno.EADDRNOTAVAIL, errno.ENAMETOOLONG):
+        raise
+    print(f"PRECONDITION: {exc}", file=sys.stderr)
+    sys.exit(77)
 print(s.getsockname()[1], flush=True)
 end = time.time() + 60
 while time.time() < end:
     for x in select.select([s, u], [], [], 1)[0]: x.accept()[0].close()' "$WORK/zt.sock" >"$WORK/port" 2>"$WORK/listener.err" & LISTENER=$!; disown
-  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$WORK/port" ] && break; sleep 0.2; done
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [ ! -s "$WORK/port" ] && kill -0 "$LISTENER" 2>/dev/null || break
+    sleep 0.2
+  done
   port=$(cat "$WORK/port")
   # Only a listener the same commands reach uncaged makes a denial mean something.
   if [ -n "$port" ] && nc -z -G 2 127.0.0.1 "$port" >/dev/null 2>&1 && nc -w 2 -U "$WORK/zt.sock" </dev/null >/dev/null 2>&1; then
     chk "connect to a loopback listener (127.0.0.1:$port)" DENY "$(cg -c "nc -z -G 2 127.0.0.1 $port >/dev/null 2>&1 && echo ALLOW || echo DENY")"
     chk "connect to a unix socket outside the cage" DENY "$(cg -c "nc -U $(q "$WORK/zt.sock") </dev/null >/dev/null 2>&1 && echo ALLOW || echo DENY")"
-  else test_skip 'cage network checks cannot reach the uncaged loopback and Unix socket listeners'; fi
+  elif grep -q '^PRECONDITION: ' "$WORK/listener.err" || { [ -n "$port" ] && kill -0 "$LISTENER" 2>/dev/null; }; then
+    cat "$WORK/listener.err" >&2
+    test_skip 'cage network checks cannot reach the uncaged loopback and Unix socket listeners'
+  else
+    cat "$WORK/listener.err" >&2
+    bad 'cage network listener failed to start'
+  fi
 fi
 chk "exec /usr/bin/open" DENY "$(cg -c '/usr/bin/open -h >/dev/null 2>&1; [ $? -eq 126 ] && echo DENY || echo ALLOW')"
 chk "exec /bin/launchctl" DENY "$(cg -c '/bin/launchctl version >/dev/null 2>&1; [ $? -eq 126 ] && echo DENY || echo ALLOW')"
@@ -479,7 +500,7 @@ if command -v clang >/dev/null 2>&1; then
     bad "iokit: in-cage clang compile failed"
   fi
 else
-  ok "mach and iokit checks skipped (no clang)"
+  test_skip 'Mach and IOKit checks require clang'
 fi
 
 echo "== close's rmcage on a cage home the child sealed =="

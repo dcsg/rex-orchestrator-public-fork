@@ -99,17 +99,25 @@ function M.mode(s)
   end
   return last
 end
--- A C1 byte can also be the continuation of an ordinary UTF-8 character.
+local function continuation(b) return b and b>=0x80 and b<=0xbf end
+function M.utf8_width(text,i)
+  local a,b,c,d=text:byte(i,i+3)
+  if a<0x80 then return 1 end
+  if not continuation(b) then return nil end
+  if a>=0xc2 and a<=0xdf then return 2 end
+  if not continuation(c) then return nil end
+  if a>=0xe0 and a<=0xef and (a~=0xe0 or b>=0xa0) and (a~=0xed or b<0xa0) then return 3 end
+  if a>=0xf0 and a<=0xf4 and continuation(d) and (a~=0xf0 or b>=0x90) and (a~=0xf4 or b<=0x8f) then return 4 end
+end
+
+-- Raw C1 bytes are controls only when they are outside a valid multibyte character.
 local function control_at(text,i)
   local b=text:byte(i)
   if b<32 or b>=127 and b<=159 then return 1,b end
-  local width=b>=194 and b<=223 and 2 or b>=224 and b<=239 and 3 or b>=240 and b<=244 and 4 or 1
-  local tail=text:sub(i+1,i+width-1)
-  if width>1 and #tail==width-1 and not tail:find("[^\128-\191]") then
-    if b==194 and tail:byte()<=159 then return width,tail:byte() end
-    return width
-  end
-  return 1
+  local width=M.utf8_width(text,i)
+  if not width then return 1,nil,b end
+  if b==0xc2 and text:byte(i+1)<=0x9f then return width,text:byte(i+1) end
+  return width
 end
 function M.prompt_control(text)
   local i=1
@@ -123,10 +131,14 @@ end
 function M.terminal_text(text)
   local chunks,start,i={},1,1
   while i<=#text do
-    local width,code=control_at(text,i)
-    if code then
+    local width,code,invalid=control_at(text,i)
+    local escaped
+    if code or invalid then
+      escaped=string.format(width==1 and "\\x%02X" or "\\u%04X",code or invalid)
+    elseif text:byte(i)==0x5c then escaped="\\\\" end
+    if escaped then
       chunks[#chunks+1]=text:sub(start,i-1)
-      chunks[#chunks+1]=string.format(width==1 and "\\x%02X" or "\\u%04X",code)
+      chunks[#chunks+1]=escaped
       start=i+width
     end
     i=i+width

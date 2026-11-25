@@ -9,7 +9,9 @@ for lua in /opt/homebrew/bin/luajit /usr/local/bin/luajit "$(type -P luajit || :
 done
 operation=${1:-this operation}
 case "$operation" in
-  offline) operation=${2:-this operation} ;;
+  offline)
+    printf '%s\n' 'rex-orchestrator: Rex is not running. Offline checks require LuaJIT. Install it with brew install luajit.' >&2
+    exit 1 ;;
   validate-agy) operation='agy token validation' ;;
 esac
 printf 'rex-orchestrator: %s requires LuaJIT. Install it with brew install luajit.\n' "$operation" >&2

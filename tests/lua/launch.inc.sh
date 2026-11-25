@@ -152,6 +152,25 @@ check 'generated agy deletes the private command after provisioning' \
   "$(find "$REX_ORCHESTRATOR_STATE_DIR/cage-commands" -mindepth 1 -print)" ''
 launch_close
 check 'close removed the generated agy cage and fixture token' "$([ ! -e "$cage" ] && echo removed)" removed
+for linked in gemini antigravity-cli; do
+  login="$T/agy-link-$linked"
+  outside="$T/agy-outside-$linked"
+  mkdir -p "$login" "$outside"
+  if [ "$linked" = gemini ]; then
+    mkdir "$outside/antigravity-cli"
+    ln -s "$outside" "$login/.gemini"
+  else
+    mkdir "$login/.gemini"
+    ln -s "$outside" "$login/.gemini/antigravity-cli"
+  fi
+  REX_ORCHESTRATOR_CAGE_AGY_HOME="$login" \
+    REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD="printf '%s\\n' '{\"refresh_token\":\"stand-in-only\"}'" \
+    launch_case 12 "agy-linked-$linked" --cage --agent "$T/launch-agents/agy" --tab "agy-linked-$linked"
+  grep -Fq 'symlink-free' "$T/launch.err"
+  check "agy launch with a symlinked $linked writes no external token" \
+    "$(find "$outside" -type f -print)" ''
+  launch_close
+done
 unset REX_ORCHESTRATOR_CAGE_AGY_HOME
 
 mkdir "$T/launch-work/racing"

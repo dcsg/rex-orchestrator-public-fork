@@ -8,9 +8,9 @@ rex-orchestrator launch [-d DIR] [-l LABEL] [--split right|left|above|below] [--
     footer below the input box or an idle status. Prints the block ID on stdout, also on exits 3, 12 and 124, where
     the pane stays open for you to read or close; interrupted or failing before that, launch closes the pane.
     If Rex cannot close it, launch keeps its claim and state for a later close.
-    Placement: a split of ANCHOR taking a whole percentage from 1 to 99 (default 50; Rex's "autobalance splits" overrides it), or a
-    new tab NAME with --tab (unfocused, 80x24). With neither -b nor --split, ANCHOR is the largest pane of your own
-    window, split along its longer side, so all agents stay in one view.
+    Placement: a split of ANCHOR taking a whole percentage from 1 to 99 (default 50; Rex's "autobalance splits"
+    overrides it), or a new tab NAME with --tab (unfocused, 80x24). With neither -b nor --split, ANCHOR is the
+    largest pane of your own window, split along its longer side, so all agents stay in one view.
     --trust answers the folder trust dialog with "Yes", only once the dialog names DIR (grok: only its exact
     "Yes, proceed y" / "No, quit n" form); without it launch stops there with exit 3. With --trust, DIR may not
     contain terminal controls, selection markers or trust dialog text.

@@ -31,11 +31,12 @@ capture the screen as a fixture (`rex capture -s "$REX_SESSION" -b BLOCK --trim 
 
 The Lua suites exercise the public commands, including launch, trust, and cage creation. `tests/lua/live.sh` isolates
 its socket, state, home and configuration under `/tmp`, disables autostart, and cleans up only its own server. Set
-`REX_TEST_REX` to an absolute CLI path for a Rex executable outside the usual installation paths. Run shell tests directly
-or with `bash -p` to suppress startup hooks before the script runs. The suites report when the environment cannot allocate
-a pty or reach an uncaged loopback listener. To compare with the historical Bash implementation,
-extract revision `a8913d6` with `git archive` into a scratch directory. Point `REX_ORCHESTRATOR_SH` at that checkout's
-script to run the legacy fake-Rex harness, or set `REX_LUA_BASELINE` to compare real Rex responses. Set
+`REX_TEST_REX` to an absolute CLI path for a Rex executable outside the usual bundle locations. Run shell tests directly
+or with `bash -p` to suppress startup hooks before the script runs. The entry points restart with only `HOME`, `USER`,
+`TERM`, and `REX_TEST_*` or `REX_LUA_*` inputs from the caller. Set `REX_TEST_REQUIRE_ENV=1` to make environmental
+skips fail as they do in CI. To compare with the historical Bash implementation, extract revision `a8913d6` with
+`git archive` into a scratch directory. Point `REX_TEST_LEGACY_SH` at that checkout's script to run the legacy fake-Rex
+harness, or set `REX_LUA_BASELINE` to compare real Rex responses. Set
 `REX_LUA_BENCHMARK=/tmp/rex-lua-benchmark.tsv` in addition to `REX_LUA_BASELINE` for the side-by-side benchmark.
 
 ## Layout

@@ -6,7 +6,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd -P)
 assets=$(cd "$here/../../skills/rex-orchestrator/scripts" && pwd -P)
 ASSETS=$assets
-test_bash=${HARNESS_BASH:-$BASH}
+test_bash=${REX_TEST_BASH:-$BASH}
 work=$(mktemp -d "${TMPDIR:-/tmp}/rex-agy-token.XXXXXX")
 work=$(cd "$work" && pwd -P)
 wrapper_pid=
@@ -216,6 +216,37 @@ build; : >"$ct/home"; run normal 0
 check 'failed home seeding stops the wrapper' "$([ "$rc" -ne 0 ] && echo yes || echo no)" yes
 check 'failed home seeding removes the private command' "$([ ! -e "$cmd_file" ] && echo yes || echo no)" yes
 check 'failed home seeding never starts the agent' "$(started)" no
+provisioned_home=$CAGE_AGY_HOME
+for linked in gemini antigravity-cli home; do
+  CAGE_AGY_HOME="$work/provisioned-$linked"
+  target="$work/external-$linked"
+  marker="$work/provider-$linked"
+  mkdir -p "$target"
+  if [ "$linked" = home ]; then
+    mkdir -p "$target/.gemini/antigravity-cli"
+    ln -s "$target" "$CAGE_AGY_HOME"
+    CAGE_AGY_HOME="$CAGE_AGY_HOME/"
+    target="$target/.gemini/antigravity-cli"
+  elif [ "$linked" = gemini ]; then
+    mkdir "$CAGE_AGY_HOME"
+    mkdir "$target/antigravity-cli"
+    ln -s "$target" "$CAGE_AGY_HOME/.gemini"
+    target="$target/antigravity-cli"
+  else
+    mkdir -p "$CAGE_AGY_HOME/.gemini"
+    ln -s "$target" "$CAGE_AGY_HOME/.gemini/antigravity-cli"
+  fi
+  printf 'keep fixture\n' > "$target/antigravity-oauth-token"
+  REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=": >$(sq "$marker"); $(command_for success)"
+  build; run normal 0
+  check "symlinked $linked fails before agy starts" "$rc:$(started)" '71:no'
+  check "symlinked $linked is diagnosed before the provider runs" \
+    "$([ ! -e "$marker" ] && grep -Fq 'symlink-free' "$work/err" && echo rejected)" rejected
+  check "symlinked $linked leaves the external fixture untouched" "$(cat "$target/antigravity-oauth-token")" 'keep fixture'
+  check "symlinked $linked removes its unused lookup command" "$([ ! -e "$cmd_file" ] && echo removed)" removed
+done
+CAGE_AGY_HOME=$provisioned_home
+REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=$(command_for success)
 build; run crash 0
 check 'agent crash status forwarded' "$rc" 137
 check 'agent crash removes token' "$(gone)" yes

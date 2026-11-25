@@ -17,15 +17,9 @@ return function(M)
   local function valid_utf8(text)
     local i=1
     while i<=#text do
-      local a,b,c,d=text:byte(i,i+3)
-      local function continuation(byte) return byte and byte>=0x80 and byte<=0xbf end
-      if a<0x80 then i=i+1
-      elseif a>=0xc2 and a<=0xdf and continuation(b) then i=i+2
-      elseif a>=0xe0 and a<=0xef and continuation(b) and continuation(c) and
-        (a~=0xe0 or b>=0xa0) and (a~=0xed or b<0xa0) then i=i+3
-      elseif a>=0xf0 and a<=0xf4 and continuation(b) and continuation(c) and continuation(d) and
-        (a~=0xf0 or b>=0x90) and (a~=0xf4 or b<=0x8f) then i=i+4
-      else return false end
+      local width=M.utf8_width(text,i)
+      if not width then return false end
+      i=i+width
     end
     return true
   end

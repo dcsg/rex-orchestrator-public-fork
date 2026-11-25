@@ -360,6 +360,17 @@ eq(r.files["/state/block_child.hold"],nil)
 o=owned({rec=d,unreadable="/work/locked"})
 eq(test(o)("send",{child,"-f","/work/locked"}).code,1); eq(o.typed,nil)
 eq(M.prompt_control("emoji 🦊 and 中文\t\n\r"),false)
+for _,case in ipairs({
+  {"\224\130\155",[[\xE0\x82\x9B]]},
+  {"\240\128\130\155",[[\xF0\x80\x82\x9B]]},
+  {"\237\160\128",[[\xED\xA0\x80]]},
+  {"\244\144\128\128",[[\xF4\x90\x80\x80]]},
+  {"\192\155",[[\xC0\x9B]]},
+  {"\240\159\166",[[\xF0\x9F\xA6]]},
+  {"\027 then " .. [[\x1B]],[[\x1B then \\x1B]]},
+  {"emoji 🦊 and 中文\194\155",[[emoji 🦊 and 中文\u009B]]}
+}) do eq(M.terminal_text(case[1]),case[2]) end
+eq(M.prompt_control("\224\130\155"),true)
 o=owned({rec=d,screen=composer(""),typed_screen=composer("different")})
 r=test(o)("send",{child,"a prompt not visible"})
 eq(r.code,4); eq(o.typed,"a prompt not visible"); eq(o.presses,nil)

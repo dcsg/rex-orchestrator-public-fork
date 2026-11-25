@@ -15,6 +15,9 @@ project uses [Semantic Versioning](https://semver.org/).
   runtime dependencies.
 
 ### Fixed
+- Validate `launch --ratio` during argument parsing so an invalid split percentage exits 2 before placement.
+- Check the global launch kill switch before parsing launch options. Validate `--account` spelling and cage eligibility
+  before looking up the agent executable.
 - Accept agy's nested `token.refresh_token` in token-command output while preserving top-level `refresh_token`
   compatibility; use the complete nested token shape in fake-login regressions.
 - Isolate agy's uncaged token lookup from project configs and environment, hide its command text from caged children,

@@ -100,6 +100,10 @@ cp "$scripts/rex-orchestrator.sh" "$scripts/cage-cleanup.sh" "$missing/"
 rc=0; PATH=/usr/bin:/bin /bin/bash "$missing/rex-orchestrator.sh" clone ignored ignored 2> "$fixture/missing.err" || rc=$?
 check 'clone reports the missing interpreter' "$rc" 2
 check 'clone names the missing dependency' "$(grep -Fc 'clone requires LuaJIT' "$fixture/missing.err")" 1
+rc=0; PATH=/usr/bin:/bin /bin/bash "$missing/rex-orchestrator.sh" claims 2> "$fixture/missing.err" || rc=$?
+check 'missing LuaJIT during an offline check is a connection error' "$rc" 1
+check 'offline checks name both missing prerequisites' \
+  "$(grep -Fc 'Rex is not running. Offline checks require LuaJIT.' "$fixture/missing.err")" 1
 rc=0; PATH=/usr/bin:/bin /bin/bash "$missing/local-lua.sh" validate-agy "$fixture/valid.json" 2> "$fixture/missing.err" || rc=$?
 check 'token validation reports the missing interpreter to its wrapper' "$rc" 69
 check 'token validation names the missing dependency' "$(grep -Fc 'agy token validation requires LuaJIT' "$fixture/missing.err")" 1

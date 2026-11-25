@@ -1,33 +1,28 @@
 # shellcheck shell=bash
-# Entry scripts use privileged Bash to skip startup hooks and exported functions.
-case $- in *p*) ;; *) exec "$BASH" -p "$0" "$@" ;; esac
-
-test_rex_on_path=$(type -P rex || :)
-while IFS= read -r name; do
-  case "$name" in
-    BASH_ENV | ENV | CDPATH | TMPDIR | SSH_AUTH_SOCK | MISE* | DIRENV* | FNOX* | \
-    CLAUDE* | CODEX* | ANTHROPIC* | OPENAI* | GROK* | AGY* | GEMINI* | GOOGLE* | \
-    BASH_FUNC_* | ZDOTDIR | PROMPT_COMMAND | LUAINIT* | LUA_* | GIT_* | XDG_* | \
-    PERL5* | PERLLIB | PYTHON* | RUBYOPT | RUBYLIB | NODE_OPTIONS | NODE_PATH)
-      unset -v "$name" ;;
-    REX_TEST_REX | REX_LUA_BASELINE | REX_LUA_BENCHMARK) ;; # Explicit test inputs.
-    REX_*) unset -v "$name" ;;
-  esac
-done < <(compgen -A variable)
+# The re-entry marker is a shell variable, so an exported caller value cannot bypass isolation.
+# shellcheck disable=SC2154
+if [ "$(declare -p rex_test_isolated 2>/dev/null || :)" != 'declare -- rex_test_isolated="1"' ]; then
+  keep=("HOME=${HOME:-~}")
+  while IFS= read -r name; do
+    case "$name" in
+      USER | TERM | REX_TEST_* | REX_LUA_*) keep+=("$name=${!name}") ;;
+    esac
+  done < <(compgen -e)
+  # shellcheck disable=SC2016 # The clean child sets its own marker before sourcing the entry point.
+  exec /usr/bin/env -i "${keep[@]}" "$BASH" -p -c 'rex_test_isolated=1; . "$0"' "$0" "$@"
+fi
 export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 test_find_rex() {
   local app exe home=${HOME:-~}
   if [ -n "${REX_TEST_REX:-}" ]; then
+    case "$REX_TEST_REX" in /*) ;; *) return 1 ;; esac
     [ -x "$REX_TEST_REX" ] || return 1
     printf '%s\n' "$REX_TEST_REX"
     return
   fi
-  exe=$(type -P rex || :)
-  for exe in "$exe" "$test_rex_on_path" \
-    "$home/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"; do
-    case "$exe" in /*) if [ -x "$exe" ]; then printf '%s\n' "$exe"; return; fi ;; esac
-  done
+  exe="$home/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
+  if [ -x "$exe" ]; then printf '%s\n' "$exe"; return; fi
   for app in '/Applications/Rex Beta.app' '/Applications/Rex.app' \
     "$home/Applications/Rex Beta.app" "$home/Applications/Rex.app"; do
     exe="$app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex"
@@ -41,4 +36,10 @@ test_has_pty() {
     </dev/null 2>/dev/null | /usr/bin/grep -q 'PTY OK'
 }
 
-test_skip() { printf 'SKIP  %s\n' "$*"; }
+test_skip() {
+  if [ "${REX_TEST_REQUIRE_ENV:-0}" = 1 ]; then
+    printf 'FAIL  required test environment: %s\n' "$*" >&2
+    exit 1
+  fi
+  printf 'SKIP  %s\n' "$*"
+}

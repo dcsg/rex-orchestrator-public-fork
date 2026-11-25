@@ -44,7 +44,9 @@ export REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD='fnox get AGY_CAGE_OAUTH_TOKEN'
 ```
 
 The command is generic: any secret-store CLI can supply the JSON. It runs with Bash outside the sandbox,
-after the cage home is copied and before agy starts, from the fixed working directory `/`. The helper gets only
+after the cage home is copied and before agy starts, from the fixed working directory `/`. The wrapper refuses
+a symlink at the provisioned home itself or anywhere inside it. It copies without following links and checks
+the private copy for symlinks before starting the provider. The helper gets only
 the real `HOME`, a fixed `PATH` (`/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`), `SHELL=/bin/bash` and
 `LANG=en_US.UTF-8`, plus Bash's own `PWD`/`SHLVL`. Project variables, `BASH_ENV`, `ENV`, shell functions and project
 PATH entries are discarded. The wrapper also uses Bash's privileged startup mode to ignore environment startup
@@ -54,14 +56,15 @@ Use absolute executable/config paths in the lookup when needed; do not source fi
 The command text waits in a mode-600 file under `STATE_DIR/cage-commands/`, outside `CAGE_ROOT`. The profile denies
 every caged child reads and writes there. The generated wrapper contains only the file's path. The command file is
 removed after lookup, on wrapper exit, or by `close` if the wrapper never started. Use a store lookup rather than a
-literal credential in the command. Its stdout goes straight to
-`home/.gemini/antigravity-cli/antigravity-oauth-token` under the cage temp directory, created with `umask 077` and mode
-600. Output must be exactly one JSON object with a non-empty string `.token.refresh_token`, as in agy's normal
+literal credential in the command. The wrapper opens an exclusive mode-600 file from the verified physical
+`home/.gemini/antigravity-cli` directory inside the private cage, then sends the provider's stdout to that open file.
+Output must be exactly one JSON object with a non-empty string `.token.refresh_token`, as in agy's normal
 token file. A top-level `.refresh_token` is also accepted for compatibility. The validator opens the file with
 `O_NOFOLLOW_ANY`. A symlink anywhere in the path, including `.gemini` or `antigravity-cli`, stops startup.
 Validation prints no token contents.
-Failure, invalid JSON, a missing/empty refresh token, or empty stdout (including a set but empty command) removes partial
-output and exits the wrapper with **71**, naming only the variable; agy never starts.
+Unsafe home paths, provider failure, invalid JSON, a missing or empty refresh token, and empty stdout stop the
+wrapper with **71** before agy starts. A failed lookup removes its partial output and reports the variable
+without printing credential contents.
 If observed during startup, `launch` reports its usual **12** for an exited child.
 
 Lookup is noninteractive: stdin is closed and stderr is suppressed because a failing command can echo credentials.
@@ -82,7 +85,8 @@ readable by agy during the session; it is never written back to the store.
 SIGKILL to the wrapper and a machine crash cannot run cleanup traps. They can leave a token in
 `STATE_DIR/cage/agy.*/home/.gemini/antigravity-cli/antigravity-oauth-token` (or the corresponding `agy-*` cage).
 `close` removes that cage home and any remaining private command file.
-When the variable is unset, the existing copied-login behavior is unchanged, including keeping that copy until `close`.
+When the variable is unset, the wrapper keeps the copied login until `close`. The home checks still apply, and an unsafe
+home stops the wrapper with exit **70**.
 
 ## What a caged child gets
 
