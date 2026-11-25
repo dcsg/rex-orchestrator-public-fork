@@ -119,13 +119,39 @@ return function(C,M)
   -- skipped too.
   local direct={codex=true,claude=true,grok=true}
   local runnable={node=true,nodejs=true}
-  local function agent_file(path)
+  local function head_of(path)
     local f=io.open(path,"rb")
-    if not f then return false end
+    if not f then return nil end
     local head=f:read(512) or ""
     f:close()
-    local interpreter=M.script_interpreter(head)
-    return interpreter==nil or runnable[interpreter]==true
+    return head
+  end
+  -- The cage's fixed PATH (the runtime wrappers' env -i), where env finds a utility named without a slash.
+  local cage_path="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  -- A program the cage will exec: an absolute path, or a name looked up in SEARCH (a colon list).
+  local function program_path(word,search)
+    if word:find("/",1,true) then return M.starts(word,"/") and word or nil end
+    if search==nil then return nil end
+    for dir in ((search or cage_path) .. ":"):gmatch("([^:]*):") do
+      local path=(dir=="" and "." or dir) .. "/" .. word
+      if M.starts(path,"/") and F.test("-f",path) and F.test("-x",path) then return path end
+    end
+  end
+  local function agent_file(path)
+    local head=head_of(path)
+    if not head then return false end
+    local interpreter,chain=M.script_interpreter(head)
+    if interpreter==nil then return true end
+    if not runnable[interpreter] then return false end
+    -- A Node script runs only if each program on its #! line is compiled: the kernel won't start a script as an
+    -- interpreter, and sandbox-exec then hands the file itself to /bin/sh. So the #! path and every utility env runs
+    -- (found through -P or the cage's PATH) must be Mach-O.
+    for _,step in ipairs(chain) do
+      local program=program_path(step.program,step.search)
+      local program_head=program and head_of(program)
+      if not program_head or not M.compiled(program_head) then return false end
+    end
+    return true
   end
   function K.override(name)
     return direct[name] and env("REX_ORCHESTRATOR_CAGE_" .. name:upper() .. "_BIN") or nil

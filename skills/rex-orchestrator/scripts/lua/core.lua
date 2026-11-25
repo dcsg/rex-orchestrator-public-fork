@@ -51,7 +51,7 @@ local env_values={P=true,S=true,u=true,L=true,U=true,C=true}
 local env_long={["split-string"]="S",unset="u",chdir="C"}
 local function unquote(word) return (word:gsub("^['\"]",""):gsub("['\"]$","")) end
 local function env_utility(words)
-  local stack={}
+  local stack,altpath={},nil
   for i=#words,1,-1 do stack[#stack+1]=words[i] end
   local function pop() local word=stack[#stack]; stack[#stack]=nil; return word end
   local function rest()
@@ -66,7 +66,7 @@ local function env_utility(words)
   end
   while #stack>0 do
     local word=pop()
-    if word=="--" then return pop(),rest() end
+    if word=="--" then return pop(),rest(),altpath end
     if M.starts(word,"--") then
       local name,value=word:match("^%-%-([^=]+)=(.*)$")
       local kind=env_long[name or word:sub(3)]
@@ -81,23 +81,33 @@ local function env_utility(words)
           local value=word:sub(k+1)
           if value=="" then value=pop() end
           if option=="S" and value then split(value) end
+          if option=="P" then altpath=value end
           break
         end
       end
     elseif not word:match("^[%a_][%w_]*=") then
-      return word,rest()
+      return word,rest(),altpath
     end
   end
 end
+function M.compiled(head) return machos[head:sub(1,4)]==true end
+-- Also returns the programs that run in turn, as {program=WORD, search=PATHS}: the #! word itself, which the kernel
+-- takes as a path (search nil), then each utility env runs, which env looks up in -P's directories (search, a
+-- colon list) or else in PATH (search false).
 function M.script_interpreter(head)
-  if machos[head:sub(1,4)] then return nil end
+  if machos[head:sub(1,4)] then return nil,{} end
   local line=head:match("^#!([^\n]*)")
-  if not line then return "sh" end
+  if not line then return "sh",{} end
   local words={}
   for word in line:gmatch("%S+") do words[#words+1]=word end
   local interpreter=table.remove(words,1)
-  while interpreter and M.basename(interpreter)=="env" do interpreter,words=env_utility(words) end
-  return interpreter and M.basename(interpreter) or "sh"
+  local chain={interpreter and {program=interpreter,search=nil} or nil}
+  while interpreter and M.basename(interpreter)=="env" do
+    local altpath
+    interpreter,words,altpath=env_utility(words)
+    if interpreter then chain[#chain+1]={program=interpreter,search=altpath or false} end
+  end
+  return interpreter and M.basename(interpreter) or "sh",chain
 end
 function M.region(s)
   local a = {}; for _, l in ipairs(M.lines(s)) do

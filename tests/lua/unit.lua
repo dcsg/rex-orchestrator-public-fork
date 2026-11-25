@@ -188,6 +188,26 @@ local expected={
 for name,want in pairs(expected) do eq(M.background(fixture("bg/" .. name)):match("^(%d+)") or "",want,"background " .. name) end
 local run,C,A=test()
 eq(M.duration("--timeout","008m",C.die),480)
+-- The programs a #! line runs in turn, for checking that each one is compiled.
+do
+  local function chain(head)
+    local _,steps=M.script_interpreter(head)
+    local shown={}
+    for _,step in ipairs(steps) do
+      shown[#shown+1]=step.program .. "@" .. (step.search==nil and "kernel" or step.search==false and "PATH" or step.search)
+    end
+    return table.concat(shown," ")
+  end
+  eq(chain("#!/opt/node/bin/node\n"),"/opt/node/bin/node@kernel")
+  eq(chain("#!/usr/bin/env node\n"),"/usr/bin/env@kernel node@PATH")
+  eq(chain("#!/usr/bin/env -P /x:/y node\n"),"/usr/bin/env@kernel node@/x:/y")
+  eq(chain("#!/usr/bin/env -P/x node\n"),"/usr/bin/env@kernel node@/x")
+  eq(chain("#!/usr/bin/env -S -P /x node --flag\n"),"/usr/bin/env@kernel node@/x")
+  eq(chain("#!/usr/bin/env -i /usr/bin/env -P /z node\n"),"/usr/bin/env@kernel /usr/bin/env@PATH node@/z")
+  eq(chain("\207\250\237\254"),"")
+  eq(chain("no shebang"),"")
+  eq(M.compiled("\207\250\237\254rest"),true); eq(M.compiled("#!/bin/sh"),false)
+end
 -- Every note, refusal and raw diagnostic reaches the terminal escaped at the sink, whatever the caller put in it.
 do
   local written={}

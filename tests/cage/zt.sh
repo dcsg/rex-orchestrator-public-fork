@@ -497,7 +497,17 @@ for form in 'none' '#!/usr/bin/env -u NAME sh' '#!/usr/bin/env -P /usr/bin bash'
   else printf '%s\n%s\n' "$form" "# would mark $SHIM_MARK" >"$d/codex"; fi
   chmod 755 "$d/codex"; SHIMS="$SHIMS$d:"
 done
-mkdir -p "$WORK/nodebin"; printf '#!/usr/bin/env node\n' >"$WORK/nodebin/codex"; chmod 755 "$WORK/nodebin/codex"
+# A Node script counts only when its node is compiled. realnode/node is a Mach-O; scriptnode/node a shell script,
+# which the kernel won't start as an interpreter, so sandbox-exec would hand the agent file to /bin/sh instead.
+mkdir -p "$WORK/realnode" "$WORK/scriptnode" "$WORK/nodebin" "$WORK/nodepath" "$WORK/node-script" "$WORK/node-p-script"
+cp "$ARGPROBE" "$WORK/realnode/node"
+printf '#!/bin/sh\necho RAN_AS_SH\n' >"$WORK/scriptnode/node"
+printf '#!/usr/bin/env -P %s node\n' "$WORK/realnode" >"$WORK/nodebin/codex"
+printf '#!%s\n' "$WORK/realnode/node" >"$WORK/nodepath/codex"
+printf '#!%s\n' "$WORK/scriptnode/node" >"$WORK/node-script/codex"
+printf '#!/usr/bin/env -P %s node\n' "$WORK/scriptnode" >"$WORK/node-p-script/codex"
+chmod 755 "$WORK/scriptnode/node" "$WORK/nodebin/codex" "$WORK/nodepath/codex" "$WORK/node-script/codex" \
+  "$WORK/node-p-script/codex"
 # sa_build PATH [VAR=VALUE...]: build a codex cage for PD as launch does for a bare --agent codex, with only PATH (and
 # the variables) changed; sets W, CT and CWD on success and SA_RC to the build's exit code, its notes in build.log.
 sa_build() {
@@ -534,6 +544,15 @@ if sa_build "$SHIMS$LINKED"; then
   chk "every script form is skipped for the release" "REAL='$REL/bin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
   chk "the note names all ten skipped scripts" 10 "$(grep -o "$WORK/shims-[^ ,:]*/codex" "$WORK/build.log" | sort -u | wc -l | tr -d ' ')"
 else bad "script forms: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
+for d in node-script node-p-script; do
+  if sa_build "$WORK/$d:$LINKED"; then
+    chk "a Node script whose node is a script ($d) is skipped" "REAL='$REL/bin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
+    chk "$d: the agent never runs as sh" no "$(cg -c 'echo RAN' 2>&1 | grep -q RAN_AS_SH && echo yes || echo no)"
+  else bad "$d: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
+done
+if sa_build "$WORK/nodepath:$LINKED"; then
+  chk "a Node script with a compiled #! node is taken" "REAL='$WORK/nodepath/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
+else bad "Node script by path: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
 if sa_build "$WORK/shims:$WORK/nodebin:$LINKED"; then
   chk "a Node script on PATH is taken as the agent" "REAL='$WORK/nodebin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
 else bad "Node script: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
