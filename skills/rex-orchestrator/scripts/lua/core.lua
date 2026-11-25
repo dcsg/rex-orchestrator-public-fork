@@ -50,8 +50,11 @@ for _,magic in ipairs({"\206\250\237\254","\207\250\237\254","\254\237\250\206",
 local env_values={P=true,S=true,u=true,L=true,U=true,C=true}
 local env_long={["split-string"]="S",unset="u",chdir="C"}
 local function unquote(word) return (word:gsub("^['\"]",""):gsub("['\"]$","")) end
+-- execvp's search path when PATH is unset (env -i, env -u PATH).
+local default_path="/usr/bin:/bin"
 local function env_utility(words)
-  local stack,altpath={},nil
+  -- path: the PATH this env leaves for its utility (nil: unchanged), which it also searches unless -P names another.
+  local stack,altpath,path={},nil,nil
   for i=#words,1,-1 do stack[#stack+1]=words[i] end
   local function pop() local word=stack[#stack]; stack[#stack]=nil; return word end
   local function rest()
@@ -66,34 +69,43 @@ local function env_utility(words)
   end
   while #stack>0 do
     local word=pop()
-    if word=="--" then return pop(),rest(),altpath end
+    if word=="--" then return pop(),rest(),altpath,path end
     if M.starts(word,"--") then
       local name,value=word:match("^%-%-([^=]+)=(.*)$")
-      local kind=env_long[name or word:sub(3)]
+      local long=name or word:sub(3)
+      local kind=env_long[long]
       if kind then
         value=value or pop()
         if kind=="S" and value then split(value) end
+        if kind=="u" and value=="PATH" then path=default_path end
+      elseif long=="ignore-environment" then path=default_path
       end
     elseif M.starts(word,"-") then
+      if word=="-" then path=default_path end
       for k=2,#word do
         local option=word:sub(k,k)
+        if option=="i" then path=default_path end
         if env_values[option] then
           local value=word:sub(k+1)
           if value=="" then value=pop() end
           if option=="S" and value then split(value) end
           if option=="P" then altpath=value end
+          if option=="u" and value=="PATH" then path=default_path end
           break
         end
       end
+    elseif word:match("^PATH=") then
+      path=word:sub(6)
     elseif not word:match("^[%a_][%w_]*=") then
-      return word,rest(),altpath
+      return word,rest(),altpath,path
     end
   end
 end
 function M.compiled(head) return machos[head:sub(1,4)]==true end
 -- Also returns the programs that run in turn, as {program=WORD, search=PATHS}: the #! word itself, which the kernel
--- takes as a path (search nil), then each utility env runs, which env looks up in -P's directories (search, a
--- colon list) or else in PATH (search false).
+-- takes as a path (search nil), then each utility env runs, which env looks up in -P's directories, else in the PATH
+-- it sets (an assignment, or execvp's default after -i or -u PATH), else in the PATH it got (search false: the
+-- caller's). A nested env passes its PATH on.
 function M.script_interpreter(head)
   if machos[head:sub(1,4)] then return nil,{} end
   local line=head:match("^#!([^\n]*)")
@@ -102,10 +114,12 @@ function M.script_interpreter(head)
   for word in line:gmatch("%S+") do words[#words+1]=word end
   local interpreter=table.remove(words,1)
   local chain={interpreter and {program=interpreter,search=nil} or nil}
+  local path=false
   while interpreter and M.basename(interpreter)=="env" do
-    local altpath
-    interpreter,words,altpath=env_utility(words)
-    if interpreter then chain[#chain+1]={program=interpreter,search=altpath or false} end
+    local altpath,set
+    interpreter,words,altpath,set=env_utility(words)
+    if set~=nil then path=set end
+    if interpreter then chain[#chain+1]={program=interpreter,search=altpath or path} end
   end
   return interpreter and M.basename(interpreter) or "sh",chain
 end
