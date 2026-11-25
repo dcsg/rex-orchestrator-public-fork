@@ -104,7 +104,7 @@ Orphans: close your children when their task is finished. When an orchestrator's
 the agent in it doesn't count), its children close automatically after REX_ORCHESTRATOR_ORPHAN_GRACE (default 10m): a
 done, idle, errored or exited one at once, a working or blocked one when its turn ends; still busy
 REX_ORCHESTRATOR_ORPHAN_MAX_WAIT (default 2h) later, it is left open. ls's orphan field: null, grace, waiting, kept
-or expired (left open). A detached watcher per orchestrator and a sweep in every call do this.
+or expired (left open). A detached watcher per orchestrator does this; every call restarts a missing one.
 Kill switches: a file STATE_DIR/disabled stops every launch, every send and key but escape and ctrl+c, and orphan
 closing; STATE_DIR/disabled.AGENT stops AGENT's uncaged launches, approvals and typing into its uncaged panes (exit 2).
 Anyone may set one; only the user removes one.

@@ -9,7 +9,7 @@ project uses [Semantic Versioning](https://semver.org/).
 - Orphan close: when an orchestrator's pane is closed, its children close through the normal close path after
   `REX_ORCHESTRATOR_ORPHAN_GRACE` (default 10m). A working or blocked child closes when its turn ends, or is left open
   after `REX_ORCHESTRATOR_ORPHAN_MAX_WAIT` (default 2h). Quitting and resuming the agent in the same pane keeps its
-  children. A detached watcher per orchestrator and a sweep in every call do it; `ls` shows an `orphan` field. The
+  children. A detached watcher per orchestrator does it, and every call restarts one a Rex restart ended; `ls` shows an `orphan` field. The
   kill switch and `REX_ORCHESTRATOR_ORPHANS=keep` stop it.
 - `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` provisions a caged agy login from a shell command outside the sandbox.
   The token is private (mode 600), absent from the agent's environment, and deleted on exit or HUP/INT/TERM;

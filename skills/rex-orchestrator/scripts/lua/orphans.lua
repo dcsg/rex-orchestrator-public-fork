@@ -157,7 +157,46 @@ function O.new(C,M,close_block)
     end
   end
 
-  -- Look at every child in this session (or ONLY's), close the orphans whose time has come and report the rest.
+  -- What an ordinary command does: one look at the session, nothing slow. It reports each child's orphan state for ls
+  -- and hands the work to the watchers: it starts one (unless its heartbeat is fresh) for every orchestrator with
+  -- children to watch, whether its pane is open or gone. It closes, marks and sleeps nothing: two checks, the grace
+  -- period and every close are the watcher's. Returns status (block -> grace|waiting|kept|expired).
+  function W.scan()
+    local result={status={}}
+    if C.dir=="" or not C.session then return result end
+    local children={}
+    for _,r in ipairs(W.records()) do
+      if r.session==C.session and r.owner:match("^block:[%w%-]+$") then children[#children+1]=r end
+    end
+    if #children==0 then return result end
+    local blocks=W.blocks()
+    if not blocks then return result end
+    local disabled=C.killed()
+    local watch={}
+    local now=os.time()
+    for _,r in ipairs(children) do
+      local expired=C.line(r.block,"orphan",1)=="expired"
+      if r.block==C.me or r.block==r.owner or r.owner==C.me then
+        -- The caller's own children, or the caller: not orphans, and the caller's launches start its watcher.
+      elseif blocks[r.owner] then
+        if r.policy~="keep" and not expired then watch[r.owner]=true end
+      elseif r.policy=="keep" or disabled then result.status[r.block]="kept"
+      elseif expired then result.status[r.block]="expired"
+      else
+        local first=tonumber(M.lines(C.fs.read(W.path(r.owner) .. ".gone") or "")[1])
+        result.status[r.block]=(not first or now-first<r.grace) and "grace" or "waiting"
+        watch[r.owner]=true
+      end
+    end
+    -- Under the kill switch nothing closes: this look is enough, and no watcher is started for it.
+    if not disabled and not W.settings.keep then
+      for owner in pairs(watch) do W.ensure(owner,1) end
+    end
+    return result
+  end
+
+  -- What a watcher does: look at every child in this session (or ONLY's), close the orphans whose time has come and
+  -- report the rest.
   -- Returns remaining (children still to watch: not left open, not launched with keep), left (children left open),
   -- status (block -> grace|waiting|kept|expired), and for ONLY whether its pane is gone and when a watcher may stop.
   function W.sweep(only)
@@ -225,10 +264,6 @@ function O.new(C,M,close_block)
         result.gone=true
         result.deadline=math.max(result.deadline or 0,os.time()-gone_for+r.grace+r.max_wait+60)
       end
-    end
-    -- Under the kill switch nothing closes: this call's look is enough, no watcher is started for it.
-    if not only and not disabled then
-      for owner in pairs(result.owners) do W.ensure(owner,1) end
     end
     return result
   end

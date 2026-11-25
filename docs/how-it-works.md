@@ -44,9 +44,10 @@ fragments. The wrappers run the cage, and a shared shell helper restores permiss
    second apart, its children become orphans: after the grace period, the done, idle, errored or exited ones are
    closed as **close** does; a working or blocked one is closed when its turn ends, or left open after the maximum
    wait. The watcher exits when no child is left, when the session is destroyed, or when its connection to Rex ends.
-   Every other command sweeps its session the same way first, so orphans whose watcher a Rex restart ended are
-   still caught, and starts a watcher again when its heartbeat is stale. Only a gone pane counts: an agent that
-   quits in the orchestrator's pane, or is resumed there, keeps its children.
+   Every other command takes one quick look at its session first: it closes and waits for nothing, but starts the
+   watcher again for any orchestrator with children to watch whose heartbeat is stale, so orphans whose watcher a
+   Rex restart ended are still caught. Only a gone pane counts: an agent that quits in the orchestrator's pane, or is
+   resumed there, keeps its children.
 
 ## Program status (OSC 7501)
 

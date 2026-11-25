@@ -124,19 +124,21 @@ rex_test block close -s "$REX_SESSION" "$O5"
 orphan_await_closed "$F"
 check 'a watcher started inside the closed pane closes its orphan' "$(orphan_closed "$F" && echo closed)" closed
 
-# No watcher (a Rex restart kills them): the sweep in the next call, from any pane, closes the orphan.
+# No watcher (a Rex restart kills them): the next call, from any pane, starts one, which closes the orphan.
 O3=$(orphan_pane)
 D=$(orphan_launch "$O3" swept-child)
 orphan_await_watchers "$O3" 1
 kill "$(orphan_watchers "$O3")"
 orphan_await_watchers "$O3" 0
+# Its heartbeat would go stale in 20 s; drop it rather than wait.
+rm -f "$REX_ORCHESTRATOR_STATE_DIR/watch/${O3//[^A-Za-z0-9_-]/_}.alive"
 rex_test block close -s "$REX_SESSION" "$O3"
 sleep 2
 check 'without a watcher the orphan waits for a sweep' "$(orphan_open "$D" && echo open)" open
 REX_BLOCK=$O2 cli status "$O_AGENT" > /dev/null 2> "$T/orphan.err"
-check 'the sweep closes the orphan' "$(orphan_closed "$D" && echo closed)" closed
-grep -Fq "closed $D, an orphan" "$T/orphan.err" || { cat "$T/orphan.err" >&2; echo 'the sweep did not report the close' >&2; exit 1; }
-pass=$((pass+1))
+check 'a call only hands the orphan to a watcher' "$(cat "$T/orphan.err")" ''
+orphan_await_closed "$D"
+check 'the watcher the call started closes the orphan' "$(orphan_closed "$D" && echo closed)" closed
 # A sweep that finds a working orphan starts a watcher for it, which closes it when its turn ends.
 O3=$(orphan_pane)
 D=$(orphan_launch "$O3" swept-working)
@@ -146,8 +148,10 @@ kill "$(orphan_watchers "$O3")"
 orphan_await_watchers "$O3" 0
 rm -f "$REX_ORCHESTRATOR_STATE_DIR/watch/${O3//[^A-Za-z0-9_-]/_}.alive"
 rex_test block close -s "$REX_SESSION" "$O3"
-check 'ls from another pane shows the waiting orphan' "$(orphan_ls "$O2" swept-working)" waiting
+check 'ls shows a pane not yet confirmed gone as its grace period' "$(orphan_ls "$O2" swept-working)" grace
 orphan_await_watchers "$O3" 1
+for ((n=0;n<50;n++)); do [ "$(orphan_ls "$O2" swept-working)" != waiting ] || break; sleep 0.2; done
+check 'ls shows the waiting orphan once its watcher confirmed the pane gone' "$(orphan_ls "$O2" swept-working)" waiting
 check 'a restarted watcher appends to the log' \
   "$(grep -c 'watching the children' "$REX_ORCHESTRATOR_STATE_DIR/watch/${O3//[^A-Za-z0-9_-]/_}.log")" 2
 orphan_type "$D" 'done'

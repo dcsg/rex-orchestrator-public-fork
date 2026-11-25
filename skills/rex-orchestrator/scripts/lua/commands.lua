@@ -17,8 +17,8 @@ return function(C, M, A, P)
   function commands.ls()
     local orphans={}
     if C.orphans then
-      local ok,swept=pcall(C.orphans.sweep)
-      if ok then orphans=swept.status else C.note("orphan sweep: " .. tostring(swept)) end
+      local ok,scanned=pcall(C.orphans.scan)
+      if ok then orphans=scanned.status else C.note("orphan scan: " .. tostring(scanned)) end
     end
     if not C.attach() then C.die("rex could not list the blocks",1) end
     local r=R.session.list_blocks{session_id=C.session}

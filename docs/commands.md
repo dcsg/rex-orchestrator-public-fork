@@ -128,7 +128,7 @@ Rex CLI key spellings both run functions bound to those keys in Rex's `init.lua`
   caged claude.
 - `ls` — live agent panes in the session: block ID, a tab, the status JSON plus `label`, `mine` (launched from your
   pane) and `orphan`: `null`, or for a child whose orchestrator's pane is gone `grace` (closing after the grace
-  period), `waiting` (closing when its turn ends), `kept` (opt-out or kill switch) or `expired` (left open after the
+  period, or not yet confirmed gone by its watcher), `waiting` (closing when its turn ends), `kept` (opt-out or kill switch) or `expired` (left open after the
   maximum wait: close it yourself).
 
 ## close
@@ -153,13 +153,14 @@ keeps its children: only a gone pane counts. `REX_ORCHESTRATOR_ORPHANS`, `REX_OR
 `REX_ORCHESTRATOR_ORPHAN_MAX_WAIT` are read at `launch` and recorded with each child: a child always follows the
 settings it was launched with, whichever call or watcher later finds it orphaned.
 
-A detached watcher per orchestrator, started by `launch`, does this; every other command (and `ls`) sweeps the session
-too, which catches orphans whose watcher ended with a Rex restart. Panes of another orchestrator whose pane is open,
+A detached watcher per orchestrator, started by `launch`, does this. Every other command (and `ls`) takes one quick
+look at the session and starts the watcher again for an orchestrator whose watcher ended (with a Rex restart, say);
+it closes nothing itself, so calls stay fast. Panes of another orchestrator whose pane is open,
 the user's own panes, panes without a complete ownership record (launched before this feature, for example) and
 anything in another session are never closed. The kill switch `STATE_DIR/disabled` stops orphan closing, and a
 child launched with `REX_ORCHESTRATOR_ORPHANS=keep` is never closed as an orphan. Set on a later call, `keep` only stops
-that one call from closing anything. A closing note
-goes to stderr of the call that closed it, or to `STATE_DIR/watch/<orchestrator>.log`.
+that call from starting a watcher. Closes and orphans left open are logged in
+`STATE_DIR/watch/<orchestrator>.log`.
 
 ## clone, claims
 

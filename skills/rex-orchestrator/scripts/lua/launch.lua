@@ -429,7 +429,10 @@ return function(C,M,D,I,K,G)
       end
     end
     save_owner("","")
-    if watched and not keep then orphans.ensure(C.me,30) end
+    if watched and not keep then
+      local started,err=pcall(orphans.ensure,C.me,30)
+      if not started then C.note("could not start the orphan watcher: " .. tostring(err)) end
+    end
     if cage then
       cage.meta.block=C.block
       if not C.put(cage.home .. "/run-meta.json",R.json.encode(cage.meta)) then C.note("could not save harvest block") end

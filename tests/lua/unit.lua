@@ -867,11 +867,36 @@ do
   local f=sweep_fixture()
   local r=f.W.sweep()
   eq(#f.closed,0,"a present orchestrator keeps its child"); eq(r.remaining,1,"its child is still watched")
-  eq(#f.daemons,1,"a sweep starts a missing watcher"); eq(f.daemons[1].tries,1,"a sweep tries the watcher lock once")
+  eq(#f.daemons,0,"a watcher's sweep starts no watcher")
+  r=f.W.scan()
+  eq(#f.daemons,1,"a call starts a missing watcher"); eq(f.daemons[1].tries,1,"a call tries the watcher lock once")
   eq(f.daemons[1].argv[3],"do","the watcher is a rex do script"); eq(f.daemons[1].argv[2],"--autostart=false","the watcher never starts a server")
+  eq(r.status["block:c"],nil,"a live orchestrator's child is no orphan")
   f=sweep_fixture{files={["/state/watch/block_o.alive"]="4995\n"}}
-  f.W.sweep()
+  f.W.scan()
   eq(#f.daemons,0,"a fresh heartbeat means a watcher runs")
+  f=sweep_fixture{me="block:o"}
+  f.W.scan(); eq(#f.daemons,0,"the caller's own children get their watcher from its launches")
+  -- A call only looks: no close, no recheck, no mark; the watcher of a gone pane is started.
+  f=sweep_fixture{blocks={"block:c"},grace="0"}
+  r=f.W.scan()
+  eq(#f.closed,0,"a call closes nothing"); eq(f.sleeps(),0,"a call never sleeps"); eq(f.files["/state/watch/block_o.gone"],nil,"nor marks")
+  eq(r.status["block:c"],"grace","a pane not yet confirmed gone shows the grace period"); eq(#f.daemons,1,"the orphan's watcher is started")
+  f=sweep_fixture{blocks={"block:c"},grace="600",files={["/state/watch/block_o.gone"]="4500\n4990\n"}}
+  eq(f.W.scan().status["block:c"],"grace","within its own grace period")
+  f=sweep_fixture{blocks={"block:c"},grace="300",files={["/state/watch/block_o.gone"]="4500\n4990\n"}}
+  eq(f.W.scan().status["block:c"],"waiting","past its grace period, waiting for its watcher")
+  f=sweep_fixture{blocks={"block:c"},files={["/state/block_c.orphan"]="expired\n"}}
+  r=f.W.scan(); eq(r.status["block:c"],"expired","left open"); eq(#f.daemons,0,"no watcher for an orphan left open")
+  f=sweep_fixture{blocks={"block:c"},files={["/state/disabled"]=""}}
+  r=f.W.scan(); eq(r.status["block:c"],"kept","the kill switch"); eq(#f.daemons,0,"the kill switch starts no watcher from a call")
+  f=sweep_fixture{blocks={"block:c"},env={REX_ORCHESTRATOR_ORPHANS="keep"}}
+  r=f.W.scan(); eq(r.status["block:c"],"grace","a call's keep changes no child's state"); eq(#f.daemons,0,"and starts no watcher")
+  f=sweep_fixture{blocks={"block:c"},records={["block:c"]={"block:o","42","","claude","/w","","/bin/claude","session:s","keep"}}}
+  r=f.W.scan(); eq(r.status["block:c"],"kept","launched with keep"); eq(#f.daemons,0,"no watcher for a child launched with keep")
+  f.set({"block:o","block:c"}); f.W.scan(); eq(#f.daemons,0,"nor while its orchestrator lives")
+  f=sweep_fixture{list_error=true}
+  f.W.scan(); eq(#f.daemons,0,"no block list, nothing started")
   -- A pane missing once, then back: not gone, nothing saved.
   f=sweep_fixture{blocks={"block:c"},after_sleep={"block:o","block:c"}}
   r=f.W.sweep()
@@ -903,7 +928,6 @@ do
   f=sweep_fixture{blocks={"block:c"},grace="0",states={["block:c"]="working"}}
   r=f.W.sweep()
   eq(r.status["block:c"],"waiting","a working orphan waits"); eq(#f.closed,0)
-  eq(#f.daemons,1,"a waiting orphan gets a watcher")
   f.state("block:c","blocked"); f.W.sweep(); eq(#f.closed,0,"a blocked orphan waits")
   f.set({"block:o","block:c"}); r=f.W.sweep()
   eq(f.files["/state/watch/block_o.gone"],nil,"a pane that comes back cancels the orphan"); eq(r.status["block:c"],nil)
@@ -937,17 +961,15 @@ do
   -- Kill switch, opt-out, another session, a missing session, another orchestrator.
   f=sweep_fixture{blocks={"block:c"},grace="0",files={["/state/disabled"]=""}}
   r=f.W.sweep(); eq(r.status["block:c"],"kept","the kill switch keeps the orphan"); eq(#f.closed,0)
-  eq(#f.daemons,0,"the kill switch starts no watcher from a call")
   f.W.watcher=true; r=f.W.sweep("block:o")
   eq(r.remaining,1,"a running watcher keeps watching a child the kill switch holds")
   f=sweep_fixture{blocks={"block:c"},grace="0",env={REX_ORCHESTRATOR_ORPHANS="keep"}}
-  r=f.W.sweep(); eq(r.status["block:c"],"kept","the opt-out keeps the orphan"); eq(#f.closed,0); eq(#f.daemons,0,"opted out: no watcher")
+  r=f.W.sweep(); eq(r.status["block:c"],"kept","the opt-out keeps the orphan"); eq(#f.closed,0)
   f=sweep_fixture{blocks={"block:c"},grace="0",
     records={["block:c"]={"block:o","42","","claude","/w","","/bin/claude","session:s","keep","0"}}}
   r=f.W.sweep(); eq(r.status["block:c"],"kept","a launch's opt-out keeps the orphan"); eq(#f.closed,0)
-  eq(r.remaining,0,"a child launched with keep is never watched"); eq(#f.daemons,0,"no watcher for a child launched with keep")
-  f.set({"block:o","block:c"}); r=f.W.sweep()
-  eq(#f.daemons,0,"no watcher for a live orchestrator's keep children either"); eq(r.remaining,0)
+  eq(r.remaining,0,"a child launched with keep is never watched")
+  f.set({"block:o","block:c"}); r=f.W.sweep(); eq(r.remaining,0,"nor while its orchestrator lives")
   f=sweep_fixture{blocks={"block:c"},grace="0",
     records={["block:c"]={"block:o","42","","claude","/w","","/bin/claude","session:other","close","0"},
       ["block:d"]={"block:o","43","","claude","/w","","/bin/claude"},

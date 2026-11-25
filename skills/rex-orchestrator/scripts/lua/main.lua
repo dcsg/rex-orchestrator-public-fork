@@ -41,10 +41,10 @@ local command=table.remove(argv,1)
 if command=="claims" then C.init_state()
 else
   C.init()
-  -- Close the orphans in this session whose time has come; ls sweeps itself to show the rest.
+  -- Hand the orphans of this session to their watchers; ls looks itself to show their state.
   if command~="ls" then
-    local ok,err=pcall(C.orphans.sweep)
-    if not ok then C.note("orphan sweep: " .. tostring(err)) end
+    local ok,err=pcall(C.orphans.scan)
+    if not ok then C.note("orphan scan: " .. tostring(err)) end
   end
 end
 if command=="launch" then
