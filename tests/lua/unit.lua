@@ -731,6 +731,10 @@ do
     {"/Users/test/.SSH/keys","/Users/test/.ssh"},{"/USERS/TEST","/Users/test"},{"/users","/Users"},
     {"/Users/test/LIBRARY","/Users/test/Library"},{"/Users/test/.Local/Bin/x","/Users/test/.local/bin"},
     {"/Users/test/.config/REX-orchestrator/Cage-Secrets/x","/Users/test/.config/rex-orchestrator/cage-secrets"},
+    {"/Users/test/Library/Application Support/rex/x","/Users/test/Library/Application Support/rex"},
+    {"/Users/test/Library/application support/REX","/Users/test/Library/Application Support/rex"},
+    {"/Users/test/Library/Application Support","/Users/test/Library/Application Support/rex"},
+    {"/Users/test/Library/Application Support/rexish",nil},
     {"/Users/test/projects/x",nil},{"/Users/test/.codexish-notes",  "/Users/test/.codex*"}}) do
     eq(K.overlap(case[1]),case[2],"overlap " .. case[1])
   end

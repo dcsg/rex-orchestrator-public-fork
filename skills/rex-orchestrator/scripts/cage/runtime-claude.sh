@@ -12,7 +12,7 @@ mkdir -p "$CT/claude-config" "$CT/zdot"
 exec /usr/bin/env -i HOME="$RH" USER="${USER:-}" LOGNAME="${LOGNAME:-}" SHELL=/bin/zsh ZDOTDIR="$CT/zdot" \
   PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin \
   TERM="${TERM:-xterm-256color}" TERM_PROGRAM="${TERM_PROGRAM:-}" TERM_PROGRAM_VERSION="${TERM_PROGRAM_VERSION:-}" \
-  COLORTERM="${COLORTERM:-}" LANG="${LANG:-en_US.UTF-8}" \
+  COLORTERM="${COLORTERM:-}" LANG="${LANG:-en_US.UTF-8}" REX_SERVER=unix:///dev/null/rex-cage-no-server \
   CLAUDE_CONFIG_DIR="$CT/claude-config" CLAUDE_CODE_TMPDIR="$CT" TMPDIR="$CT/" DISABLE_AUTOUPDATER=1 \
   ENABLE_CLAUDEAI_MCP_SERVERS=false CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 \
   CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 \

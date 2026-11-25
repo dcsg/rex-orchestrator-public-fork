@@ -1,8 +1,9 @@
 (version 1)
 ; rex-orchestrator cage: the sandbox-exec profile a caged child runs under.
 ; Default-allow, then: writes only to DIR, the child's own cage home and terminal devices; no reads of secret
-; stores, agent homes or other cage homes; web ports only; no signals out; mach-lookup default-deny with a 7-name
-; allowlist; no IOKit user clients; and write locks on the files under DIR that run unsandboxed later.
+; stores, agent homes, other cage homes or the user's Rex folder; web ports only, and unix sockets only in the child's
+; own cage home (its private Rex server); no signals out; mach-lookup default-deny with a 7-name allowlist; no IOKit
+; user clients; and write locks on the files under DIR that run unsandboxed later.
 ;
 ; Invoke as:
 ;   sandbox-exec -D DIR=<task folder> -D DIR_RE=<DIR, ERE metacharacters \-escaped> \
@@ -110,6 +111,7 @@
   (subpath (string-append (param "HOME") "/.local/bin"))
   (subpath (string-append (param "HOME") "/.agents"))
   (subpath (string-append (param "HOME") "/Library/LaunchAgents"))
+  (subpath (string-append (param "HOME") "/Library/Application Support/rex"))   ; the user's Rex: see Network
   (prefix (string-append (param "HOME") "/.claude"))
   (prefix (string-append (param "HOME") "/.codex"))
   (prefix (string-append (param "HOME") "/.grok"))
@@ -167,7 +169,11 @@
   (subpath (string-append (param "HOME") "/Library/Application Support/Claude"))  ; the Claude app: MCP env tokens
   (subpath (string-append (param "HOME") "/Library/Application Support/Codex"))
   (subpath (string-append (param "HOME") "/Library/Application Support/com.openai.codex"))
-  (subpath (string-append (param "HOME") "/Library/Application Support/Muse")))
+  (subpath (string-append (param "HOME") "/Library/Application Support/Muse"))
+  ; The user's Rex: its socket, the runtime.json a `rex server stop` reads, its ssh folder and host list. A caged rex
+  ; runs its own server with HOME under CAGE_TMP and needs nothing here. The Rex executable lives elsewhere
+  ; (com.superlogical.rex or the app bundle) and stays readable and executable, never writable.
+  (subpath (string-append (param "HOME") "/Library/Application Support/rex")))
 ; git stops with a fatal error on a config it can't read: re-open its own folder.
 (allow file-read* (subpath (string-append (param "HOME") "/.config/git")))
 ; Re-open exactly ONE real-home credential file, for agents that read auth in place:
@@ -222,12 +228,30 @@
   (literal "/usr/bin/crontab") (literal "/usr/bin/at") (literal "/usr/bin/batch"))
 
 ; ---- Network: web ports + DNS only. Default-deny blocks every self-host service (Rex 58903,
-;      local MCP servers and app APIs), the Rex and ssh-agent unix sockets,
+;      local MCP servers and app APIs), the user's Rex and ssh-agent unix sockets,
 ;      cross-host ssh, and every other non-web port on any host. 443 to any host stays open
 ;      for the model API, so egress exfil over 443/80 is an inherent residual. ----
 (deny network-outbound)
 (allow network-outbound (remote ip "*:443") (remote ip "*:80") (remote ip "*:53"))
 (allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))  ; getaddrinfo/curl DNS
+; A PRIVATE Rex server: a caged worker may run `rex server run --listen unix://<CAGE_TMP>/...` (its HOME and state
+; under CAGE_TMP too) and point its own `rex --autostart=false` clients at it with REX_SERVER, to run tests that need a
+; live server. Its panes are its children, so they run in this same cage. Connecting is opened ONLY to a unix socket
+; under the child's own CAGE_TMP: nothing outside the cage binds there (the launcher made it fresh with mktemp; DIR is
+; not opened, because the user's uncaged tools and other cages on the same DIR can bind sockets there), and a sibling
+; cage's home is another CAGE_ROOT entry, so one worker can't drive another's private server. Seatbelt matches the
+; RESOLVED socket path: verified that a symlink in CAGE_TMP to a socket outside, a `CAGE_TMP/a/../../x` spelling and a
+; hard link (the link itself is write-denied) all stay denied. Every runtime's TMPDIR is in CAGE_TMP, so mktemp puts the
+; server there. One filter per (remote ...): a second filter inside the same (remote unix-socket ...) form was not
+; honoured (verified: only the first opened). Binding needs no network rule: it creates a file, so the write rules
+; already confine it to DIR and CAGE_TMP.
+(allow network-outbound (remote unix-socket (subpath (param "CAGE_TMP"))))
+; The user's own Rex server stays unreachable, explicitly and after the allow above (last match wins), whatever the
+; other rules become: it drives every pane in every session UNCAGED. Its socket is HOME/Library/Application Support/
+; rex/server.sock; the folder is also read- and write-denied above, and launch refuses a DIR in or holding it. The
+; wrappers set REX_SERVER to an address no server can be at, so a bare `rex` neither reaches nor autostarts one.
+(deny network-outbound
+  (remote unix-socket (subpath (string-append (param "HOME") "/Library/Application Support/rex"))))
 
 ; ---- Signals: only within the cage. A caged process must not SIGKILL Rex, other agents or apps.
 ;      Verified for grok; low risk for the others (these TUIs do not signal outside their own tree). ----

@@ -150,7 +150,7 @@ env_is() {
   exp=$(printf '%s\n' "$@" | sort | tr '\n' ' ')
   chk "$a: the child's environment holds only the cage's variables" "$exp" "$got"
 }
-BASEV=(HOME USER LOGNAME SHELL PATH TERM TERM_PROGRAM TERM_PROGRAM_VERSION COLORTERM LANG TMPDIR)
+BASEV=(HOME USER LOGNAME SHELL PATH TERM TERM_PROGRAM TERM_PROGRAM_VERSION COLORTERM LANG TMPDIR REX_SERVER)
 
 PD="$WORK/proj"; mkdir -p "$PD/.git/hooks"; : >"$PD/.git/config"
 mk codex "$PD" || { cat "$WORK/build.log"; echo "zt: cage_build failed for a plain DIR (codex)"; exit 2; }

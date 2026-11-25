@@ -41,7 +41,8 @@ return function(C,M)
     local prefix=agent_home(dir,h)
     if prefix then return prefix .. "*" end
     for _,path in ipairs({C.dir,secrets,h .. "/.ssh",h .. "/.local/bin",h .. "/.agents",h .. "/Library/LaunchAgents",
-      M.dirname(M.dirname(M.dirname(C.script_dir))),"/opt/homebrew","/Applications",
+      h .. "/Library/Application Support/rex",M.dirname(M.dirname(M.dirname(C.script_dir))),
+      "/opt/homebrew","/Applications",
       h .. "/.claude",h .. "/.codex",h .. "/.grok",h .. "/.gemini"}) do
       local physical=disk(path)
       if below(dir,physical) or below(dir,path) or below(physical,dir) then return path end
