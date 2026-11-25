@@ -1045,16 +1045,21 @@ do
   eq(f.files["/state/block_e.own"]~=nil and f.files["/state/block_f.own"]~=nil and f.files["/state/block_g.own"]~=nil,true,
     "another server's, a hostless and a live session's records stay")
   f.W.scan(); eq(f.closed[3],"block:i missing nowait","and the next")
-  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/block_d.forget"]="1000\n"},claims_busy=true}
+  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/block_d.forget"]="4500\n"},claims_busy=true}
   f.W.scan(); eq(#f.closed,0,"a busy claims lock skips the forgetting"); eq(#f.notes,0,"quietly")
-  eq(f.files["/state/block_d.own"]~=nil and f.files["/state/block_d.forget"]=="1000\n",true,"for a later call")
-  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/block_d.forget"]="1000\n"},
+  eq(f.files["/state/block_d.own"]~=nil and f.files["/state/block_d.forget"]=="4500\n",true,"for a later call")
+  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/block_d.forget"]="4500\n"},
     block_found={["block:d"]=true}}
   f.W.scan(); eq(#f.closed,0,"a child whose block Rex still finds is kept")
   eq(f.files["/state/block_d.forget"],nil,"and its first miss is dropped")
-  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/block_d.forget"]="1000\n"},
+  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/block_d.forget"]="4500\n"},
     live_sessions={["session:gone"]=true}}
   f.W.scan(); eq(#f.closed,0,"a session found again keeps its child"); eq(f.files["/state/block_d.forget"],nil)
+  -- A first miss over an hour old, never confirmed since, is stale: the next miss starts over instead of forgetting.
+  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/block_d.forget"]="1399\n"}}
+  f.W.scan(); eq(#f.closed,0,"a stale first miss forgets nothing"); eq(f.files["/state/block_d.forget"],"5000\n","it restarts")
+  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/block_d.forget"]="1400\n"}}
+  f.W.scan(); eq(#f.closed,1,"a first miss exactly an hour old still counts")
   f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/disabled"]="",["/state/block_d.forget"]="1000\n"}}
   f.W.scan(); eq(#f.closed,0,"the kill switch keeps a gone session's records")
   f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},resolve_error=true,

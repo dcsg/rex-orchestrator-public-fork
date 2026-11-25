@@ -15,6 +15,8 @@ O.closable={done=true,idle=true,error=true}
 O.stale=300
 -- A child whose session and block Rex reports gone is forgotten only when two looks this far apart agree.
 O.forget_after=60
+-- A first miss older than this is stale (nothing confirmed it since): the next miss starts over instead of forgetting.
+O.forget_stale=3600
 
 local function duration(value)
   local n,u=(value or ""):match("^(%d+)([smh]?)$")
@@ -161,7 +163,7 @@ function O.new(C,M,close_block)
             if sessions[r.session]~=nil and C.fs.read(mark) then C.fs.unlink(mark) end
           else
             local first=tonumber(M.lines(C.fs.read(mark) or "")[1])
-            if not first or first>now then
+            if not first or first>now or now-first>O.forget_stale then
               if not C.put(mark,now) then C.note("could not save when " .. r.block .. "'s session was first missed") end
             elseif now-first>=O.forget_after then
               -- Never wait on the claims lock here: when it is busy, a later call tries again.
