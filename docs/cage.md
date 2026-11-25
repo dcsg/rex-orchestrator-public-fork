@@ -238,14 +238,19 @@ your home, `~/Library` or `~/Repos`: give each task its own folder.
   `npm install`, a build.
 - **TLS services** (`com.apple.SecurityServer`, `trustd.agent`) are reachable; safe only while keychain files stay
   read-denied.
-- **Your Rex.** A caged agent can't reach your Rex server, so it can't orchestrate children itself; such a parent needs
-  `--no-cage`. It can run a private server of its own for tests (below), which drives nothing of yours.
+- **Your Rex.** A caged agent can't reach your Rex server over its unix socket, so it can't orchestrate children
+  itself; such a parent needs `--no-cage`. **Not covered: Rex's built-in Tailscale.** If it serves over Tailscale
+  (Settings > Server > Tailscale), the server is reachable over HTTPS at `https://<name>.<tailnet>.ts.net` and lets in
+  the Tailscale user who owns the machine. A caged agent on that machine connects as that user, because the cage allows
+  outbound HTTPS to any host and macOS sandbox rules can't exclude an address range. Turn off serving over Tailscale on
+  a machine that runs caged agents, or use your tailnet's access rules to deny that machine's own Tailscale device
+  access to the Rex device. It can run a private server of its own for tests (below), which drives nothing of yours.
 - **Terminals.** `/dev/tty*` stays writable so tools that open a sub-pty work: a caged child could print onto another pane's
   screen (not type into it). Never trust a screen on its own.
 
 ## A private Rex server
 
-A caged worker can't reach your Rex server: a process that can drive your server can drive every pane in every session,
+A caged worker can't reach your Rex server over its unix socket (see **Your Rex** above for Tailscale): a process that can drive your server can drive every pane in every session,
 uncaged. It can start a Rex server of its own, though, to run tests that need a live one (such as
 `tests/lua/live.sh`), the same way that suite does:
 

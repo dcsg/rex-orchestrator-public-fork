@@ -5,7 +5,8 @@ set -u
 # shellcheck source=tests/isolate.inc.sh
 . "${BASH_SOURCE[0]%/*}/../isolate.inc.sh" || exit 2
 here=$(cd "$(dirname "$0")" && pwd)
-runs=${REX_TEST_HARNESS_RUNS:-$(test_tmpdir rxh)}
+runs=${REX_TEST_HARNESS_RUNS:-$(test_tmpdir rxh)} || exit 2
+[ -n "$runs" ] || { echo 'harness: no usable temp folder' >&2; exit 2; }
 bashes=(/bin/bash)
 if bash5=$(test_find_bash5); then bashes+=("$bash5"); else test_skip 'shell harness requires Bash 5'; fi
 # shellcheck disable=SC2016  # the inner bash expands it

@@ -246,7 +246,8 @@
 ; honoured (verified: only the first opened). Binding needs no network rule: it creates a file, so the write rules
 ; already confine it to DIR and CAGE_TMP.
 (allow network-outbound (remote unix-socket (subpath (param "CAGE_TMP"))))
-; The user's own Rex server stays unreachable, explicitly and after the allow above (last match wins), whatever the
+; The user's own Rex server stays unreachable over its unix socket (not over its built-in Tailscale HTTPS listener, which
+; outbound 443 can reach; see docs/cage.md), explicitly and after the allow above (last match wins), whatever the
 ; other rules become: it drives every pane in every session UNCAGED. Its socket is HOME/Library/Application Support/
 ; rex/server.sock; the folder is also read- and write-denied above, and launch refuses a DIR in or holding it. The
 ; wrappers set REX_SERVER to an address no server can be at, so a bare `rex` neither reaches nor autostarts one. Rex's
