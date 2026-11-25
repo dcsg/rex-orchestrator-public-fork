@@ -9,7 +9,7 @@ return function(C, M)
     return not b:find("[^ -~]") and not protected[b:lower()]
   end
   function A.msg_path(app,msg)
-    if msg:find("%c") then return nil end
+    if msg:find("%c") or msg:find("\194[\128-\159]") then return nil end
     local ell=msg:find("…",1,true)
     if ell and (ell+#"…"-1<#msg or app=="claude-code") then return nil end
     if app=="claude-code" then
@@ -87,7 +87,7 @@ return function(C, M)
     if pre then
       if suf:find("…",1,true) or not suf:find("/",1,true) then return false end
       local forms={path}
-      local home=os.getenv("HOME") or "/nonexistent"
+      local home=M.env("HOME") or "/nonexistent"
       if M.starts(path,home) then forms[#forms+1]="~" .. path:sub(#home+1) end
       if M.below(path,dir) then forms[#forms+1]=path:sub(#dir+2) end
       for _,f in ipairs(forms) do
@@ -97,7 +97,7 @@ return function(C, M)
     end
     local absolute
     if M.starts(row,"/") then absolute=row
-    elseif M.starts(row,"~/") then absolute=(os.getenv("HOME") or "/nonexistent") .. row:sub(2)
+    elseif M.starts(row,"~/") then absolute=(M.env("HOME") or "/nonexistent") .. row:sub(2)
     else absolute=dir .. "/" .. row end
     local a=C.fs.real(clean(absolute)); local b=C.fs.real(path)
     return a~=nil and a==b
@@ -176,8 +176,8 @@ return function(C, M)
       return leave("not a plain file inside " .. dir .. ", or a protected one (dot files, agent instructions, a name with a non-ASCII character)")
     end
     if not same_record(C.root(C.block),rec) then return 2 end
-    -- Do not retry a write: a lost reply may mean Enter already reached the pane.
-    local result=C.rex.block.call("com.superlogical.terminal","write",{session_id=C.session,block_id=C.block,data="\r"})
+    -- A lost reply may mean Enter already reached the pane.
+    local result=C.enter()
     if not result then C.note("--approve-in could not press Enter in " .. C.block); return 1 end
     C.note("approved once: " .. msg)
     A.pressed=true

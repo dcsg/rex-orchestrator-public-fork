@@ -25,25 +25,58 @@ if ! command -v "$REX" >/dev/null 2>&1; then
   done
   [ -n "$REX" ] || { echo "rex-orchestrator: rex is not on PATH and no Rex app bundle was found; set REX_ORCHESTRATOR_REX_BIN_DIR" >&2; exit 2; }
 fi
-# Encode argv without jq or a helper process. Work bytewise so UTF-8 passes unchanged.
+# Rex's JSON decoder replaces invalid UTF-8. Transport argv as bytes so
+# diagnostics and file arguments retain the same spelling as in Bash.
 json_string() {
-  local LC_ALL=C v="$1" c i
+  local LC_ALL=C v="$1" bytes="$2" c i byte
   printf '"'
   for ((i=0; i<${#v}; i++)); do
     c=${v:i:1}
     case "$c" in
       '"' | "\\") printf '\\%s' "$c" ;;
       [[:cntrl:]]) printf '\\u%04x' "'$c" ;;
+      [$'\200'-$'\377'])
+        if [ "$bytes" = yes ]; then
+          printf -v byte '%d' "'$c"
+          printf '\\u00%02x' "$((byte & 255))"
+        else
+          printf '%s' "$c"
+        fi ;;
       *) printf '%s' "$c" ;;
     esac
   done
   printf '"'
 }
-args=$(printf '{"script_dir":'; json_string "$SCRIPT_DIR"; printf ',"argv":['
-  sep=''; for arg in "$@"; do printf '%s' "$sep"; json_string "$arg"; sep=,; done; printf ']}')
-# Keep wait alive long enough to handle destruction of its target's session itself.
+args=$(printf '{"forward_errors":true,"script_dir":'; json_string "$SCRIPT_DIR" no; printf ',"argv":['
+  sep=''; for arg in "$@"; do printf '%s' "$sep"; json_string "$arg" yes; sep=,; done; printf ']}')
+run_lua() {
+  local command=$1 diagnostics line rc=0
+  local flags=(--fail-fast)
+  # Keep wait alive long enough to handle destruction of its target's session itself.
+  if [ "$command" = wait ]; then flags+=(--all); fi
+  diagnostics=$("$REX" "do" "$SCRIPT_DIR/lua/main.lua" --args "$args" "${flags[@]}" 4>&2 2>&1 >&3) || rc=$?
+  case "$diagnostics" in
+    'Error: unknown flag: --all'* | 'Error: unknown flag: --fail-fast'* | 'Error: unknown flag: --args'* | 'Error: unknown command "do"'*)
+      printf '%s\n' 'rex-orchestrator: this Rex CLI lacks rex do with --args, --all and --fail-fast; update Rex' >&2
+      return 1 ;;
+    'Error: '*'no Rex server is running'*)
+      # Rex failed before executing Lua. Preserve the pre-migration startup diagnostics.
+      if [ "$rc" = 4 ]; then "$BASH" "$SCRIPT_DIR/rex-orchestrator-bash.sh" "$@" >&3; return $?; fi ;;
+  esac
+  while IFS= read -r line; do
+    case "$line" in '' | 'listening: '*'; Ctrl-C to stop') ;; *) printf '%s\n' "$line" >&2 ;; esac
+  done <<<"$diagnostics"
+  return "$rc"
+}
 if [ "$1" = wait ]; then
-  exec "$REX" "do" "$SCRIPT_DIR/lua/main.lua" --args "$args" --fail-fast --all
+  rc=0
+  result=$(run_lua "$@" 3>&1) || rc=$?
+  if [ -n "$result" ]; then
+    printf '%s\n' "$result"
+  elif [ "$rc" = 0 ] || [ "$rc" = 4 ]; then
+    printf '%s\n' 'rex-orchestrator: rex did not answer' >&2
+    rc=1
+  fi
+  exit "$rc"
 fi
-# Let Lua resolve REX_BLOCK/REX_SESSION so missing context retains the public usage error.
-exec "$REX" "do" "$SCRIPT_DIR/lua/main.lua" --args "$args" --fail-fast
+run_lua "$@" 3>&1

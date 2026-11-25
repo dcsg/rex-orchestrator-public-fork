@@ -56,6 +56,12 @@ local function test(options)
   function rex.exec() return {ok=false} end
   function rex.call(method,a)
     calls[#calls+1]=method
+    if method=="server.status" then return not options.server_down and {} or nil end
+    if method=="session.attach" then return {} end
+    if method=="client.key" then
+      if a.key.action=="press" then options.presses=(options.presses or 0)+1 end
+      return {}
+    end
     if method=="target.resolve" then
       if options.resolve_error then return nil,"offline" end
       local q=a.queries[1]
@@ -72,12 +78,12 @@ local function test(options)
   end
   function rex.block.call(_,method,a)
     calls[#calls+1]=method
+    if options.throw==method then error("test callback error") end
     if options.fail and options.fail[method] then return nil,"offline" end
     if method=="program_status" then return {records=current.records or {current.rec}} end
     if method=="process" then return current.process end
     if method=="format" then return {content=current.screen} end
     if method=="title" then return {title="child title"} end
-    if method=="write" then options.presses=(options.presses or 0)+1; return {bytes_written=1} end
   end
   function rex.on(name,fn) handlers[name]=fn end
   function rex.after(delay,fn)
@@ -88,13 +94,19 @@ local function test(options)
   function rex.every(delay,fn)
     local t=rex.after(delay,fn); t.period=delay; return t
   end
-  local C=M.new(rex,fs,{out=function(s) out[#out+1]=s end,note=function(s) notes[#notes+1]=s end})
+  local C=M.new(rex,fs,{out=function(s) out[#out+1]=s end,
+    note=function(s) notes[#notes+1]=s end,raw=function(s) notes[#notes+1]=s end})
   local A=Approval(C,M); local commands=Commands(C,M,A)
   local function run(command,args,events)
     for _,e in ipairs(events or {}) do
       rex.after(e.at,function()
         for k,v in pairs(e.set or {}) do current[k]=v end
-        if e.name and handlers[e.name] then handlers[e.name]({block_id=e.block or child,session_id=e.session or "session:test"},{block_id=e.block or child}) end
+        if e.fault then options.throw=e.fault end
+        if e.name and handlers[e.name] then
+          local ctx={session_id=e.session or "session:test"}
+          if not e.no_ctx_block then ctx.block_id=e.block or child end
+          handlers[e.name](ctx,{block_id=e.block or child,session_id=ctx.session_id})
+        end
       end)
     end
     local ok,err=pcall(function()
@@ -138,6 +150,7 @@ for _,app in ipairs({"claude-code","antigravity","codex"}) do
   eq(A.msg_path(app,"approve Write: /work/a.txt"),app=="claude-code" and "/work/a.txt" or nil)
 end
 eq(A.msg_path("claude-code","approve Write: /work/a.txt\n"),nil)
+eq(A.msg_path("claude-code","approve Write: /work/a\194\133.txt"),nil)
 eq(A.msg_path("antigravity","Approve EditFile: Write: /work/a…"),"/work/a…")
 eq(A.msg_path("claude-code","approve Write: /work/a…"),nil)
 eq(A.dialog(fixture("dialog/claude-write-file"),"claude-code","/work/new.txt",false),"new.txt")
@@ -178,16 +191,28 @@ r=test({rec=b})("wait",{child}); eq(r.code,10); eq(r.out,"blocked permission app
 r=test({rec={app="muse",state="error",msg="oops",updated_at="new"}})("wait",{child}); eq(r.code,11); eq(r.out,"error oops")
 r=test({process={last_exit={code=0}}})("wait",{child}); eq(r.code,12); eq(r.out,"exited")
 r=test()("wait",{child,"--timeout","2"}); eq(r.code,124); eq(r.out,"timeout (state=working)")
-r=test()("wait",{child,"--timeout","12"}); eq(count(r.calls,"program_status"),2)
--- Event-driven completion: unrelated panes/sessions must not end the wait; no periodic status reads.
+r=test()("wait",{child,"--timeout","12"}); eq(count(r.calls,"program_status"),5)
+r=test({throw="process"})("wait",{child}); eq(r.code,1); eq(r.notes:find("test callback error",1,true)~=nil,true)
+r=test({rec=d,screen=fixture("bg/live-1-shell")})("wait",{child},{{at=0.25,fault="format"}}); eq(r.code,1); eq(r.elapsed,0.5)
+r=test()("wait",{child,"--timeout","1"},{{at=1.5,fault="process"}}); eq(r.code,1); eq(r.elapsed,2)
+r=test({list_error=true,server_down=true,fail={process=true}})("wait",{child}); eq(r.code,1)
+-- Unrelated events do not trigger reads. The startup and safety snapshots recover lost events.
 r=test()("wait",{child,"--timeout","30"},{
-  {at=1,name="terminal.program_status_changed",block="block:other",set={rec=d}},
+  {at=1.5,name="terminal.program_status_changed",block="block:other",set={rec=d}},
   {at=2,name="terminal.program_status_changed",session="session:other"},
-  {at=3,name="terminal.program_status_changed"}})
-eq(r.code,0); eq(r.elapsed,3); eq(count(r.calls,"program_status"),2)
+  {at=3,name="terminal.program_status_changed",no_ctx_block=true}})
+eq(r.code,0); eq(r.elapsed,3); eq(count(r.calls,"program_status"),3)
+r=test()("wait",{child,"--timeout","30"},{{at=0.5,set={rec=d}}})
+eq(r.code,0); eq(r.elapsed,1)
+r=test()("wait",{child,"--timeout","30"},{{at=1.5,set={rec=d}}})
+eq(r.code,0); eq(r.elapsed,5)
 for _,name in ipairs({"block_closed","terminal.child_exited"}) do
   r=test()("wait",{child,"--timeout","30"},{{at=1,name=name}}); eq(r.code,12); eq(r.elapsed,1)
 end
+r=test()("wait",{child,"--timeout","30"},{
+  {at=1,name="session_destroyed",session="session:other",no_ctx_block=true},
+  {at=2,name="session_destroyed",no_ctx_block=true}})
+eq(r.code,12); eq(r.elapsed,2)
 r=test({records={}})("wait",{child,"--timeout","1"}); eq(r.code,124)
 r=test({rec={app="codex",state="idle",updated_at="new"}})("wait",{child}); eq(r.elapsed,8); eq(r.out,"idle")
 r=test()("wait",{child},{{at=1,name="terminal.program_status_changed",set={rec={app="codex",state="idle",updated_at="newer"}}}})

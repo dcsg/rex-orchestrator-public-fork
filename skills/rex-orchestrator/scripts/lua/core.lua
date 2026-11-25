@@ -1,5 +1,22 @@
 -- Shared read-side contract, usable with a fake rex table under LuaJIT/Lua 5.1.
 local M = {}
+local json_escapes={
+  ['"']='\\"', ['\\']='\\\\', ['\b']='\\b', ['\f']='\\f',
+  ['\n']='\\n', ['\r']='\\r', ['\t']='\\t'
+}
+function M.json_string(s)
+  return '"' .. s:gsub('[%z\1-\31\127\\"]',function(c)
+    return json_escapes[c] or string.format('\\u%04x',c:byte())
+  end) .. '"'
+end
+function M.tsv(s)
+  local escapes={['\\']='\\\\', ['\t']='\\t', ['\n']='\\n', ['\r']='\\r'}
+  return (s:gsub('[\\\t\n\r]',escapes))
+end
+function M.env(k)
+  local v=os.getenv(k)
+  return v and v~="" and v or nil
+end
 function M.lines(s)
   local a = {}; s=s or ""; local text=s:gsub("\n$", ""); text=text .. "\n"
   for l in text:gmatch("(.-)\n") do a[#a+1]=l end
@@ -74,9 +91,10 @@ end
 function M.new(rex, fs, output)
   local C={rex=rex, fs=fs, session=nil, me="", force=false}
   C.out=(output and output.out) or function(s) io.stdout:write(s .. "\n"); io.stdout:flush() end
-  C.note=(output and output.note) or function(s) io.stderr:write("rex-orchestrator: " .. s .. "\n"); io.stderr:flush() end
+  C.raw=(output and output.raw) or function(s) io.stderr:write(s .. "\n"); io.stderr:flush() end
+  C.note=(output and output.note) or function(s) C.raw("rex-orchestrator: " .. s) end
   function C.die(s,code) C.note(s); rex.stop(code or 2) end
-  local function env(k) local v=os.getenv(k); return v and v~="" and v or nil end
+  local env=M.env
   C.dir=env("REX_ORCHESTRATOR_STATE_DIR") or ((env("XDG_STATE_HOME") or (env("HOME") and env("HOME") .. "/.local/state")) or "")
   if not env("REX_ORCHESTRATOR_STATE_DIR") and C.dir~="" then C.dir=C.dir .. "/rex-orchestrator" end
   function C.sf(b) return C.dir .. "/" .. b:gsub("[^A-Za-z0-9_-]","_") end
@@ -92,42 +110,98 @@ function M.new(rex, fs, output)
       if n<3 then rex.sleep(0.2) end
     end
   end
-  function C.resolve(query,kind)
+  function C.attach()
+    if C.attached then return true end
+    local attached,err=rex.call("session.attach",{session_id=C.session})
+    if not attached then return nil,err end
+    C.attached=true
+    return true
+  end
+  function C.enter()
+    local attached,err=C.attach()
+    if not attached then return nil,err end
+    local key={key="enter",mods="",consumed_mods="",text="",unshifted_codepoint=0,composing=false}
+    local args={session_id=C.session,block_id=C.block,key=key}
+    key.action="press"
+    local pressed,why=rex.call("client.key",args)
+    if not pressed then return nil,why end
+    key.action="release"
+    local released,release_error=rex.call("client.key",args)
+    if not released and release_error then C.raw("Error: " .. release_error) end
+    return true
+  end
+  function C.resolve(query,kind,session)
     if not query or query=="" or query:sub(1,1)=="-" then return nil,3 end
-    local args={kinds={kind or "block"},queries={query}}
-    if kind~="session" then args.scope={session=C.session} end
+    kind=kind or "block"
+    local args={kinds={kind},queries={query}}
+    if kind~="session" then args.scope={session=session or C.session} end
+    local last_error
     for n=1,3 do
-      local r=rex.call("target.resolve",args)
+      local r,err=rex.call("target.resolve",args)
       local item=r and r.results and r.results[1]
       if item then
-        if item.status=="resolved" and type(item.target)=="table" then return item.target[(kind or "block") .. "_id"] end
-        return nil,3
+        local id=type(item.target)=="table" and item.target[kind .. "_id"]
+        if item.status=="resolved" and id then return id end
+        return nil,3,item
       end
+      last_error=err
+      if tostring(err):find("method_not_found",1,true) then return nil,1,err end
       if n<3 then rex.sleep(0.2) end
     end
-    return nil,1
+    return nil,1,last_error
+  end
+  function C.resolve_failed(message,err)
+    if type(err)=="string" and err:find("method_not_found",1,true) then
+      C.die("this Rex server lacks target.resolve; update Rex",1)
+    end
+    C.die(message,1)
+  end
+  function C.init_state()
+    if C.dir=="" then C.die("no state dir: set HOME or REX_ORCHESTRATOR_STATE_DIR") end
+    if not fs.init(C.dir) then C.die("refusing state dir " .. C.dir .. ": a link, not a directory, or not yours (REX_ORCHESTRATOR_STATE_DIR picks another)") end
   end
   function C.init()
     local session=env("REX_SESSION")
-    if not session and env("REX_BLOCK") then session=C.resolve(env("REX_BLOCK"),"session") end
+    local caller=env("REX_BLOCK")
+    local query=session or caller
+    if query then
+      local canonical,code,reason
+      if session==rex.session_id and session then canonical=session
+      else canonical,code,reason=C.resolve(query,"session") end
+      if code==1 then C.resolve_failed("rex did not answer for " .. (session and "REX_SESSION " or "REX_BLOCK ") .. query,reason) end
+      -- A confirmed missing explicit scope is kept for the same diagnostic as block inspect.
+      session=canonical or session
+    end
     if not session then C.die("REX_SESSION is empty and no session could be resolved from REX_BLOCK; run inside a Rex terminal with REX_BLOCK set (check with: rex whoami --json), or set REX_SESSION explicitly") end
-    -- The RPCs and event payloads use canonical session IDs. Rex's CLI also accepts labels and block IDs.
-    C.session=M.starts(session,"session:") and session or C.resolve(session,"session") or session
-    if C.dir=="" then C.die("no state dir: set HOME or REX_ORCHESTRATOR_STATE_DIR") end
-    if not fs.init(C.dir) then C.die("refusing state dir " .. C.dir .. ": a link, not a directory, or not yours (REX_ORCHESTRATOR_STATE_DIR picks another)") end
-    if env("REX_BLOCK") then
-      local id,code=C.resolve(env("REX_BLOCK"))
-      if id then C.me=id elseif code==3 then C.me=env("REX_BLOCK")
-      else C.die("rex did not answer for REX_BLOCK " .. env("REX_BLOCK"),1) end
+    C.session=session
+    C.init_state()
+    if caller then
+      local id,code,reason=C.resolve(caller)
+      if id then C.me=id elseif code==3 then C.me=caller
+      else C.resolve_failed("rex did not answer for REX_BLOCK " .. caller,reason) end
+    end
+  end
+  local function explain_target(q,item)
+    if type(item)~="table" then return end
+    local quoted=M.json_string(item.query or q)
+    if item.status=="ambiguous" then
+      C.raw("Error: block target " .. quoted .. " is ambiguous" .. (item.reason and ": " .. item.reason or ""))
+      for _,candidate in ipairs(item.candidates or {}) do
+        local id=candidate.block_id or candidate.session_id or candidate.window_id or ""
+        C.raw("  " .. (candidate.label or "") .. "  …" .. id:sub(-6) .. "  " .. (candidate.where or ""))
+      end
+    elseif item.status=="not_found" then
+      C.raw("Error: block target " .. quoted .. " not found" .. (item.reason and ": " .. item.reason or ""))
     end
   end
   function C.target(q,gone)
     if not q or q=="" then C.die("missing BLOCK") end
-    local b,code=C.resolve(q)
+    local b,code,reason=C.resolve(q)
     if not b then
+      if code==3 then explain_target(q,reason) end
       if code==3 and gone and M.starts(q,"block:") then b=q
       elseif code==3 then C.die("no such block in this session: " .. q)
-      else C.die("rex did not answer for block " .. q,1) end
+      else C.resolve_failed("rex did not answer for block " .. q,reason) end
     end
     if b==C.me then C.die("refusing to target your own pane (" .. q .. ")") end
     C.block=b; return b
@@ -173,10 +247,11 @@ function M.new(rex, fs, output)
       cwd=p and ((p.foreground or {}).cwd or (p.child or {}).cwd)}
     -- Rex maps JSON null to nil, so encode required null fields explicitly.
     local a={}; for _,key in ipairs({"state","kind","msg","title","alive","cwd"}) do
-      a[#a+1]='"' .. key .. '":' .. (fields[key]==nil and "null" or rex.json.encode(fields[key]))
+      local v=fields[key]
+      a[#a+1]='"' .. key .. '":' .. (v==nil and "null" or type(v)=="string" and M.json_string(v) or rex.json.encode(v))
     end
     local account=C.line(b,"cage",2)
-    if account~="" then a[#a+1]='"account":' .. rex.json.encode(account) end
+    if account~="" then a[#a+1]='"account":' .. M.json_string(account) end
     return "{" .. table.concat(a,",") .. "}"
   end
   function C.kind(rec)
@@ -199,7 +274,7 @@ function M.new(rex, fs, output)
   function C.killed(kind) return fs.exists(C.dir .. "/disabled" .. (kind and kind~="" and "." .. kind or "")) end
   function C.kill(why)
     if not fs.append(C.dir .. "/disabled.claude",os.date("!%Y-%m-%dT%H:%M:%SZ") .. " " .. why .. "\n") then C.note("could not write " .. C.dir .. "/disabled.claude") end
-    C.note("\27[31mstopped: " .. why .. "; " .. C.dir .. "/disabled.claude is set: report it, never remove it yourself\27[0m")
+    C.raw("\27[31mrex-orchestrator: stopped: " .. why .. "; " .. C.dir .. "/disabled.claude is set: report it, never remove it yourself\27[0m")
   end
   return C
 end

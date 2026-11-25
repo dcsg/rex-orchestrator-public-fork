@@ -27,8 +27,9 @@ the phased migration. Both implementations use the same state files and guards.
 4. **wait** subscribes to program-status, process, block-close and session-destruction events for its target, then
    reads the initial snapshot. It takes the newest *root* record (records with an `id` belong to sub-agents and
    background tasks). Only records newer than the last `send`/`keys` count. Timers implement the timeout, idle grace
-   and stale-dialog deadlines. Screen-derived background counts and permission-mode guards still need screen reads
-   every half second while active: Rex exposes no screen-damage event. Failed reads are retried conservatively.
+   and stale-dialog deadlines. A second startup snapshot and a five-second recheck catch missed events and detect
+   lost connections. Screen-derived background counts and permission-mode guards still need screen reads
+   every half second while active because Rex exposes no screen-damage event.
 5. **close** runs `rex block close`, harvests a caged child's transcripts, and removes state and claims.
 
 ## Program status (OSC 7501)

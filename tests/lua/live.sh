@@ -13,12 +13,12 @@ mkdir -p "$T/home" "$T/config" "$T/data" "$T/cache" "$T/work" "$T/bin"
 export HOME="$T/home" XDG_CONFIG_HOME="$T/config" XDG_DATA_HOME="$T/data" XDG_CACHE_HOME="$T/cache"
 export REX_SERVER="unix://$T/rex.sock" REX_BLOCK='' REX_SESSION='' REX_CONFIG="$T/init.lua"
 export REX_ORCHESTRATOR_STATE_DIR="$T/orchestrator-state"
-# The entry script still execs rex; this shim ensures even that call cannot autostart a server.
+# The entry script and the Bash baseline both use this shim to disable autostart.
 printf '#!/bin/bash\nexec %q --autostart=false "$@"\n' "$REAL_REX" > "$T/bin/rex"
 chmod +x "$T/bin/rex"
 export REX_ORCHESTRATOR_REX_BIN_DIR="$T/bin"
 rex_test() { "$REAL_REX" --autostart=false "$@"; }
-rex_test server run --listen "$REX_SERVER" --state-dir "$T/state" --restore=false --config "$T/init.lua" > "$T/server.log" 2>&1 &
+"$REAL_REX" --autostart=false server run --listen "$REX_SERVER" --state-dir "$T/state" --restore=false --config "$T/init.lua" > "$T/server.log" 2>&1 &
 server_pid=$!
 for ((n=0;n<100;n++)); do [ ! -S "$T/rex.sock" ] || break; sleep 0.05; done
 [ -S "$T/rex.sock" ] || { cat "$T/server.log" >&2; exit 1; }
@@ -34,19 +34,40 @@ old() { /bin/bash "$OLD" "$@"; }
 type_line() { printf '%s\n' "$1" | rex_test send -s "$REX_SESSION" -b "$B"; }
 state() { rex_test block call -s "$REX_SESSION" -b "$B" program_status | jq -r '[.records[]? | select(.id==null)] | last | .state'; }
 await_state() { for ((n=0;n<100;n++)); do [ "$(state)" != "$1" ] || return 0; sleep 0.03; done; echo "state never became $1" >&2; exit 1; }
-await_listener() {
+prompt_wait() {
   local n
-  for ((n=0;n<100;n++)); do
-    if grep -q '^listening:' "$T/wait.err"; then return 0; fi
-    if ! kill -0 "$wait_pid" 2>/dev/null; then break; fi
+  for ((n=0;n<140;n++)); do
+    if ! kill -0 "$wait_pid" 2>/dev/null; then wait "$wait_pid"; return; fi
     sleep 0.05
   done
   cat "$T/wait.err" "$T/wait.out" >&2
-  echo "wait did not start listening" >&2
+  echo "wait did not finish promptly" >&2
   exit 1
 }
+error_parity() {
+  local label=$1 session=$2 caller=$3 bash_code=0 lua_code=0
+  shift 3
+  REX_SESSION="$session" REX_BLOCK="$caller" old "$@" > "$T/old.out" 2> "$T/old.err" || bash_code=$?
+  REX_SESSION="$session" REX_BLOCK="$caller" cli "$@" > "$T/lua.out" 2> "$T/lua.err" || lua_code=$?
+  check "$label exit" "$lua_code" "$bash_code"
+  check "$label output" "$(cat "$T/lua.out")" "$(cat "$T/old.out")"
+  cmp -s "$T/old.err" "$T/lua.err" || { diff -u "$T/old.err" "$T/lua.err" >&2; exit 1; }
+  pass=$((pass+1))
+}
 await_state working
-check 'status JSON parity' "$(cli status "$B" | jq -Sc .)" "$(old status "$B" | jq -Sc .)"
+# shellcheck disable=SC1003 # The title ends with a literal backslash.
+title=$(printf '%s\\' '<&>"')
+for ((n=0;n<100;n++)); do
+  [ "$(cli status "$B" | jq -r .title)" != "$title" ] || break
+  sleep 0.03
+done
+check 'title fixture' "$(cli status "$B" | jq -r .title)" "$title"
+cli status "$B" > "$T/lua.out"; old status "$B" > "$T/old.out"
+cmp "$T/old.out" "$T/lua.out"
+pass=$((pass+1))
+error_parity 'unknown REX_BLOCK' '' block:01a10000-0000-7000-8000-000000000001 status "$B"
+error_parity 'bad REX_SESSION' not-a-rex-session '' status "$B"
+error_parity 'invalid UTF-8 argv' "$REX_SESSION" '' status "$(printf '\377')"
 implicit_list=$(REX_SESSION='' REX_BLOCK="$B" cli ls)
 check 'resolve session from REX_BLOCK' "$implicit_list" ''
 mkdir -p "$T/install space/bin"
@@ -54,19 +75,20 @@ ln -s "$ROOT/skills/rex-orchestrator/scripts" "$T/install space/assets"
 ln -s ../assets/rex-orchestrator.sh "$T/install space/bin/relative"
 ln -s relative "$T/install space/bin/chain"
 check 'Lua through chained relative install symlinks' "$(/bin/bash "$T/install space/bin/chain" status "$B")" "$(cli status "$B")"
-REX_SESSION=lua-test cli wait "$B" --timeout 20 > "$T/wait.out" 2> "$T/wait.err" &
-wait_pid=$!
-await_listener; type_line 'done'
-for ((n=0;n<100;n++)); do
-  if ! kill -0 "$wait_pid" 2>/dev/null; then break; fi
-  sleep 0.05
+for delay in 0 0.02 0.05 0.1 0.2 0.4; do
+  type_line working; await_state working
+  REX_SESSION=lua-test cli wait "$B" --timeout 20 > "$T/wait.out" 2> "$T/wait.err" &
+  wait_pid=$!
+  sleep "$delay"; type_line 'done'
+  prompt_wait || { cat "$T/wait.err" "$T/wait.out" >&2; exit 1; }
+  check "status transition during wait startup after $delay s" "$(cat "$T/wait.out")" 'done'
+  check 'wait has no Rex banner' "$(cat "$T/wait.err")" ''
 done
-if kill -0 "$wait_pid" 2>/dev/null; then echo 'wait missed the status event' >&2; exit 1; fi
-wait "$wait_pid" || { cat "$T/wait.err" "$T/wait.out" >&2; exit 1; }
-check 'event-driven done using the session label' "$(cat "$T/wait.out")" 'done'
 check 'screen parity' "$(cli screen "$B")" "$(old screen "$B")"
 check 'default screen lines with an empty argument' "$(cli screen "$B" '')" "$(old screen "$B" '')"
-check 'ls parity' "$(cli ls | cut -f2- | jq -Sc .)" "$(old ls | cut -f2- | jq -Sc .)"
+cli ls > "$T/lua.out"; old ls > "$T/old.out"
+cmp "$T/old.out" "$T/lua.out"
+pass=$((pass+1))
 for pair in 'blocked:10:blocked question A question' 'error:11:error Boom'; do
   IFS=: read -r command expected_code expected_text <<< "$pair"
   type_line "$command"; await_state "$command"
@@ -77,6 +99,10 @@ type_line working; await_state working
 code=0; cli wait "$B" --timeout 0 > "$T/wait.out" 2> "$T/wait.err" || code=$?
 check 'timeout exit' "$code" 124
 check 'timeout text' "$(cat "$T/wait.out")" 'timeout (state=working)'
+type_line idle; await_state idle
+started=$SECONDS
+check 'initial idle' "$(cli wait "$B" --timeout 12)" idle
+[ $((SECONDS-started)) -ge 8 ] || { echo 'idle returned before its grace' >&2; exit 1; }
 # Ownership record compatible with Bash, for a caller that has already disappeared.
 export REX_BLOCK=block:01a10000-0000-7000-8000-000000000001
 sf="$REX_ORCHESTRATOR_STATE_DIR/${B//[^A-Za-z0-9_-]/_}"
@@ -107,6 +133,17 @@ for target in AGENTS.md .env sub/../new.txt; do
   check "refuse protected path $target" "$code" 10
 done
 check 'unsafe paths press no keys' "$(wc -l < "$T/work/presses" | tr -d ' ')" 2
+type_line agy-cut; await_state blocked
+code=0; cli wait "$B" --approve-in "$T/work" --timeout 5 > "$T/wait.out" 2> "$T/wait.err" || code=$?
+check 'unverified cut agy prompt is left to the user' "$code" 10
+grep -q 'not a verified one' "$T/wait.err"
+# Seed only this fixture's verified-build cache to exercise the cut dialog path with a shell stand-in.
+bin=$(rex_test block call -s "$REX_SESSION" -b "$B" process | jq -r .child.path)
+printf '%s 34423fc9b0af3841e7646aa72a2d40ffeab8218b22d1cb99eac7355f9eba31e3 %s\n' \
+  "$(stat -f '%z %m %i %c' "$bin")" "$bin" > "$REX_ORCHESTRATOR_STATE_DIR/agy-sha256"
+cli wait "$B" --approve-in "$T/work" --timeout 5 > "$T/wait.out" 2> "$T/wait.err" || { cat "$T/wait.err" >&2; exit 1; }
+check 'verified cut agy prompt completes' "$(cat "$T/wait.out")" 'done'
+check 'cut agy approval presses once' "$(wc -l < "$T/work/presses" | tr -d ' ')" 3
 # Restore done for the baseline-file test below.
 type_line 'done'; await_state 'done'
 # A stale report, marked by Bash's on-disk timestamp, cannot end Lua wait.
@@ -115,6 +152,24 @@ printf '%s\n\n' "$upd" > "$sf"
 code=0; cli wait "$B" --timeout 0 > "$T/wait.out" 2> "$T/wait.err" || code=$?
 check 'stale status exit' "$code" 124
 check 'stale status text' "$(cat "$T/wait.out")" 'timeout (state=done, no new report since send/keys)'
+type_line blocked; await_state blocked
+upd=$(rex_test block call -s "$REX_SESSION" -b "$B" program_status | jq -r '[.records[]? | select(.id==null)] | last | .updated_at')
+printf '%s\n\n' "$upd" > "$sf"
+started=$SECONDS; code=0
+cli wait "$B" --timeout 14 > "$T/wait.out" 2> "$T/wait.err" || code=$?
+check 'stale Claude prompt remains blocked' "$code:$(cat "$T/wait.out")" '10:blocked question A question'
+[ $((SECONDS-started)) -gt 10 ] || { echo 'stale prompt returned before its grace' >&2; exit 1; }
+grep -q 'no new report since send/keys: the prompt is still up' "$T/wait.err"
+rm "$sf"
+type_line bg; await_state 'done'
+code=0; cli wait "$B" --timeout 0 > "$T/wait.out" 2> "$T/wait.err" || code=$?
+check 'background wait persists hold' "$code:$(cat "$T/wait.out")" '124:timeout (state=done, background: 1 shell)'
+cp "$sf.hold" "$T/first.hold"
+code=0; cli wait "$B" --timeout 0 > "$T/wait.out" 2> "$T/wait.err" || code=$?
+check 'remaining background hold is carried across waits' "$code" 124
+cmp "$T/first.hold" "$sf.hold"
+check 'ignore-background completes a carried hold' "$(cli wait "$B" --ignore-background)" 'done'
+[ ! -e "$sf.hold" ]
 # Self-target checks through a label and missing context retain usage exit 2.
 code=0; REX_BLOCK="$B" cli status "$B" > /dev/null 2> "$T/err" || code=$?
 check 'self-target exit' "$code" 2
@@ -133,16 +188,36 @@ if [ -n "${REX_LUA_BENCHMARK:-}" ]; then . "$ROOT/tests/lua/benchmark.inc.sh"; f
 type_line working; await_state working
 cli wait "$B" --timeout 5 > "$T/wait.out" 2> "$T/wait.err" &
 wait_pid=$!
-await_listener; rex_test block close -s "$REX_SESSION" "$B"
+sleep 0.4; rex_test block close -s "$REX_SESSION" "$B"
 code=0; wait "$wait_pid" || code=$?
 check 'closed event exit' "$code" 12; check 'closed event text' "$(cat "$T/wait.out")" exited
 rex_test session new lua-destroy --shell none --keep-open --json -- /bin/bash "$ROOT/tests/lua/standin.sh" "$T/work" > "$T/session.json"
 REX_SESSION=$(jq -r .session_id "$T/session.json")
 B=$(jq -r '.initial_windows[0].block_ids[0]' "$T/session.json")
 await_state working
+rex_test do -e 'assert(rex.call("session.attach",{session_id=rex.args.s})); assert(rex.session.set_block_label{session_id=rex.args.s,block_id=rex.args.b,label="twins"})' \
+  "s=$REX_SESSION" "b=$B"
+rex_test split -s "$REX_SESSION" -b "$B" --label twins --shell none --keep-open -- /bin/cat >/dev/null
+error_parity 'ambiguous block label' "$REX_SESSION" '' status twins
 cli wait "$B" --timeout 5 > "$T/wait.out" 2> "$T/wait.err" &
 wait_pid=$!
-await_listener; rex_test session kill "$REX_SESSION"
+sleep 0.4; rex_test session kill "$REX_SESSION"
 code=0; wait "$wait_pid" || code=$?
 check 'destroyed session exit' "$code:$(cat "$T/wait.out")" '12:exited'
+rex_test session new lua-disconnect --shell none --keep-open --json -- /bin/bash "$ROOT/tests/lua/standin.sh" "$T/work" > "$T/session.json"
+REX_SESSION=$(jq -r .session_id "$T/session.json")
+B=$(jq -r '.initial_windows[0].block_ids[0]' "$T/session.json")
+type_line bg; await_state 'done'
+sf="$REX_ORCHESTRATOR_STATE_DIR/${B//[^A-Za-z0-9_-]/_}"
+cli wait "$B" --timeout 20 > "$T/wait.out" 2> "$T/wait.err" &
+wait_pid=$!
+for ((n=0;n<100;n++)); do [ ! -s "$sf.hold" ] || break; sleep 0.05; done
+[ -s "$sf.hold" ] || { echo 'wait never took its initial snapshot' >&2; exit 1; }
+kill -KILL "$server_pid"; wait "$server_pid" 2>/dev/null || :
+server_pid=''
+code=0; prompt_wait || code=$?
+check 'server disconnect fails promptly' "$code:$(cat "$T/wait.out")" '1:'
+grep -q 'rex did not answer' "$T/wait.err"
+error_parity 'server down' "$REX_SESSION" '' status "$B"
+error_parity 'server down with implicit session' '' "$B" wait "$B"
 printf 'Lua live: %d passed\n' "$pass"

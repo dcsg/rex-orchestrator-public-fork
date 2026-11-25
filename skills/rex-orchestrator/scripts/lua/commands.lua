@@ -34,7 +34,7 @@ return function(C, M, A)
           if live or agent(p.foreground) or agent(p.child) then
             local json=C.status(id)
             local mine=C.me~="" and C.line(id,"own",1)==C.me
-            C.out(id .. "\t" .. json:sub(1,-2) .. ',"label":' .. R.json.encode(b.label or "") .. ',"mine":' .. tostring(mine) .. '}')
+            C.out(id .. "\t" .. json:sub(1,-2) .. ',"label":' .. M.json_string(M.tsv(b.label or "")) .. ',"mine":' .. tostring(mine) .. '}')
           end
         end
       end
@@ -58,8 +58,8 @@ return function(C, M, A)
       elseif k=="--approve-in" then
         local v=value(); approve=C.fs.canonical(v)
         if not approve then C.die("wait: no such directory: " .. v) end
-        local home=os.getenv("HOME") or "/"
-        for _,f in ipairs({"/","/Users",home,home .. "/Library",home .. "/Repos"}) do
+        local home=M.env("HOME")
+        for _,f in ipairs({"/","/Users",home or "/",(home or "") .. "/Library",(home or "") .. "/Repos"}) do
           if approve==(C.fs.canonical(f) or "") then C.die("wait: --approve-in " .. v .. " is too broad; give the task's own directory") end
         end
         i=i+2
@@ -83,10 +83,26 @@ return function(C, M, A)
       local t=hold_text()
       if saved~=t then saved=t; if not C.put(sf .. ".hold",t) then C.note("could not save the hold") end end
     end
+    local result={}
+    local function stop(code)
+      result.code=code
+      error(result,0)
+    end
+    local function guard(fn)
+      return function(...)
+        local ok,err=pcall(fn,...)
+        if ok then return end
+        if err==result then R.stop(result.code) end
+        C.die("wait: " .. tostring(err),1)
+      end
+    end
+    local function after(delay,fn) return R.after(delay,guard(fn)) end
+    local function every(delay,fn) return R.every(delay,guard(fn)) end
     local function finish(text,code)
       save()
       if code~=124 then C.fs.remove(sf .. ".hold") end
-      C.out(text); R.stop(code)
+      C.out(text)
+      stop(code)
     end
     local function turn_over()
       if ignore then return true end
@@ -113,23 +129,30 @@ return function(C, M, A)
     local evaluate
     local function later_retry()
       if retry_timer then return end
-      retry_timer=R.after(0.5,function() retry_timer=nil; evaluate(true,true) end)
+      retry_timer=after(0.5,function() retry_timer=nil; evaluate(true,true) end)
     end
     local function stale_check()
       if stale_timer then return end
-      stale_timer=R.after(11-(os.time()-since_at),function()
+      stale_timer=after(math.max(0,11-(os.time()-since_at)),function()
         stale_timer=nil
         evaluate(true,true)
       end)
     end
     local function visuals(on)
-      if on and not screen_timer then screen_timer=R.every(0.5,function() evaluate(false,false) end)
+      if on and not screen_timer then screen_timer=every(0.5,function() evaluate(false,false) end)
       elseif not on and screen_timer then screen_timer:cancel(); screen_timer=nil end
     end
     evaluate=function(refresh,process)
       if process then
         local ex=C.exited(C.block)
-        if ex then finish("exited",12) elseif ex==nil then later_retry() end
+        if ex then finish("exited",12) end
+        if ex==nil then
+          if not R.call("server.status") then
+            C.note("rex did not answer for block " .. C.block)
+            stop(1)
+          end
+          later_retry()
+        end
       end
       if refresh then rec=C.root(C.block); if not rec then later_retry() end end
       if not rec then return end
@@ -162,7 +185,7 @@ return function(C, M, A)
         elseif state=="idle" then
           if not idle_at then
             idle_at=os.time()
-            idle_timer=R.after(8,function() idle_timer=nil; evaluate(false,false) end)
+            idle_timer=after(8,function() idle_timer=nil; evaluate(false,false) end)
           end
           if turn_over() and (worked or held~="" or os.time()-idle_at>=8) then
             if not refresh then return evaluate(true,true) end
@@ -189,28 +212,34 @@ return function(C, M, A)
       end
       save()
       -- Only screen-derived guards need sampling: Rex has no screen-damage event.
-      -- Program status and liveness otherwise come exclusively from events, never a polling loop.
       visuals(approve~="" or (fresh and (state=="done" or state=="idle") and not ignore))
     end
     local function target(ctx,ev)
-      return (ctx.block_id or ev.block_id)==C.block and (ctx.session_id or ev.session_id)==C.session
+      return (ev.block_id or ctx.block_id)==C.block and (ev.session_id or ctx.session_id)==C.session
     end
-    R.on("terminal.program_status_changed",function(ctx,ev) if target(ctx,ev) then evaluate(true,true) end end)
-    R.on("terminal.program_status_removed",function(ctx,ev) if target(ctx,ev) then evaluate(true,true) end end)
-    R.on("terminal.process_changed",function(ctx,ev) if target(ctx,ev) then evaluate(true,true) end end)
-    R.on("terminal.child_exited",function(ctx,ev) if target(ctx,ev) then finish("exited",12) end end)
-    R.on("block_closed",function(ctx,ev) if target(ctx,ev) then finish("exited",12) end end)
-    R.on("session_destroyed",function(_,ev)
-      if ev.session_id==C.session then finish("exited",12) end
-    end)
-    R.after(timeout+1,function()
+    local function on_target(event,fn)
+      R.on(event,guard(function(ctx,ev) if target(ctx,ev) then fn() end end))
+    end
+    local function refresh() evaluate(true,true) end
+    local function exited() finish("exited",12) end
+    on_target("terminal.program_status_changed",refresh)
+    on_target("terminal.program_status_removed",refresh)
+    on_target("terminal.process_changed",refresh)
+    on_target("terminal.child_exited",exited)
+    on_target("block_closed",exited)
+    R.on("session_destroyed",guard(function(ctx,ev)
+      if (ev.session_id or ctx.session_id)==C.session then exited() end
+    end))
+    after(timeout+1,function()
       evaluate(true,true)
       local why=""
       if state~="" and upd==since and upd~=held then why=", no new report since send/keys" end
       finish("timeout (state=" .. (state~="" and state or "none") .. (bg~="" and ", background: " .. bg or "") .. why .. ")",124)
     end)
-    -- Initial snapshot after subscriptions are installed closes the read/subscribe race.
-    R.after(0,function() evaluate(true,true) end)
+    -- The first snapshot can precede stream attachment. Recover missed updates and detect a lost stream.
+    after(0,refresh)
+    after(1,refresh)
+    every(5,refresh)
   end
   return commands
 end
