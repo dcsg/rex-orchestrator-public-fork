@@ -36,7 +36,7 @@ on screen, a status that isn't `working` or `blocked`, and its input footer or a
 | `--trust` | Confirm the folder-trust dialog, only once it names DIR. Refuses paths containing terminal controls, invalid UTF-8, bidirectional overrides or isolates, selection markers, or trust dialog text |
 | `--timeout DUR` | How long to wait for readiness (default 90s) |
 | `--cage` / `--no-cage` | Force or skip the macOS sandbox ([cage.md](cage.md)); default from `REX_ORCHESTRATOR_CAGE` (`auto`). A caged DIR rejects terminal controls, invalid UTF-8, and bidirectional overrides and isolates |
-| `--account NAME` | Credential for a caged claude: `$CAGE_SECRETS/claude-NAME.env` |
+| `--account NAME` | Credential for a caged claude: `$CAGE_SECRETS/claude-NAME.env`, else the command in `REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD_NAME` |
 | `--allow-edits` | claude only: read and edit inside DIR without asking, for this session |
 | `--allow RULE` | claude only, repeatable: add a permission rule such as `'Bash(npm test:*)'` |
 | `-- ARGS` | Passed to the agent (`--model`, `--permission-mode default`, `--settings`, …) |
@@ -203,6 +203,7 @@ The Lua claim operations wait up to about 30 seconds for the registry lock.
 | `REX_ORCHESTRATOR_CAGE_PROFILE`, `REX_ORCHESTRATOR_CAGE_TPL`, `REX_ORCHESTRATOR_CAGE_AGY_HOME` | `cage.sb` and `cage/` beside the real script (following install symlinks); agy home under cage secrets | Other cage assets; environment overrides take priority. A relative agy home resolves against the launcher's working directory |
 | `REX_ORCHESTRATOR_CAGE_CODEX_BIN`, `REX_ORCHESTRATOR_CAGE_CLAUDE_BIN`, `REX_ORCHESTRATOR_CAGE_GROK_BIN` | unset: the first match on `PATH` that is compiled or an allowlisted Node launcher | The executable a caged agent launched by name runs; an absolute path ([cage.md](cage.md#which-executable-a-caged-agent-runs)) |
 | `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` | unset | Shell command returning one JSON object with a non-empty string `.token.refresh_token` or legacy `.refresh_token`; runs outside the cage from `/` with a fixed environment. Private command text is hidden from caged children; the temporary mode 600 login is removed after child shutdown. Wrapper exits 71 on failure/invalid output; `launch` reports 12 if seen during startup ([cage.md](cage.md)) |
+| `REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD`, `…_CMD_<ACCOUNT>` | unset | Shell command printing a caged claude's OAuth token, used when no `claude-*.env` (for `--account`, no `claude-ACCOUNT.env`) exists; run by the wrapper outside the cage from `/` with a fixed environment, the token kept in memory and the child's environment only. Output that isn't one `sk-ant-oatNN-…` token stops the wrapper with exit 71, unshown ([cage.md](cage.md#a-claude-token-from-a-secret-store)). Unset with no credential file: an `auto` launch runs claude uncaged and says so |
 | `REX_ORCHESTRATOR_REX_BIN_DIR` | `rex` on `PATH`, else the Rex app bundle | Where the `rex` CLI lives |
 | `REX_ORCHESTRATOR_ORPHANS` | `close` | At launch, recorded with the child: `keep` leaves it open when its orchestrator's pane closes ([orphans](#orphans)); `launch` refuses other values |
 | `REX_ORCHESTRATOR_ORPHAN_GRACE` | `10m` | At launch, recorded with the child: how long its orchestrator's pane must be gone before it closes; `0` allowed |

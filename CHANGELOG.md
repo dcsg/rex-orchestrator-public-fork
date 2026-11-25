@@ -6,6 +6,11 @@ project uses [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD` (and `…_CMD_<ACCOUNT>` for `--account`) cages claude without a token file:
+  a shell command that prints the OAuth token, run by the wrapper outside the cage when the pane starts. The token
+  stays in memory and the child's environment, never on disk; its shape is checked without showing it, and a failing
+  command or other output stops the wrapper with exit 71. With neither a credential file nor the command, an `auto`
+  launch still runs claude uncaged, and now says so plainly and how to cage it.
 - Orphan close: when an orchestrator's pane is closed, its children close through the normal close path after
   `REX_ORCHESTRATOR_ORPHAN_GRACE` (default 10m). A working or blocked child closes when its turn ends, or is left open
   after `REX_ORCHESTRATOR_ORPHAN_MAX_WAIT` (default 2h). Quitting and resuming the agent in the same pane keeps its

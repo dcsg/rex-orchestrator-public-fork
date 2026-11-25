@@ -486,6 +486,76 @@ if mk claude "$PD"; then
   chk "claude wrapper: no raw control printed" 0 "$(printf '%s' "$out" | tr -d '\n' | LC_ALL=C grep -c '[[:cntrl:]]')"
 else bad "claude wrapper with a control in CAGE_SECRETS: cage_build failed ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
 CAGE_SECRETS=$SAVED_SECRETS
+# A caged claude with no credential file takes its token from REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD (per account:
+# ..._CMD_<ACCOUNT>), run by the wrapper outside the cage. Fake commands only: each prints a fixture value.
+CMD_SECRETS="$WORK/no-claude-files"; mkdir -p "$CMD_SECRETS"
+ZT_CLAUDE_TOKEN="sk-ant-oat01-$(printf 'Zz9_-%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18)"
+printf '#!/bin/sh\nprintf "%%s\\n" "%s"\n' "$ZT_CLAUDE_TOKEN" >"$WORK/bin/fake-token"
+printf '#!/bin/sh\nprintf "%%s\\n" "%s-two"\n' "$ZT_CLAUDE_TOKEN" >"$WORK/bin/fake-token-two"
+chmod +x "$WORK/bin/fake-token" "$WORK/bin/fake-token-two"
+# claude_cmd COMMAND [ACCOUNT]: build a claude cage whose login is COMMAND (under the generic variable, or ACCOUNT's).
+claude_cmd() {
+  local var=REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD
+  [ -z "${2:-}" ] || var="${var}_$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')"
+  account=${2:-}
+  (export "$var=$1"; CAGE_SECRETS=$CMD_SECRETS mk claude "$PD" && printf '%s\n%s\n' "$W" "$CT") >"$WORK/claude-cmd" ||
+    { account=""; return 1; }
+  W=$(sed -n 1p "$WORK/claude-cmd") CT=$(sed -n 2p "$WORK/claude-cmd") CWD=$PD account=""
+  CMDFILE="$STATE_DIR/cage-commands/${CT##*/}"
+}
+if claude_cmd "$WORK/bin/fake-token"; then
+  chk "token command: the command waits in a private file" "600:$WORK/bin/fake-token" \
+    "$(stat -f %Lp "$CMDFILE"):$(cat "$CMDFILE")"
+  chk "token command: the wrapper holds only the file's path, not the command" 0 "$(grep -c 'fake-token' "$W" || :)"
+  env_is claude "${BASEV[@]}" ZDOTDIR CLAUDE_CONFIG_DIR CLAUDE_CODE_TMPDIR DISABLE_AUTOUPDATER ENABLE_CLAUDEAI_MCP_SERVERS \
+    CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY CLAUDE_CODE_SUBPROCESS_ENV_SCRUB
+  claude_cmd "$WORK/bin/fake-token" || bad "token command: cage_build failed (second)"
+  chk "token command: the caged child gets the command's token" "$ZT_CLAUDE_TOKEN" "$(tok)"
+  chk "token command: the command file is gone once it ran" gone "$([ -e "$CMDFILE" ] && echo kept || echo gone)"
+  chk "token command: the token is on no disk the tool writes" 0 \
+    "$(grep -rlF "$ZT_CLAUDE_TOKEN" "$STATE_DIR" "$FH" "$CT" 2>/dev/null | wc -l | tr -d ' ')"
+else bad "token command: cage_build failed ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
+if claude_cmd "$WORK/bin/fake-token-two" two; then
+  chk "token command per account: --account two takes ..._CMD_TWO" "$ZT_CLAUDE_TOKEN-two" "$(tok)"
+else bad "token command per account: cage_build failed"; fi
+# A credential file still wins over the command; without either, claude has no cage recipe (launch runs it uncaged).
+if (export REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD="$WORK/bin/fake-token"; mk claude "$PD" && printf '%s\n' "$W") \
+  >"$WORK/claude-cmd"; then
+  W=$(cat "$WORK/claude-cmd") CWD=$PD
+  chk "token command: a claude-<name>.env still wins" zt-dummy-one "$(tok)"
+else bad "token command beside a credential file: cage_build failed"; fi
+if CAGE_SECRETS=$CMD_SECRETS mk claude "$PD"; then bad "no credential file and no command: a claude cage was built"
+else ok "no credential file and no command: no claude cage recipe"; fi
+# Output that isn't one token, and a failing command, stop the wrapper with 71 before claude starts, showing nothing.
+for case in 'not-a-token-4711' 'export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ4711' \
+  'sk-ant-oat01-4711' 'sk-ant-api03-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ4711' \
+  'sk-ant-oat01-ZZZZZZZZZZZZZZZZ ZZZZZZZZZZZZZZZZZZZZZZZZZZ4711' 'sk-ant-oat01-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ4711;id' \
+  "sk-ant-oat01-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ4711${ESC}[2J" "$(printf 'sk-ant-oat01-%0600d' 4711)" \
+  "$(printf '%s\nsk-ant-oat01-ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ4711' "$ZT_CLAUDE_TOKEN")" '' fail:4711; do
+  if [ "${case%%:*}" = fail ]; then
+    printf '#!/bin/sh\necho "%s" ; echo "secret %s" >&2; exit 3\n' "$ZT_CLAUDE_TOKEN" "${case#fail:}" >"$WORK/bin/bad-token"
+  else
+    # shellcheck disable=SC2016 # The fixture script expands its own argument.
+    printf '#!/bin/sh\nprintf "%%s\\n" "$1"\n' >"$WORK/bin/bad-token"
+  fi
+  chmod +x "$WORK/bin/bad-token"
+  label=$(printf '%s' "$case" | LC_ALL=C tr -c '[:print:]' '?' | cut -c1-40)
+  if claude_cmd "$(sq "$WORK/bin/bad-token") $(sq "$case")"; then
+    out=$( (cd "$CWD" && "$W" -c 'echo STARTED'; echo "rc=$?") 2>&1)
+    chk "token command [$label]: the wrapper stops with 71" 'rc=71' "$(printf '%s\n' "$out" | tail -1)"
+    chk "token command [$label]: claude never starts" stopped "$(holds "$out" STARTED started stopped)"
+    chk "token command [$label]: the output never shows" hidden "$(holds "$out" 4711 shown hidden)"
+    chk "token command [$label]: the error names the variable" 1 \
+      "$(printf '%s\n' "$out" | grep -c 'REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD failed or printed something')"
+    chk "token command [$label]: the command file is gone" gone "$([ -e "$CMDFILE" ] && echo kept || echo gone)"
+  else bad "token command [$label]: cage_build failed"; fi
+done
+# A launch whose wrapper never ran leaves its command file to close's cage cleanup.
+if claude_cmd "$WORK/bin/fake-token"; then
+  /bin/bash "$SDIR/cage-cleanup.sh" "$STATE_DIR" "$CT" >/dev/null 2>&1
+  chk "token command: cage cleanup removes a command file the wrapper never read" gone \
+    "$([ -e "$CMDFILE" ] && echo kept || echo gone)"
+else bad "token command: cage_build failed (cleanup)"; fi
 # shellcheck disable=SC2016 # The child shell expands its own arguments.
 chk "cage-cleanup.sh escapes controls" 'x\x1B[31my\x09z\\w' \
   "$(/bin/bash -c '. "$1"; rex_term_text "$2"' sh "$SDIR/cage-cleanup.sh" "x${ESC}[31my$(printf '\t')z\w")"

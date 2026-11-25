@@ -11,7 +11,7 @@ It is a filesystem, network-port and privilege boundary for agents you don't ful
 |---|---|---|
 | `codex` | always | its normal login (`auth.json` in `CODEX_HOME` or `~/.codex`, re-opened read-only) |
 | `grok` | always | its normal login (`~/.grok/auth.json`, read-only) |
-| `claude` | when a credential exists | `$CAGE_SECRETS/claude-NAME.env` containing `export CLAUDE_CODE_OAUTH_TOKEN=…` |
+| `claude` | when a login exists | `$CAGE_SECRETS/claude-NAME.env` containing `export CLAUDE_CODE_OAUTH_TOKEN=…`, or `REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD` |
 | `agy` (Gemini) | when a cage home exists | `$CAGE_SECRETS/agy-home` with settings; login from a command or that home |
 | others | none | run uncaged with a note |
 
@@ -101,6 +101,37 @@ HOME=~/.config/rex-orchestrator/cage-secrets/agy-home agy
 
 With several `claude-*.env` files, `--account NAME` picks one; without it the only file is used, otherwise the
 alphabetically first, and `launch` says which. `status` shows it as `account`.
+
+#### A claude token from a secret store
+
+Instead of a token in a file, set `REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD` to a shell command that prints the token
+(from `claude setup-token`) on stdout. For example:
+
+```sh
+export REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD='fnox get CLAUDE_CAGE_OAUTH_TOKEN'
+```
+
+- **When it applies.** With no `claude-*.env` file, a caged claude takes its token from the command (`status` shows
+  account `default`). `--account NAME` takes `claude-NAME.env` if it exists, else
+  `REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD_NAME` (NAME in capitals), never the generic variable. A credential file wins
+  over a command.
+- **Where it runs.** The generated wrapper runs the command when the pane starts, outside the sandbox and before
+  claude, from `/` with only `HOME`, a fixed `PATH` (`/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`), `SHELL` and
+  `LANG`, stdin closed and stderr discarded (a failing command can print the credential). Unlock the store before
+  launch: prompts don't reach the terminal.
+- **Where the token goes.** Into the wrapper's memory and the caged child's environment (`CLAUDE_CODE_OAUTH_TOKEN`)
+  only: it is never written to disk, so nothing is left to remove when claude exits. claude can read it during the
+  session, as with a credential file.
+- **The command text** waits in a mode-600 file under `STATE_DIR/cage-commands/`, outside every cage home, which the
+  profile denies to caged children; the wrapper, which the child can read, holds only its path. The wrapper removes
+  the file once the command ends (or on HUP, INT or TERM before that), and `close` removes one a wrapper never read.
+- **Validation.** The output must be exactly one token: `sk-ant-oat`, two digits, a dash, then only letters, digits,
+  `_` and `-`, 40 to 512 bytes, trailing newlines aside. A failing command, an empty output or anything else (an
+  `export` line, a message, two lines) stops the wrapper with exit **71** before claude starts and prints only the
+  variable's name, never the output. `launch` reports **12** if it sees the wrapper exit during startup.
+
+Without a credential file or a command, `launch` (in `auto`) runs claude **uncaged**, as before, and says so with
+how to cage it; `--no-cage` does that without the note, `--cage` refuses.
 
 Set `REX_ORCHESTRATOR_CAGE_AGY_HOME` to override the provisioned agy home. A relative path resolves against the
 launcher's working directory.

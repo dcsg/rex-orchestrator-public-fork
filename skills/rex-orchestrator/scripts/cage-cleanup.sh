@@ -9,8 +9,9 @@
 . "${BASH_SOURCE[0]%/*}/term-text.sh"
 cleanup_cage() {
   local n=0
-  # A launch that never reached its wrapper can still have a private agy command waiting outside CAGE_ROOT.
-  case "${1##*/}" in agy.* | agy-*.*)
+  # A launch that never reached its wrapper can still have a private agy or claude token command waiting outside
+  # CAGE_ROOT.
+  case "${1##*/}" in agy.* | agy-*.* | claude.*)
     if [ -d "${1%/*}-commands" ] && [ ! -L "${1%/*}-commands" ] && [ -O "${1%/*}-commands" ]; then
       rm -f "${1%/*}-commands/${1##*/}"
     fi ;;

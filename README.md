@@ -137,7 +137,7 @@ Read [docs/safety.md](docs/safety.md) before letting an agent orchestrate unatte
 
 | Agent | Status reporting | Trust dialog | Cage |
 |---|---|---|---|
-| Claude Code (`claude`) | ✅ | ✅ | ✅ with a cage credential |
+| Claude Code (`claude`) | ✅ | ✅ | ✅ with a cage credential or token command |
 | Codex (`codex`) | ✅ | ✅ | ✅ |
 | Grok (`grok`) | ✅ | ✅ | ✅ |
 | Gemini (`agy` CLI) | ✅ | ✅ | ✅ with a cage home |

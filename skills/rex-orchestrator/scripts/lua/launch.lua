@@ -137,8 +137,9 @@ return function(C,M,D,I,K,G)
     if not M.starts(bin,"/") then bin=(env("PWD") or F.logical(".")) .. "/" .. bin end
     if opts.account~="" then
       local path=K.secrets .. "/claude-" .. opts.account .. ".env"
-      if not F.test("-f",path) or not F.test("-r",path) then
-        C.die("launch: --account " .. opts.account .. ": no readable " .. path .. "; " .. account_hint)
+      local variable=K.claude_token_variable(opts.account)
+      if (not F.test("-f",path) or not F.test("-r",path)) and not env(variable) then
+        C.die("launch: --account " .. opts.account .. ": no readable " .. path .. " and no " .. variable .. "; " .. account_hint)
       end
     end
     return bin,caged_only
@@ -377,10 +378,15 @@ return function(C,M,D,I,K,G)
         C.die("cage: setup for " .. opts.name .. " failed (see above)" .. hint)
       elseif opts.cage=="on" then
         C.die("cage: no cage recipe for " .. opts.name .. " (claude needs a " .. K.secrets ..
-          "/claude-<name>.env, agy a cage home: see docs/cage.md); pass --no-cage to run it uncaged")
+          "/claude-<name>.env or REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD, agy a cage home: see docs/cage.md); pass --no-cage to run it uncaged")
       elseif caged_only then
         C.die("launch: no " .. opts.agent .. " on your PATH to run uncaged (no cage recipe for it here), and " ..
           "REX_ORCHESTRATOR_CAGE_" .. opts.name:upper() .. "_BIN applies to caged launches only; give --agent a full path")
+      elseif opts.name=="claude" then
+        C.note("running claude UNCAGED, with your own rights: it has no cage login (no " .. K.secrets ..
+          "/claude-<name>.env, and REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD is unset). To cage it, set " ..
+          "REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD to a command that prints a token from claude setup-token " ..
+          "(docs/cage.md); --no-cage runs it uncaged without this note")
       else C.note("running " .. opts.name .. " uncaged: no cage recipe for it (pass --no-cage to silence)") end
     end
     local command=spawn_args(opts,bin,cage)

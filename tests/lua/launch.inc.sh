@@ -35,6 +35,8 @@ launch_fixture claude-code exits claude-exits
 launch_fixture codex ready codex
 launch_fixture codex hooks codex-hooks
 launch_fixture antigravity agy-fixture agy
+# The cage recipe goes by the executable's name, so this one is called claude too.
+mkdir -p "$T/launch-agents/token"; launch_fixture claude-code claude-token token/claude
 rex_test session new lua-launch --shell none --keep-open --json -- /bin/cat > "$T/launch-session.json"
 REX_SESSION=$(jq -r .session_id "$T/launch-session.json")
 export REX_BLOCK
@@ -173,6 +175,24 @@ check 'generated agy deletes the private command after provisioning' \
   "$(find "$REX_ORCHESTRATOR_STATE_DIR/cage-commands" -mindepth 1 -print)" ''
 launch_close
 check 'close removed the generated agy cage and fixture token' "$([ ! -e "$cage" ] && echo removed)" removed
+fi
+# A caged claude with no credential file takes its token from REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD (a fake one here).
+if test_nested_sandbox; then
+  test_skip_nested 'a caged claude launch with a token command'
+else
+REX_ORCHESTRATOR_CAGE_SECRETS="$T/no-claude-credentials" \
+  REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD="printf 'sk-ant-oat01-%s\\n' \"\$(printf 'Stand_in-%.0s' 1 2 3 4 5 6)\"" \
+  launch_case 0 claude-token --cage --agent "$T/launch-agents/token/claude" --tab claude-token
+grep -q 'caged claude on account default: its token from REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD' "$T/launch.err"
+check 'caged claude got the command token' "$(cat "$T/launch-work/claude-token/token-ok")" ok
+check 'status shows the token command account' "$(cli status "$child" | jq -r .account)" default
+sf="$REX_ORCHESTRATOR_STATE_DIR/${child//[^A-Za-z0-9_-]/_}"
+cage="$REX_ORCHESTRATOR_STATE_DIR/cage/$(sed -n '1p' "$sf.cage")"
+check 'the claude wrapper hides the command' "$(grep -Fc 'Stand_in' "$cage/bin/claude" || :)" 0
+check 'the claude wrapper deleted the private command' "$(find "$REX_ORCHESTRATOR_STATE_DIR/cage-commands" -mindepth 1 -print)" ''
+check 'the token is on no disk the tool writes' \
+  "$(grep -rlF 'Stand_in-Stand_in' "$REX_ORCHESTRATOR_STATE_DIR" "$T/launch-work/claude-token" 2>/dev/null | wc -l | tr -d ' ')" 0
+launch_close
 fi
 for linked in gemini antigravity-cli; do
   login="$T/agy-link-$linked"

@@ -27,7 +27,11 @@ rex-orchestrator launch [-d DIR] [-l LABEL] [--split right|left|above|below] [--
     only to DIR and a throwaway config home, no reads of the secret stores and agent homes cage.sb lists, web ports
     only. codex and grok always have a recipe (they re-open only their login file: codex the auth.json of your
     CODEX_HOME or ~/.codex, grok ~/.grok/auth.json); claude once a credential file CAGE_SECRETS/claude-NAME.env
-    (export CLAUDE_CODE_OAUTH_TOKEN=...) exists; agy once its cage home CAGE_SECRETS/agy-home exists. Its login can
+    (export CLAUDE_CODE_OAUTH_TOKEN=...) exists or REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD is set (a shell command
+    printing the token, run by the wrapper outside the cage from / with a fixed environment; the token stays in
+    memory and the child's environment, never on disk; output that isn't one sk-ant-oatNN- token stops the wrapper
+    with exit 71, unshown); without either, an auto launch runs claude uncaged and says so. agy once its cage home
+    CAGE_SECRETS/agy-home exists. Its login can
     come from REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD (a shell command returning the token JSON on stdout), or that home.
     The command runs outside the cage from / with a fixed environment; its private command file is unreadable by
     caged children. Output must be one JSON object with a non-empty string token.refresh_token (or refresh_token
@@ -35,8 +39,9 @@ rex-orchestrator launch [-d DIR] [-l LABEL] [--split right|left|above|below] [--
     token is removed after agy exits, including signal shutdown with a bounded wait and KILL if needed.
     Command failure or invalid output stops the wrapper with exit 71 (launch reports 12 if observed during startup).
     A caged child runs from the cage's own config templates, not your settings: pass a model and other settings after --.
-    --account NAME picks claude-NAME.env (a caged claude only); without it the only credential is used, else the
-    alphabetically first, and launch says which. --no-cage (or REX_ORCHESTRATOR_CAGE=off) runs uncaged; --cage (or
+    --account NAME picks claude-NAME.env (a caged claude only), else REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD_NAME (NAME
+    in capitals); without it the only credential file is used, else the alphabetically first, else the token
+    command, and launch says which. --no-cage (or REX_ORCHESTRATOR_CAGE=off) runs uncaged; --cage (or
     REX_ORCHESTRATOR_CAGE=on) fails (exit 2) for an agent with no recipe. An agent that should be caged but can't be
     (missing profile, template or login) fails closed (exit 2), never uncaged. A caged DIR may not be, hold or sit in
     what runs or is read outside the cage (the state and cage-secrets folders, ~/.ssh, ~/.local/bin, ~/.agents,
@@ -127,6 +132,8 @@ Environment:
   REX_ORCHESTRATOR_CAGE_AGY_HOME   agy home (default CAGE_SECRETS/agy-home)
                                  relative paths use the launcher's cwd
   REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD   shell command returning agy's token JSON; unset keeps the cage home's login
+  REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD (also _CMD_<ACCOUNT>)   shell command printing a caged claude's OAuth token,
+                                 used when no claude-*.env (or claude-ACCOUNT.env) exists
   REX_ORCHESTRATOR_CAGE_CODEX_BIN (also _CLAUDE_BIN, _GROK_BIN)   the executable a caged agent runs (absolute);
                                  unset: the first on PATH that is compiled or an allowlisted Node launcher
   REX_ORCHESTRATOR_ORPHANS        close (default) or keep: keep leaves the children launched with it open

@@ -785,7 +785,7 @@ local function run_launch(args,opts,recovery)
   local saved,observed={},{}
   local F,R=fake.fs,fake.rex
   function fake.die(text,code) error({text=text,code=code or 2},0) end
-  function fake.note(text) observed.note=text end
+  function fake.note(text) observed.note=text; observed.notes=(observed.notes or "") .. text .. "\n" end
   function fake.raw() end
   function fake.lines() end
   function fake.out(text) observed.output=text end
@@ -838,11 +838,13 @@ local function run_launch(args,opts,recovery)
   end
   function cage.overlap() return opts.overlap end
   function cage.override() return opts.override end
+  function cage.claude_token_variable(a) return "REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD" .. (a~="" and "_" .. a:upper() or "") end
   local registry={identity=function() return {} end,check=function() return true end}
   function registry.acquire() return function() observed.released=true end end
   function registry.add() observed.claim=true; return true end
   function registry.remove(block) observed.removed_claim=block end
   local env={HOME="/home/test",PWD="/work",CLAUDE_CONFIG_DIR=opts.caller_account}
+  for key,value in pairs(opts.env or {}) do env[key]=value end
   os.getenv=function(key) return env[key] end
   local parser=Input(M)
   local launch=Launch(fake,M,LaunchDialog(fake,M,parser),parser,cage,registry)
@@ -859,6 +861,22 @@ eq(run_launch({"--timeout","bad"}).code,2)
 eq(run_launch({"--account","UPPER"}).code,2)
 eq(run_launch({"--account","one","--no-cage"}).code,2)
 eq(run_launch({"--account","one"}).code,2)
+-- --account NAME without claude-NAME.env takes REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD_NAME; the generic one doesn't do.
+eq(run_launch({"--account","one","--tab","t"},{env={REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD="x"}}).code,2)
+reply=run_launch({"--account","one","--tab","t"},{env={REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD_ONE="fake"},
+  cage={home="/state/cage/claude.t",wrapper="/state/cage/claude.t/bin/claude",meta={},account="one",why="token"}})
+eq(reply.code,0)
+reply=run_launch({"--account","one"})
+eq(not not reply.text:find("no readable /credentials/claude-one.env and no REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD_ONE",1,true),true)
+-- A claude with no cage login runs uncaged as before, and launch says so and how to cage it.
+reply,seen=run_launch({"--tab","t"})
+eq(reply.code,0)
+eq(not not seen.notes:find("running claude UNCAGED, with your own rights: it has no cage login (no /credentials/claude-<name>.env, " ..
+  "and REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD is unset). To cage it, set REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD",1,true),true)
+reply,seen=run_launch({"--tab","t","--agent","codex"})
+eq(not not seen.notes:find("running codex uncaged: no cage recipe for it",1,true),true)
+reply=run_launch({"--cage","--tab","t"})
+eq(reply.code,2); eq(not not reply.text:find("REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD",1,true),true)
 local reply,seen,state=run_launch({"--account","one","--tab","target","--label","-sample"},{
   credential=true,cage={home="/state/cage/claude.test",wrapper="/state/cage/claude.test/bin/claude",meta={},
     account="one",why="chosen with --account"}

@@ -199,7 +199,8 @@ return function(rex)
       set -C
       { /bin/cat || { /bin/rm -f "$2"; exit 1; }; } > "$2"
     ]=],"rex-orchestrator",directory,path},
-      {stdin=text,env={BASH_ENV=false,ENV=false,REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=false}})
+      {stdin=text,env={BASH_ENV=false,ENV=false,REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=false,
+        REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD=false}})
     return result and result.ok
   end
   function F.real(path)

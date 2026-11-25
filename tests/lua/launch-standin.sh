@@ -1,6 +1,14 @@
 #!/bin/bash -p
 # Reports program status from a private Rex server without running an agent.
 set -eu
+# claude-token: check the caged environment before isolation below replaces it (isolation runs this file again, then
+# with rex_test_isolated set). Only the verdict goes on.
+if [ "${2:-}" = claude-token ] && [ "${rex_test_isolated:-}" != 1 ]; then
+  REX_TEST_CLAUDE_TOKEN=wrong
+  [ "${CLAUDE_CODE_OAUTH_TOKEN:-}" != "sk-ant-oat01-$(printf 'Stand_in-%.0s' 1 2 3 4 5 6)" ] || REX_TEST_CLAUDE_TOKEN=fixture
+  [ -z "${CLAUDE_CMD_FILE:-}${CLAUDE_CMD_NAME:-}${REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD:-}" ] || REX_TEST_CLAUDE_TOKEN=leaked
+  export REX_TEST_CLAUDE_TOKEN
+fi
 # shellcheck source=tests/isolate.inc.sh
 . "${BASH_SOURCE[0]%/*}/../isolate.inc.sh"
 app=$1 mode=$2
@@ -26,6 +34,13 @@ case "$mode" in
   scoped)
     [ "$1" = --settings ]
     printf '%s\n' "$2" > scoped-rules
+    ready ;;
+  claude-token)
+    # A caged claude whose token came from REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD: it had exactly the fixture token,
+    # and nothing of the lookup (checked above). Only "ok" is written, never the token.
+    [ "${REX_TEST_CLAUDE_TOKEN:-}" = fixture ] || { echo "stand-in: token check ${REX_TEST_CLAUDE_TOKEN:-unset}"; exit 92; }
+    [ "${1:-}" = --dangerously-skip-permissions ] || { echo "stand-in: unexpected arguments"; exit 94; }
+    printf 'ok\n' > token-ok
     ready ;;
   agy-fixture)
     case "$HOME" in "$root"/orchestrator-state/cage/agy.*/home) ;; *) exit 91 ;; esac

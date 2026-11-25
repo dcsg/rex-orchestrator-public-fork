@@ -92,13 +92,27 @@ return function(C,M)
     end
   end
 
+  -- A caged claude's login: a credential file CAGE_SECRETS/claude-NAME.env, or a command that prints the token
+  -- (REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD, or ..._CMD_NAME for --account NAME), which the wrapper runs at start.
+  -- Returns the account, why it was picked, and for a command its variable name and text; nil for no login.
+  function K.claude_token_variable(requested)
+    return "REX_ORCHESTRATOR_CAGE_CLAUDE_TOKEN_CMD" .. (requested~="" and "_" .. requested:upper() or "")
+  end
   local function account(requested)
-    if requested~="" then return requested,"chosen with --account" end
+    local variable=K.claude_token_variable(requested)
+    if requested~="" then
+      local path=secrets .. "/claude-" .. requested .. ".env"
+      if not (F.test("-f",path) and F.test("-r",path)) and env(variable) then
+        return requested,"chosen with --account, its token from " .. variable,variable,env(variable)
+      end
+      return requested,"chosen with --account"
+    end
     local accounts=F.accounts(secrets)
     if #accounts==1 then return accounts[1],"its only cage credential" end
     if #accounts>1 then
       return accounts[1],"the alphabetically first of " .. #accounts .. " cage credentials (--account picks another)"
     end
+    if env(variable) then return "default","its token from " .. variable,variable,env(variable) end
   end
 
   local function recipe(name,bin,requested)
@@ -111,7 +125,7 @@ return function(C,M)
       r.auth=(env("HOME") or "") .. "/.grok/auth.json"
       r.templates={"grok.toml"}
     elseif name=="claude" then
-      r.account,r.why=account(requested)
+      r.account,r.why,r.token_variable,r.token_command=account(requested)
       if not r.account then return nil end
       r.config="claude-config/settings.json"
       r.templates={"claude.json","claude-settings.json"}
@@ -272,7 +286,7 @@ return function(C,M)
       {"REAL",r.bin},{"DIR",dir},{"DRE",ere(dir)},{"CT",ct},{"RH",physical_home},
       {"AUTH",r.auth or ct},{"CFGRO",ct .. "/" .. r.config},{"HOOKS",hooks or ct .. "/.nohooks"},
       {"LRE",lock_regex()},{"SEC",physical_secrets},{"PROF",profile},{"TPL",templates},
-      {"CRED",r.account and secrets .. "/claude-" .. r.account .. ".env" or ""},
+      {"CRED",r.account and not r.token_command and secrets .. "/claude-" .. r.account .. ".env" or ""},
       {"BINDIR",r.bindir or ct},{"BINFILE",r.binfile or ct .. "/.nobin"},{"RH_AGY",r.login},{"AGYSET",agy_settings(r.login)},{"LOCAL_LUA",C.script_dir .. "/local-lua.sh"}
     }
     local assignments={}
@@ -281,7 +295,9 @@ return function(C,M)
       term_text .. "set -e\n" ..
       table.concat(assignments," ") .. '\nTTY=$(/usr/bin/tty 2>/dev/null) || TTY=\n' ..
       'case "$TTY" in /dev/ttys[0-9]*) ;; *) TTY="$CT/.notty" ;; esac\n' ..
-      (r.runtime=="agy" and "AGY_CMD_FILE=" .. quote(command or "") .. "\n" .. r.path_guard .. "\n" or "") .. runtime
+      (r.runtime=="agy" and "AGY_CMD_FILE=" .. quote(command or "") .. "\n" .. r.path_guard .. "\n" or "") ..
+      (r.runtime=="claude" and "CLAUDE_CMD_FILE=" .. quote(command or "") .. " CLAUDE_CMD_NAME=" ..
+        quote(r.token_variable or "") .. "\n" or "") .. runtime
   end
 
   function K.build(name,bin,opts,reserved)
@@ -334,12 +350,16 @@ return function(C,M)
     if not ct then return fail("cage: cannot set up a cage under " .. root) end
     reserved(ct)
     if not F.mkdir(ct .. "/bin") then return fail("cage: cannot set up a cage under " .. root) end
+    -- A token command's text waits in a private file outside every cage home (the profile denies caged children
+    -- STATE_DIR/cage-commands); the wrapper reads it, runs it outside the cage and removes it. The wrapper itself,
+    -- which the child can read, holds only the file's path.
     local command
-    local token_command=os.getenv("REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD")
-    if r.runtime=="agy" and token_command~=nil then
+    local token_command,token_variable=os.getenv("REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD"),"REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD"
+    if r.runtime~="agy" then token_command,token_variable=r.token_command,r.token_variable end
+    if token_command~=nil then
       command=base .. "-commands/" .. M.basename(ct)
       if not F.reserve_command(base .. "-commands",command,token_command) then
-        return fail("cage: cannot store REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD privately")
+        return fail("cage: cannot store " .. token_variable .. " privately")
       end
     end
     local wrapper=ct .. "/bin/" .. name
