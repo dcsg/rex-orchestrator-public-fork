@@ -393,6 +393,33 @@ ln -s "$work/separate-login" "$work/project/external-login"
 overlap_rc=0
 CAGE_AGY_HOME="$work/project/external-login" cage_build agy "$work/bin/probe" "$work/project" >"$work/overlap.log" 2>&1 || overlap_rc=$?
 check 'provisioned home named through a link inside DIR is refused' "$overlap_rc:$(grep -Fc 'overlaps DIR' "$work/overlap.log")" '2:1'
+check_aliased_overlap() {
+  local label=$1 login=$2 task=$3 overlap_rc=0
+  CAGE_AGY_HOME="$login" cage_build agy "$work/bin/probe" "$task" >"$work/overlap.log" 2>&1 || overlap_rc=$?
+  check "launcher refuses $label" "$overlap_rc:$(grep -Fc 'overlaps DIR' "$work/overlap.log")" '2:1'
+
+  # Build with a separate home to exercise the wrapper's own check for the alternate spelling.
+  CAGE_AGY_HOME="$work/separate-login" cage_build agy "$work/bin/probe" "$task" >"$work/build.log" 2>&1
+  ct=$cage_tmp
+  sed "s|RH_AGY='[^']*'|RH_AGY=$(sq "$login")|" "$cage_wrapper" >"$ct/bin/alias-wrapper"
+  mv "$ct/bin/alias-wrapper" "$cage_wrapper"; chmod +x "$cage_wrapper"
+  run normal 0
+  check "wrapper refuses $label before copying" \
+    "$rc:$([ ! -e "$ct/home" ] && grep -Fc 'overlaps DIR' "$work/err")" '71:1'
+}
+if [ -d "$work/Project" ]; then
+  check_aliased_overlap 'a case-different home inside DIR' "$work/Project/shared-login" "$work/project"
+  check_aliased_overlap 'DIR inside a case-different home' "$work/Project" "$work/project/shared-login/task"
+else
+  test_skip 'agy overlap checks need a case-insensitive test volume'
+fi
+data_work="/System/Volumes/Data$work"
+if [ -d "$data_work/project" ] && [ "$(stat -f '%d:%i' "$data_work")" = "$(stat -f '%d:%i' "$work")" ]; then
+  check_aliased_overlap 'a home inside a firmlink spelling of DIR' "$work/project/shared-login" "$data_work/project"
+  check_aliased_overlap 'a firmlink spelling of DIR inside a home' "$work/project/shared-login" "$data_work/project/shared-login/task"
+else
+  test_skip 'agy overlap checks need a Data volume firmlink for the test directory'
+fi
 CAGE_AGY_HOME=$provisioned_home
 REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=$(command_for success)
 build; run crash 0

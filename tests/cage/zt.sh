@@ -89,7 +89,7 @@ for p in .ssh/id_x .aws/credentials .gnupg/x .netrc $CS/claude.env $CS/claude-on
 done
 printf '[user]\n\tname = zt\n\temail = zt@example.invalid\n' | tee "$FH/.gitconfig" >"$FH/.config/git/config"
 mkdir -p "$SCRIPT_DIR/cage"
-cp "$SDIR/cage/"runtime-*.sh "$SCRIPT_DIR/cage/"
+cp "$SDIR/cage/"runtime-*.sh "$SDIR/cage/agy-paths.sh" "$SCRIPT_DIR/cage/"
 for p in rex-orchestrator.sh cage.sb cage/claude.json ../SKILL.md; do printf 'fixture\n' >"$SCRIPT_DIR/$p"; done
 # One dummy token per account; claude.env keeps the fixture line above, which no wrapper may load.
 mkdir -p "$WORK/agy-home/.gemini"

@@ -46,13 +46,16 @@ export REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD='fnox get AGY_CAGE_OAUTH_TOKEN'
 The command is generic: any secret-store CLI can supply the JSON. It runs with Bash outside the sandbox,
 after the cage home is copied and before agy starts, from the fixed working directory `/`. The wrapper refuses
 a symlink at the provisioned home itself or anywhere inside it. `launch` refuses a provisioned home that overlaps
-the task's `DIR` with exit **2**. The wrapper rechecks the overlap, verifies the physical source directory, copies
-without following links, and checks the private copy for symlinks before starting the provider. The helper gets only
-the real `HOME`, a fixed `PATH` (`/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`), `SHELL=/bin/bash` and
-`LANG=en_US.UTF-8`, plus Bash's own `PWD`/`SHLVL`. Project variables, `BASH_ENV`, `ENV`, shell functions and project
-PATH entries are discarded. The wrapper also uses Bash's privileged startup mode to ignore environment startup
-hooks before doing any uncaged work. A planted `DIR/fnox.toml`, `.mise.toml` or `.envrc` is never implicitly used.
-Use absolute executable/config paths in the lookup when needed; do not source files from agent-writable DIR.
+the task's `DIR` with exit **2**. The overlap check compares directory identities (device and inode) up both paths, so a
+different-case spelling or a `/System/Volumes/Data` firmlink spelling of the same folder is refused too. The wrapper
+rechecks the overlap, verifies the physical source directory, copies without following links, and checks the private
+copy for symlinks before starting the provider. After each change of directory it checks the real working directory
+from `getcwd`, not Bash's `PWD`, so a rename that swaps in a symlink mid-`cd` stops startup instead of copying another
+folder. The helper gets only the real `HOME`, a fixed `PATH` (`/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`),
+`SHELL=/bin/bash` and `LANG=en_US.UTF-8`, plus Bash's own `PWD`/`SHLVL`. Project variables, `BASH_ENV`, `ENV`,
+shell functions and project PATH entries are discarded. The wrapper also uses Bash's privileged startup mode to ignore
+environment startup hooks before doing any uncaged work. A planted `DIR/fnox.toml`, `.mise.toml` or `.envrc` is never
+implicitly used. Use absolute executable/config paths in the lookup when needed; do not source files from agent-writable DIR.
 
 The command text waits in a mode-600 file under `STATE_DIR/cage-commands/`, outside `CAGE_ROOT`. The profile denies
 every caged child reads and writes there. The generated wrapper contains only the file's path. The command file is

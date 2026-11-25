@@ -16,10 +16,6 @@ return function(C,M)
   local function below(path,dir)
     return M.starts(path:gsub("/$","") .. "/",dir:gsub("/$","") .. "/")
   end
-  local function overlaps(a,b)
-    return below(a,b) or below(b,a)
-  end
-
   function K.overlap(dir)
     local h=F.canonical(home) or home
     for _,path in ipairs({"/","/Users",h,h .. "/Library",h .. "/Repos"}) do
@@ -133,7 +129,7 @@ return function(C,M)
     return header .. "# rex-orchestrator cage wrapper for " .. name .. " (generated each launch; do not edit).\nset -e\n" ..
       table.concat(assignments," ") .. '\nTTY=$(/usr/bin/tty 2>/dev/null) || TTY=\n' ..
       'case "$TTY" in /dev/ttys[0-9]*) ;; *) TTY="$CT/.notty" ;; esac\n' ..
-      (r.runtime=="agy" and "AGY_CMD_FILE=" .. quote(command or "") .. "\n" or "") .. runtime
+      (r.runtime=="agy" and "AGY_CMD_FILE=" .. quote(command or "") .. "\n" .. r.path_guard .. "\n" or "") .. runtime
   end
 
   function K.build(name,bin,opts,reserved)
@@ -154,21 +150,23 @@ return function(C,M)
     end
     if not F.test("-r",profile) then return fail("cage: profile not found: " .. profile .. " (set REX_ORCHESTRATOR_CAGE_PROFILE)") end
     local dir=opts.dir
+    if M.dir_control(dir) then
+      return fail("cage: " .. name .. "'s DIR path has a control character; use a plain folder name or --no-cage")
+    end
     if r.runtime=="agy" then
-      local login=F.canonical(r.login)
-      if not login then return fail("cage: cannot resolve the agy provisioned home") end
-      local logical=F.logical(r.login) or login
-      if overlaps(login,dir) or overlaps(logical,dir) or overlaps(logical,opts.logical or dir) then
-        return fail("cage: the agy provisioned home overlaps DIR")
-      end
       if not M.starts(r.login,"/") then
         local cwd=F.canonical(".")
         if not cwd then return fail("cage: cannot resolve the agy provisioned home") end
         r.login=cwd .. "/" .. r.login
       end
-    end
-    if M.dir_control(dir) then
-      return fail("cage: " .. name .. "'s DIR path has a control character; use a plain folder name or --no-cage")
+      r.path_guard=F.read(assets .. "/agy-paths.sh")
+      if not r.path_guard then return fail("cage: cannot load the agy directory checks") end
+      local result=R.exec({"/bin/bash","-p","-c",r.path_guard .. [[
+        unset CDPATH
+        agy_home_overlap "$@"; exit "$?"
+      ]],"rex-orchestrator",r.login,dir,F.logical(r.login) or "",opts.logical or ""})
+      if result and result.ok then return fail("cage: the agy provisioned home overlaps DIR") end
+      if not result or result.code~=1 then return fail("cage: cannot check the agy provisioned home against DIR") end
     end
     local physical_secrets=F.canonical(secrets) or F.real(secrets)
     if not physical_secrets then return fail("cage: cannot resolve " .. secrets) end

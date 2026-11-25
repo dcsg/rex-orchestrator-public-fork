@@ -25,7 +25,7 @@ local function capture(argv,options)
   proc:close()
   if input then assert(os.remove(input)) end
   local stdout,code=assert(output:match("^(.*)\n(%d+)\n$"))
-  return {ok=code=="0",stdout=stdout}
+  return {ok=code=="0",code=tonumber(code),stdout=stdout}
 end
 local rex={exec=capture,json={encode=function(object)
   local fields={}

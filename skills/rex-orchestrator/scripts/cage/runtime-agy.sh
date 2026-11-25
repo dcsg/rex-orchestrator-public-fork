@@ -100,8 +100,13 @@ case "${source_home##*/}" in
   ..) source_dir=${source_parent%/*}; source_dir=${source_dir:-/} ;;
   *) source_dir="${source_parent%/}/${source_home##*/}" ;;
 esac
-case "${source_dir%/}/" in "${DIR%/}/"*) agy_refuse_home 'the agy provisioned home overlaps DIR' ;; esac
-case "${DIR%/}/" in "${source_dir%/}/"*) agy_refuse_home 'the agy provisioned home overlaps DIR' ;; esac
+overlap=0
+agy_home_overlap "$source_dir" "$DIR" || overlap=$?
+case "$overlap" in
+  0) agy_refuse_home 'the agy provisioned home overlaps DIR' ;;
+  1) ;;
+  *) agy_refuse_home 'cannot check the agy provisioned home against DIR' ;;
+esac
 agy_safe_home "$source_dir" || agy_refuse_home
 if [ -L "$CT/home" ] || ! /bin/mkdir -p "$CT/home"; then agy_refuse_home; fi
 if [ ! -d "$CT/home/.gemini" ]; then
