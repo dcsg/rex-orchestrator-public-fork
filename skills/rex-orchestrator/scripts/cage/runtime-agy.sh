@@ -38,10 +38,8 @@ if [ -n "$AGY_CMD_FILE" ]; then
     agy_stop TERM
     /bin/rm -f "$AGY_CMD_FILE"
     [ -n "$AGY_TOKEN_FILE" ] || return 0
-    # The child can replace its writable parents with links. Pin the physical directory as cwd before unlinking,
-    # and require the original directory: cleanup runs unsandboxed and must never delete a real-home credential.
-    (cd -P -- "${AGY_TOKEN_FILE%/*}" 2>/dev/null || exit 0
-      if [ "$PWD" = "${AGY_TOKEN_FILE%/*}" ]; then /bin/rm -f ./antigravity-oauth-token; fi)
+    # The child can move or replace its token directory. Pin cwd before checking the original directory identity.
+    (if agy_enter_token_dir 2>/dev/null; then /bin/rm -f ./antigravity-oauth-token; fi)
   }
   agy_signal() {
     local sig="${AGY_PENDING:-$1}" status
@@ -70,35 +68,57 @@ agy_safe_home() {
     link=$(/usr/bin/find -P "$1" -type l -print -quit 2>/dev/null) && [ -z "$link" ]
 }
 agy_refuse_home() {
-  echo 'rex-orchestrator cage: agy requires symlink-free provisioned and cage homes; agy not started' >&2
+  printf 'rex-orchestrator cage: %s; agy not started\n' "${1:-agy requires symlink-free provisioned and cage homes}" >&2
   if [ -n "$AGY_CMD_FILE" ]; then exit 71; fi
   exit 70
+}
+agy_enter_token_dir() {
+  cd -P -- "$token_dir" && [ "$PWD" = "$token_dir" ] &&
+    [ "$(/usr/bin/stat -f '%d:%i' .)" = "$token_identity" ]
 }
 # Copy physically, and check the private copy before doing any uncaged token work.
 source_home=$RH_AGY
 case "$source_home" in /*) ;; ?*) source_home="$PWD/$source_home" ;; esac
-# A trailing slash would make the directory tests follow a symlink at the home itself.
-while [ "$source_home" != / ] && [[ "$source_home" == */ ]]; do source_home=${source_home%/}; done
-agy_safe_home "$source_home" || agy_refuse_home
+[ -n "$source_home" ] || agy_refuse_home
+# Strip syntax that would make the directory tests follow a symlink at the home itself.
+while [ "$source_home" != / ]; do
+  case "$source_home" in
+    */) source_home=${source_home%/} ;;
+    */.) source_home=${source_home%/.}; source_home=${source_home:-/} ;;
+    *) break ;;
+  esac
+done
+# Resolve the parent without following the home itself, then require the physical cwd to match.
+source_parent=$(cd -P -- "${source_home%/*}/" && pwd -P) || agy_refuse_home
+case "${source_home##*/}" in
+  '') source_dir=/ ;;
+  ..) source_dir=${source_parent%/*}; source_dir=${source_dir:-/} ;;
+  *) source_dir="${source_parent%/}/${source_home##*/}" ;;
+esac
+case "${source_dir%/}/" in "${DIR%/}/"*) agy_refuse_home 'the agy provisioned home overlaps DIR' ;; esac
+case "${DIR%/}/" in "${source_dir%/}/"*) agy_refuse_home 'the agy provisioned home overlaps DIR' ;; esac
+agy_safe_home "$source_dir" || agy_refuse_home
 if [ -L "$CT/home" ] || ! /bin/mkdir -p "$CT/home"; then agy_refuse_home; fi
 if [ ! -d "$CT/home/.gemini" ]; then
-  (cd -P -- "$source_home" && [ ! -L "$source_home" ] && /bin/cp -RP . "$CT/home/") 2>/dev/null || agy_refuse_home
+  (cd -P -- "$source_dir" && [ "$PWD" = "$source_dir" ] && /bin/cp -RP . "$CT/home/") 2>/dev/null || agy_refuse_home
 fi
 agy_safe_home "$CT/home" || agy_refuse_home
 if [ -n "$AGY_CMD_FILE" ]; then
   token_dir="$CT/home/.gemini/antigravity-cli"
   (umask 077; /bin/mkdir -p "$token_dir") || agy_refuse_home
+  token_identity=$(cd -P -- "$token_dir" && [ "$PWD" = "$token_dir" ] && /usr/bin/stat -f '%d:%i' .) || agy_refuse_home
   AGY_TOKEN_FILE="$token_dir/antigravity-oauth-token"
   # Suppress command diagnostics too: a failed shell command can quote its input or the credential in stderr.
   # Only the noninteractive lookup gets its own process group, so cancellation reaches provider subprocesses too.
   # Disable job control again before agy starts: its TUI must stay in the terminal's foreground group.
   { set -m; AGY_GROUP=1
     (umask 077
-      # Pin the checked directory and create an exclusive 0600 file before changing to the lookup's cwd.
-      cd -P -- "$token_dir" && [ "$PWD" = "$token_dir" ] &&
+      # Pin the checked directory and create a fresh 0600 file before changing to the lookup's cwd.
+      agy_enter_token_dir &&
         [ ! -L ./antigravity-oauth-token ] && /bin/rm -f ./antigravity-oauth-token || exit 71
       set -C
-      exec 3>./antigravity-oauth-token
+      exec 3>&-
+      exec 3>./antigravity-oauth-token || exit 71
       cd / && exec /usr/bin/env -i HOME="$RH" PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin \
         SHELL=/bin/bash LANG=en_US.UTF-8 /bin/bash --noprofile --norc "$AGY_CMD_FILE" >&3 3>&-
     ) </dev/null &

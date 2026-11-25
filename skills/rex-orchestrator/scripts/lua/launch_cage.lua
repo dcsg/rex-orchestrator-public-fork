@@ -14,7 +14,10 @@ return function(C,M)
   local function ere(s) return (s:gsub("[%[%](){}.^$*+?|\\]",function(c) return "\\" .. c end)) end
   local function quote(s) return "'" .. s:gsub("'","'\\''") .. "'" end
   local function below(path,dir)
-    return M.starts(path .. "/",dir .. "/")
+    return M.starts(path:gsub("/$","") .. "/",dir:gsub("/$","") .. "/")
+  end
+  local function overlaps(a,b)
+    return below(a,b) or below(b,a)
   end
 
   function K.overlap(dir)
@@ -151,6 +154,19 @@ return function(C,M)
     end
     if not F.test("-r",profile) then return fail("cage: profile not found: " .. profile .. " (set REX_ORCHESTRATOR_CAGE_PROFILE)") end
     local dir=opts.dir
+    if r.runtime=="agy" then
+      local login=F.canonical(r.login)
+      if not login then return fail("cage: cannot resolve the agy provisioned home") end
+      local logical=F.logical(r.login) or login
+      if overlaps(login,dir) or overlaps(logical,dir) or overlaps(logical,opts.logical or dir) then
+        return fail("cage: the agy provisioned home overlaps DIR")
+      end
+      if not M.starts(r.login,"/") then
+        local cwd=F.canonical(".")
+        if not cwd then return fail("cage: cannot resolve the agy provisioned home") end
+        r.login=cwd .. "/" .. r.login
+      end
+    end
     if M.dir_control(dir) then
       return fail("cage: " .. name .. "'s DIR path has a control character; use a plain folder name or --no-cage")
     end

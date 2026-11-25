@@ -57,6 +57,7 @@ case "$1" in
   top-blank) printf '{"refresh_token":""}' ;;
   array) jq -s . "$2" ;;
   multiple) cat "$2" "$2" ;;
+  full) : >"$3"; ulimit -f 0; exec /bin/cat "$2" ;;
   context)
     pwd -P >"$3/cwd"
     printf '%s' "$HOME" >"$3/home"
@@ -101,6 +102,10 @@ case "$mode" in
     if (: >"$3") 2>/dev/null; then exit 97; fi ;;
   crash) kill -KILL "$$" ;;
   redirect) rm -f "$file"; rmdir "${file%/*}"; ln -s "$3" "${file%/*}" ;;
+  replace-dir)
+    mv "${file%/*}" "${file%/*}.moved"
+    mkdir "${file%/*}"
+    printf 'replacement\n' >"$file" ;;
   tty) [ -t 0 ] && [ -t 1 ] && /bin/stty -g >/dev/null &&
          /usr/bin/perl -MPOSIX -e 'exit(POSIX::tcgetpgrp(0) == getpgrp(0) ? 0 : 1)' || exit 94
        : >"$HOME/tty-ok" ;;
@@ -216,8 +221,28 @@ build; : >"$ct/home"; run normal 0
 check 'failed home seeding stops the wrapper' "$([ "$rc" -ne 0 ] && echo yes || echo no)" yes
 check 'failed home seeding removes the private command' "$([ ! -e "$cmd_file" ] && echo yes || echo no)" yes
 check 'failed home seeding never starts the agent' "$(started)" no
+spill="$work/inherited-stdout"
+marker="$work/read-only-provider"
+REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=": >$(sq "$marker"); $(command_for success)"
+build
+mkdir -p "${file%/*}"
+chmod 500 "${file%/*}"
+# Turn off errexit at the open so this exercises the wrapper's explicit failure path.
+sed '/^[[:space:]]*exec 3>\.\/antigravity-oauth-token/i\
+      set +e
+' "$cage_wrapper" >"$ct/bin/read-only"
+mv "$ct/bin/read-only" "$cage_wrapper"; chmod +x "$cage_wrapper"
+run normal 0 3>"$spill"
+chmod 700 "${file%/*}"
+check 'read-only token directory exits 71 before the provider runs' "$rc:$(started):$([ -e "$marker" ] && echo ran || echo blocked)" '71:no:blocked'
+check 'read-only token directory leaves neither a token nor output on inherited fd 3' "$(gone):$([ -s "$spill" ] && echo wrote || echo empty)" 'yes:empty'
+marker="$work/full-disk-provider"
+REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD="$(command_for full) $(sq "$marker")"
+build; run normal 0 3>"$spill"
+check 'full-disk stand-in exits 71 after the provider attempts to write' "$rc:$(started):$([ -e "$marker" ] && echo ran || echo missing)" '71:no:ran'
+check 'full-disk stand-in leaves neither a token nor escaped output' "$(gone):$([ -s "$spill" ] && echo wrote || echo empty)" 'yes:empty'
 provisioned_home=$CAGE_AGY_HOME
-for linked in gemini antigravity-cli home; do
+for linked in gemini antigravity-cli home token unrelated; do
   CAGE_AGY_HOME="$work/provisioned-$linked"
   target="$work/external-$linked"
   marker="$work/provider-$linked"
@@ -232,9 +257,16 @@ for linked in gemini antigravity-cli home; do
     mkdir "$target/antigravity-cli"
     ln -s "$target" "$CAGE_AGY_HOME/.gemini"
     target="$target/antigravity-cli"
-  else
+  elif [ "$linked" = antigravity-cli ]; then
     mkdir -p "$CAGE_AGY_HOME/.gemini"
     ln -s "$target" "$CAGE_AGY_HOME/.gemini/antigravity-cli"
+  else
+    mkdir -p "$CAGE_AGY_HOME/.gemini/antigravity-cli" "$CAGE_AGY_HOME/unrelated/deep"
+    if [ "$linked" = token ]; then
+      ln -s "$target/antigravity-oauth-token" "$CAGE_AGY_HOME/.gemini/antigravity-cli/antigravity-oauth-token"
+    else
+      ln -s "$target" "$CAGE_AGY_HOME/unrelated/deep/link"
+    fi
   fi
   printf 'keep fixture\n' > "$target/antigravity-oauth-token"
   REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=": >$(sq "$marker"); $(command_for success)"
@@ -245,6 +277,32 @@ for linked in gemini antigravity-cli home; do
   check "symlinked $linked leaves the external fixture untouched" "$(cat "$target/antigravity-oauth-token")" 'keep fixture'
   check "symlinked $linked removes its unused lookup command" "$([ ! -e "$cmd_file" ] && echo removed)" removed
 done
+CAGE_AGY_HOME="$work/swap-home"
+mkdir -p "$CAGE_AGY_HOME/.gemini/antigravity-cli" "$CAGE_AGY_HOME.decoy/.gemini/antigravity-cli"
+marker="$work/swap-provider"
+REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=": >$(sq "$marker"); $(command_for success)"
+build
+awk '/^[[:space:]]*\(cd -P -- "\$source_dir"/ {
+  print "  /bin/mv \"$source_dir\" \"$source_dir.before\""
+  print "  /bin/ln -s \"$source_dir.decoy\" \"$source_dir\""
+} {print}' "$cage_wrapper" >"$ct/bin/swap"
+mv "$ct/bin/swap" "$cage_wrapper"; chmod +x "$cage_wrapper"
+run normal 0
+check 'swapping the provisioned home after the scan stops startup' "$rc:$(started):$([ -L "$CAGE_AGY_HOME" ] && echo swapped || echo missing)" '71:no:swapped'
+check 'the source swap never runs the provider or writes a token' "$([ ! -e "$marker" ] && [ ! -e "$CAGE_AGY_HOME.decoy/.gemini/antigravity-cli/antigravity-oauth-token" ] && echo safe)" safe
+CAGE_AGY_HOME="$work/project/shared-login"
+mkdir -p "$CAGE_AGY_HOME" "$CAGE_AGY_HOME/task"
+ln -s "$CAGE_AGY_HOME" "$work/alias-login"
+for task in "$work/project" "$CAGE_AGY_HOME" "$CAGE_AGY_HOME/task"; do
+  overlap_rc=0
+  CAGE_AGY_HOME="$work/alias-login" cage_build agy "$work/bin/probe" "$task" >"$work/overlap.log" 2>&1 || overlap_rc=$?
+  check "provisioned home overlapping DIR ${task##*/} is refused" "$overlap_rc:$(grep -Fc 'overlaps DIR' "$work/overlap.log")" '2:1'
+done
+mkdir "$work/separate-login"
+ln -s "$work/separate-login" "$work/project/external-login"
+overlap_rc=0
+CAGE_AGY_HOME="$work/project/external-login" cage_build agy "$work/bin/probe" "$work/project" >"$work/overlap.log" 2>&1 || overlap_rc=$?
+check 'provisioned home named through a link inside DIR is refused' "$overlap_rc:$(grep -Fc 'overlaps DIR' "$work/overlap.log")" '2:1'
 CAGE_AGY_HOME=$provisioned_home
 REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=$(command_for success)
 build; run crash 0
@@ -256,6 +314,11 @@ build; run redirect 0 "$work/outside"
 check 'child can replace token parent with a link' "$rc" 0
 check 'cleanup leaves external token behind a parent link alone' \
   "$(cmp -s "$work/expected" "$work/outside/antigravity-oauth-token" && echo yes || echo no)" yes
+build; run replace-dir 0
+check 'a replacement directory is left for close' "$rc:$(cat "$file")" '0:replacement'
+check 'wrapper exit leaves the moved original directory for close' "$([ -f "${file%/*}.moved/antigravity-oauth-token" ] && echo kept)" kept
+cleanup_cage "$ct" >"$work/moved-close.log" 2>&1
+check 'close removes the cage including the moved token' "$([ ! -e "$ct" ] && echo removed)" removed
 for mode in fail empty invalid missing null number blank top-null top-number top-blank array multiple; do
   REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=$(command_for "$mode")
   build; run normal 0

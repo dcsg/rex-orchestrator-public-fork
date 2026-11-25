@@ -45,8 +45,9 @@ export REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD='fnox get AGY_CAGE_OAUTH_TOKEN'
 
 The command is generic: any secret-store CLI can supply the JSON. It runs with Bash outside the sandbox,
 after the cage home is copied and before agy starts, from the fixed working directory `/`. The wrapper refuses
-a symlink at the provisioned home itself or anywhere inside it. It copies without following links and checks
-the private copy for symlinks before starting the provider. The helper gets only
+a symlink at the provisioned home itself or anywhere inside it. `launch` refuses a provisioned home that overlaps
+the task's `DIR` with exit **2**. The wrapper rechecks the overlap, verifies the physical source directory, copies
+without following links, and checks the private copy for symlinks before starting the provider. The helper gets only
 the real `HOME`, a fixed `PATH` (`/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`), `SHELL=/bin/bash` and
 `LANG=en_US.UTF-8`, plus Bash's own `PWD`/`SHLVL`. Project variables, `BASH_ENV`, `ENV`, shell functions and project
 PATH entries are discarded. The wrapper also uses Bash's privileged startup mode to ignore environment startup
@@ -56,8 +57,9 @@ Use absolute executable/config paths in the lookup when needed; do not source fi
 The command text waits in a mode-600 file under `STATE_DIR/cage-commands/`, outside `CAGE_ROOT`. The profile denies
 every caged child reads and writes there. The generated wrapper contains only the file's path. The command file is
 removed after lookup, on wrapper exit, or by `close` if the wrapper never started. Use a store lookup rather than a
-literal credential in the command. The wrapper opens an exclusive mode-600 file from the verified physical
-`home/.gemini/antigravity-cli` directory inside the private cage, then sends the provider's stdout to that open file.
+literal credential in the command. After removing any existing file, the wrapper opens a mode-600 file from the
+verified physical `home/.gemini/antigravity-cli` directory inside the private cage. It sends the provider's stdout
+to that open file.
 Output must be exactly one JSON object with a non-empty string `.token.refresh_token`, as in agy's normal
 token file. A top-level `.refresh_token` is also accepted for compatibility. The validator opens the file with
 `O_NOFOLLOW_ANY`. A symlink anywhere in the path, including `.gemini` or `antigravity-cli`, stops startup.
@@ -73,14 +75,16 @@ The lookup runs in its own process group so cancellation also stops provider sub
 after lookup returns are stopped before agy starts. Job control is disabled again for agy's terminal session.
 Cancellation received during that provider shutdown is queued and handled before agy can start.
 
-The wrapper keeps agy in the terminal's foreground process group and forwards its exit status. It removes the token
-on normal exit, a non-zero exit, or HUP/INT/TERM/QUIT/PIPE/USR1/USR2/ALRM to the wrapper. Signals go to the active lookup
+The wrapper keeps agy in the terminal's foreground process group and forwards its exit status. On normal exit,
+a non-zero exit, or HUP/INT/TERM/QUIT/PIPE/USR1/USR2/ALRM, it removes the token if the token directory is still
+the one it prepared. A moved or replaced directory stays in the cage until `close`. Signals go to the active lookup
 or agy child; INT and QUIT map to TERM because asynchronous children can inherit those two signals ignored. The
 wrapper waits up to five seconds, sends KILL if the child is still alive, and reaps it before deleting the token.
-A token rewritten by agy's shutdown handler is therefore removed too. Signals in the fork-to-PID-assignment window
+A token rewritten in the original directory by agy's shutdown handler is removed too. Signals in the fork-to-PID-assignment window
 use the shell's job table to find and stop the child. The wrapper exits with `128 +` the original signal number
 (HUP/INT/TERM: 129/130/143). The command and token are absent from agy's environment (`env -i`). The token is still
-readable by agy during the session; it is never written back to the store.
+readable by agy during the session. agy can copy it into `DIR` while running, and cage cleanup leaves copies in
+`DIR` alone. The wrapper never writes the token back to the store.
 
 SIGKILL to the wrapper and a machine crash cannot run cleanup traps. They can leave a token in
 `STATE_DIR/cage/agy.*/home/.gemini/antigravity-cli/antigravity-oauth-token` (or the corresponding `agy-*` cage).
