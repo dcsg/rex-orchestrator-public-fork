@@ -60,6 +60,19 @@ shell functions and project PATH entries are discarded. The wrapper also uses Ba
 environment startup hooks before doing any uncaged work. A planted `DIR/fnox.toml`, `.mise.toml` or `.envrc` is never
 implicitly used. Use absolute executable/config paths in the lookup when needed; do not source files from agent-writable DIR.
 
+What the home checks guarantee, and what they don't. The wrapper resolves the provisioned home's parent once, to a
+physical path, and every later step (the overlap recheck, the symlink check, the copy) uses that path. A folder swap
+after that point is caught: the copy's `cd` lands somewhere else and startup stops. A folder above the home that is
+renamed and replaced (for example by a symlink) *before* that point is followed: the wrapper checks and copies the
+folder it now leads to, consistently, the same as if `REX_ORCHESTRATOR_CAGE_AGY_HOME` named that folder. Every check
+still applies to it, so it can't overlap DIR or contain a symlink. What is not guaranteed is that it is the folder you
+provisioned. Renaming a folder needs write access to the folder that holds it, which is also above the home. If that
+were inside DIR, the home would be inside DIR too, and `launch` and the wrapper refuse that as an overlap. So only a
+process that can rename folders outside DIR can redirect the home: one of your own, or another caged agent whose DIR
+holds the home. This launch's agy has not started yet at that point. The default home is in `CAGE_SECRETS`, which every
+cage write-denies and `launch` refuses as a DIR. If you set `REX_ORCHESTRATOR_CAGE_AGY_HOME`, keep it in a folder no
+agent writes.
+
 The command text waits in a mode-600 file under `STATE_DIR/cage-commands/`, outside `CAGE_ROOT`. The profile denies
 every caged child reads and writes there. The generated wrapper contains only the file's path. The command file is
 removed after lookup, on wrapper exit, or by `close` if the wrapper never started. Use a store lookup rather than a
