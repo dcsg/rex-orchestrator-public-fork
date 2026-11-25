@@ -8,16 +8,9 @@ NAME=rex-orchestrator
 SKILL_SRC="$ROOT/skills/$NAME"
 CLI_SRC="$SKILL_SRC/scripts/rex-orchestrator.sh"
 
-# Print $1 with its C0 controls and DEL shown as \xNN, never raw: paths and arguments come from the caller.
-t() (
-  export LC_ALL=C
-  s=$1
-  case $s in *[[:cntrl:]]*) ;; *) printf '%s' "$s"; exit 0 ;; esac
-  while [ -n "$s" ]; do
-    c=${s%"${s#?}"}; s=${s#?}
-    case $c in [[:cntrl:]]) printf '\\x%02X' "'$c" ;; *) printf '%s' "$c" ;; esac
-  done
-)
+# Shows caller-supplied paths and arguments with terminal controls escaped, as the CLI does.
+# shellcheck source=skills/rex-orchestrator/scripts/term-text.sh
+. "$ROOT/skills/$NAME/scripts/term-text.sh"
 
 bin_dir="$HOME/.local/bin"
 agents="claude,agents"
@@ -53,7 +46,7 @@ while [ $# -gt 0 ]; do
     --uninstall) uninstall=1; shift ;;
     --dry-run) dry=1; shift ;;
     -h | --help) usage; exit 0 ;;
-    *) printf 'install.sh: unknown option %s\n\n' "$(t "$1")" >&2; usage >&2; exit 2 ;;
+    *) printf 'install.sh: unknown option %s\n\n' "$(rex_term_text "$1")" >&2; usage >&2; exit 2 ;;
   esac
 done
 
@@ -64,7 +57,7 @@ for a in "${targets[@]}"; do
     claude) skill_dirs+=("$HOME/.claude/skills") ;;
     agents) skill_dirs+=("$HOME/.agents/skills") ;;
     none | '') ;;
-    *) printf 'install.sh: unknown agent target %s (use claude, agents or none)\n' "$(t "$a")" >&2; exit 2 ;;
+    *) printf 'install.sh: unknown agent target %s (use claude, agents or none)\n' "$(rex_term_text "$a")" >&2; exit 2 ;;
   esac
 done
 skill_dirs+=(${extra_dirs[@]+"${extra_dirs[@]}"})
@@ -73,25 +66,25 @@ skill_dirs+=(${extra_dirs[@]+"${extra_dirs[@]}"})
 link() {
   local src=$1 dest=$2
   if [ -L "$dest" ]; then
-    [ "$(readlink "$dest")" = "$src" ] && { echo "ok         $(t "$dest")"; return 0; }
-    printf 'install.sh: %s is a link to %s; remove it first\n' "$(t "$dest")" "$(t "$(readlink "$dest")")" >&2
+    [ "$(readlink "$dest")" = "$src" ] && { echo "ok         $(rex_term_text "$dest")"; return 0; }
+    printf 'install.sh: %s is a link to %s; remove it first\n' "$(rex_term_text "$dest")" "$(rex_term_text "$(readlink "$dest")")" >&2
     return 1
   elif [ -e "$dest" ]; then
-    printf 'install.sh: %s exists and is not a link; remove it first\n' "$(t "$dest")" >&2
+    printf 'install.sh: %s exists and is not a link; remove it first\n' "$(rex_term_text "$dest")" >&2
     return 1
   fi
-  if [ "$dry" = 1 ]; then echo "would link $(t "$dest") -> $(t "$src")"; return 0; fi
+  if [ "$dry" = 1 ]; then echo "would link $(rex_term_text "$dest") -> $(rex_term_text "$src")"; return 0; fi
   # link runs on the left of ||, where set -e does not apply: check each step, or a failed ln reads as linked.
   mkdir -p "$(dirname "$dest")" || return 1
   ln -s "$src" "$dest" || return 1
-  echo "linked     $(t "$dest") -> $(t "$src")"
+  echo "linked     $(rex_term_text "$dest") -> $(rex_term_text "$src")"
 }
 
 # unlink_ours DEST SRC: remove DEST only if it is our link.
 unlink_ours() {
   local dest=$1 src=$2
   [ -L "$dest" ] && [ "$(readlink "$dest")" = "$src" ] || return 0
-  if [ "$dry" = 1 ]; then echo "would remove $(t "$dest")"; else rm "$dest"; echo "removed    $(t "$dest")"; fi
+  if [ "$dry" = 1 ]; then echo "would remove $(rex_term_text "$dest")"; else rm "$dest"; echo "removed    $(rex_term_text "$dest")"; fi
 }
 
 if [ "$uninstall" = 1 ]; then
@@ -109,6 +102,6 @@ status=0
 link "$CLI_SRC" "$bin_dir/rex-orchestrator" || status=1
 for d in ${skill_dirs[@]+"${skill_dirs[@]}"}; do link "$SKILL_SRC" "$d/$NAME" || status=1; done
 
-case ":$PATH:" in *":$bin_dir:"*) ;; *) echo "note: add $(t "$bin_dir") to PATH to run rex-orchestrator." ;; esac
+case ":$PATH:" in *":$bin_dir:"*) ;; *) echo "note: add $(rex_term_text "$bin_dir") to PATH to run rex-orchestrator." ;; esac
 if [ "$status" = 0 ] && [ "$dry" = 0 ]; then echo "done. Try: rex-orchestrator help"; fi
 exit "$status"

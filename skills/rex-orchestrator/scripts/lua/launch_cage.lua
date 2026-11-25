@@ -223,7 +223,9 @@ return function(C,M)
 
   local function render(name,r,dir,ct,physical_home,physical_secrets,hooks,command)
     local runtime=F.read(assets .. "/runtime-" .. r.runtime .. ".sh")
-    if not runtime then return nil end
+    -- The wrapper prints paths (claude's credential file) with the CLI's own escaping.
+    local term_text=F.read(C.script_dir .. "/term-text.sh")
+    if not runtime or not term_text then return nil end
     local header="#!/bin/bash\n"
     if r.runtime=="agy" then
       header="#!/bin/bash -p\n# Ignore startup hooks and project PATH before uncaged work.\n" ..
@@ -238,7 +240,8 @@ return function(C,M)
     }
     local assignments={}
     for _,p in ipairs(bindings) do assignments[#assignments+1]=p[1] .. "=" .. quote(p[2]) end
-    return header .. "# rex-orchestrator cage wrapper for " .. name .. " (generated each launch; do not edit).\nset -e\n" ..
+    return header .. "# rex-orchestrator cage wrapper for " .. name .. " (generated each launch; do not edit).\n" ..
+      term_text .. "set -e\n" ..
       table.concat(assignments," ") .. '\nTTY=$(/usr/bin/tty 2>/dev/null) || TTY=\n' ..
       'case "$TTY" in /dev/ttys[0-9]*) ;; *) TTY="$CT/.notty" ;; esac\n' ..
       (r.runtime=="agy" and "AGY_CMD_FILE=" .. quote(command or "") .. "\n" .. r.path_guard .. "\n" or "") .. runtime

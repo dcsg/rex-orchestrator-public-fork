@@ -96,7 +96,7 @@ done
 missing="$fixture/missing-lua"
 mkdir "$missing"
 sed 's|/opt/homebrew/bin/luajit /usr/local/bin/luajit ||' "$scripts/local-lua.sh" > "$missing/local-lua.sh"
-cp "$scripts/rex-orchestrator.sh" "$scripts/cage-cleanup.sh" "$missing/"
+cp "$scripts/rex-orchestrator.sh" "$scripts/cage-cleanup.sh" "$scripts/term-text.sh" "$missing/"
 rc=0; PATH=/usr/bin:/bin /bin/bash "$missing/rex-orchestrator.sh" clone ignored ignored 2> "$fixture/missing.err" || rc=$?
 check 'clone reports the missing interpreter' "$rc" 2
 check 'clone names the missing dependency' "$(grep -Fc 'clone requires LuaJIT' "$fixture/missing.err")" 1

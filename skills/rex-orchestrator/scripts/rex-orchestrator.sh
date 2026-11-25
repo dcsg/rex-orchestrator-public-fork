@@ -12,6 +12,8 @@ while [ -L "$SCRIPT_SRC" ]; do
   esac
 done
 SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_SRC")" && pwd -P)
+# shellcheck source=skills/rex-orchestrator/scripts/term-text.sh
+. "$SCRIPT_DIR/term-text.sh"
 case "${1:-help}" in
   help | -h | --help) exec /bin/cat "$SCRIPT_DIR/help.txt" ;;
   clone) shift; exec "$BASH" -p "$SCRIPT_DIR/local-lua.sh" clone "$@" ;;
@@ -30,18 +32,6 @@ if ! command -v "$REX" >/dev/null 2>&1; then
     exit 2
   fi
 fi
-# Print $1 with its C0 controls and DEL shown as \xNN, never raw, so caller- or filesystem-supplied text can't drive
-# the terminal. Backslashes stay as they are: Lua's diagnostics arrive here already escaped.
-# shellcheck disable=SC2030 # The byte locale is meant to stay in this subshell.
-rex_term_text() (
-  export LC_ALL=C
-  s=$1
-  case $s in *[[:cntrl:]]*) ;; *) printf '%s' "$s"; exit 0 ;; esac
-  while [ -n "$s" ]; do
-    c=${s%"${s#?}"}; s=${s#?}
-    case $c in [[:cntrl:]]) printf '\\x%02X' "'$c" ;; *) printf '%s' "$c" ;; esac
-  done
-)
 # Rex's JSON decoder replaces invalid UTF-8. Transport argv as bytes so
 # diagnostics and file arguments retain the same spelling as in Bash.
 json_string() {
@@ -139,7 +129,7 @@ run_lua() {
   while IFS= read -r line; do
     case "$line" in
       '' | $'\036rex-orchestrator:started' | $'\036rex-orchestrator:rejected' | 'listening: '*'; Ctrl-C to stop') ;;
-      *) printf '%s\n' "$(rex_term_text "$line")" >&2 ;;
+      *) printf '%s\n' "$(rex_term_text "$line" keep)" >&2 ;;
     esac
   done <<<"$diagnostics"
   case "$command" in

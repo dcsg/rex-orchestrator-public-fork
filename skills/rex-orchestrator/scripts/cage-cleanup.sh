@@ -4,17 +4,8 @@
 # what rm -rf can't remove: folders without the owner's rwx, the uchg or uappnd flag, an ACL that denies the owner.
 # Clear them, nested ones too (find fixes each folder before it reads it); chflags, chmod, find and rm follow no link
 # inside, and the cage can't link a file from outside in. The agent may still be writing as it exits: retry once.
-# Print $1 with its C0 controls and DEL shown as \xNN, never raw, so caller- or filesystem-supplied text can't drive
-# the terminal. Backslashes stay as they are: Lua's diagnostics arrive here already escaped.
-rex_term_text() (
-  export LC_ALL=C
-  s=$1
-  case $s in *[[:cntrl:]]*) ;; *) printf '%s' "$s"; exit 0 ;; esac
-  while [ -n "$s" ]; do
-    c=${s%"${s#?}"}; s=${s#?}
-    case $c in [[:cntrl:]]) printf '\\x%02X' "'$c" ;; *) printf '%s' "$c" ;; esac
-  done
-)
+# shellcheck source=skills/rex-orchestrator/scripts/term-text.sh
+. "${BASH_SOURCE[0]%/*}/term-text.sh"
 cleanup_cage() {
   local n=0
   # A launch that never reached its wrapper can still have a private agy command waiting outside CAGE_ROOT.

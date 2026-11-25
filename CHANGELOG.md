@@ -29,9 +29,10 @@ project uses [Semantic Versioning](https://semver.org/).
 - Resolve the session from `REX_BLOCK` when `REX_SESSION` is empty, supporting Rex server 0.1.0-preview.23.
   An explicit `REX_SESSION` selects the session.
 - Escape terminal controls, invalid UTF-8 and bidi controls in every diagnostic: Lua's notes, refusals and raw
-  diagnostics (screen tails, Rex and git errors) are escaped where they are written, and the shell entry point,
-  installer, cage cleanup and claude wrapper show caller- or filesystem-supplied text with C0 controls and DEL as
-  `\xNN`.
+  diagnostics (screen tails, Rex and git errors) are escaped where they are written. The shell entry point,
+  installer, cage cleanup and claude wrapper share `scripts/term-text.sh`, which escapes exactly as the Lua side
+  does (C0, DEL, raw C1 bytes and invalid UTF-8 as `\xNN`, UTF-8 C1 controls and bidi overrides and isolates as
+  `\uNNNN`, backslashes doubled), so Rex's own error lines print the same way.
 - Match agent homes and the other protected locations without regard to ASCII case in `launch`'s checks, as the
   home volume and the cage profile do: a DIR in `~/.CODEX`, a link spelled `~/.CODEX`, or a HOME spelled in another
   case no longer slips past them.

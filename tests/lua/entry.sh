@@ -16,6 +16,8 @@ case "${REX_TEST_NO_WAIT_RESULT:-}" in
   yes) exit 0 ;;
   old) printf 'Error: unknown flag: --all\n' >&2; exit 2 ;;
   lost) printf '\036rex-orchestrator:started\n' >&4; printf 'Error: no Rex server is running at fixture\n' >&2; exit 4 ;;
+  controls) printf '\036rex-orchestrator:started\n' >&4
+    printf 'Error: bad \033]0;x\007 \302\233 \342\200\256 \377 \205 a\\b\n' >&2; exit 1 ;;
   rejected)
     printf '\036rex-orchestrator:started\n\036rex-orchestrator:rejected\n' >&4
     exit 4 ;;
@@ -77,6 +79,44 @@ for bash in "${bashes[@]}"; do
     pass=$((pass+1))
   done
 done
+# The shell's escaping (term-text.sh) prints every byte sequence exactly as core.lua's M.terminal_text does, under
+# Bash 3.2 and 5: C0, DEL, raw C1, UTF-8 C1, bidi overrides and isolates, invalid and truncated UTF-8, backslashes.
+command -v luajit >/dev/null 2>&1 || test_skip 'shell and Lua escaping parity requires LuaJIT'
+printf 'local M=dofile(arg[1]); io.write(M.terminal_text(arg[2]))\n' > "$T/terminal_text.lua"
+# shellcheck disable=SC1003 # Octal escapes and backslashes for printf, not shell quoting.
+parity_inputs=('plain' 'a\\b\\' '\033]0;x\007\033[31m' '\t\r\001\037' '\177' '\200' '\205' '\233[2J' '\237' '\302\200'
+  '\302\205' '\302\233' '\302\237' '\302\240' '\342\200\252' '\342\200\256' '\342\201\246' '\342\201\251'
+  '\342\200\251' '\342\200\257' '\342\201\245' '\342\201\252' '\342\200\246' 'caf\303\251' '\360\237\246\212'
+  '\300\200' '\301\277' '\340\237\200' '\355\240\200' '\364\220\200\200' '\365\200\200\200' '\370'
+  '\342\200' '\302' '\277' '\377\376' '\303\050' 'x\342\200\256y\\z\033\302\205\377'
+  "it's \"q\" \\033 literal")
+for bash in "${bashes[@]}"; do
+  [ -x "$bash" ] || continue
+  for spec in "${parity_inputs[@]}"; do
+    # shellcheck disable=SC2059 # Each input is a printf format of octal escapes.
+    input=$(printf "$spec.") && input=${input%.}
+    want=$(luajit "$T/terminal_text.lua" "$ROOT/skills/rex-orchestrator/scripts/lua/core.lua" "$input")
+    # shellcheck disable=SC2016 # The child shell expands its own arguments.
+    got=$("$bash" -p -c '. "$1"; rex_term_text "$2"' sh "$ROOT/skills/rex-orchestrator/scripts/term-text.sh" "$input")
+    [ "$got" = "$want" ] || { printf 'escaping parity under %s for %s: shell [%s], Lua [%s]\n' "$bash" "$spec" "$got" "$want" >&2; exit 1; }
+    # keep mode differs only in leaving backslashes single, for text Lua already escaped.
+    # shellcheck disable=SC2016 # The child shell expands its own arguments.
+    kept=$("$bash" -p -c '. "$1"; rex_term_text "$2" keep' sh "$ROOT/skills/rex-orchestrator/scripts/term-text.sh" "$input")
+    [ "$kept" = "${want//\\\\/\\}" ] || { printf 'keep mode under %s for %s: [%s]\n' "$bash" "$spec" "$kept" >&2; exit 1; }
+    [ "$(printf '%s' "$got$kept" | LC_ALL=C tr -d '\040-\176\200-\377' | wc -c | tr -d ' ')" = 0 ] ||
+      { printf 'escaping left a C0 control or DEL for %s\n' "$spec" >&2; exit 1; }
+    pass=$((pass+1))
+  done
+done
+# Rex's own error lines reach the terminal through the shell alone: escaped the same way, backslashes kept.
+rc=0
+REX_TEST_NO_WAIT_RESULT=controls REX_ORCHESTRATOR_REX_BIN_DIR="$T/bin" \
+  "${REX_TEST_BASH:-/bin/bash}" "$T/install space/chain" status block:fixture > "$T/out" 2> "$T/err" || rc=$?
+if [ "$rc" -ne 1 ] || ! grep -qxF 'Error: bad \x1B]0;x\x07 \u009B \u202E \xFF \x85 a\b' "$T/err"; then
+  cat -v "$T/err" >&2; exit 1
+fi
+[ "$(LC_ALL=C tr -d '\040-\176\n' < "$T/err" | wc -c | tr -d ' ')" = 0 ] || { echo 'raw bytes in forwarded Rex errors' >&2; exit 1; }
+pass=$((pass+1))
 for scenario in yes old; do
   rc=0
   REX_TEST_NO_WAIT_RESULT="$scenario" REX_ORCHESTRATOR_REX_BIN_DIR="$T/bin" \

@@ -102,7 +102,7 @@ for p in .ssh/id_x .aws/credentials .gnupg/x .netrc $CS/claude.env $CS/claude-on
 done
 printf '[user]\n\tname = zt\n\temail = zt@example.invalid\n' | tee "$FH/.gitconfig" >"$FH/.config/git/config"
 mkdir -p "$SCRIPT_DIR/cage"
-cp "$SDIR/cage/"runtime-*.sh "$SDIR/cage/agy-paths.sh" "$SCRIPT_DIR/cage/"
+cp "$SDIR/cage/"runtime-*.sh "$SDIR/cage/agy-paths.sh" "$SCRIPT_DIR/cage/"; cp "$SDIR/term-text.sh" "$SCRIPT_DIR/"
 for p in rex-orchestrator.sh cage.sb cage/claude.json ../SKILL.md; do printf 'fixture\n' >"$SCRIPT_DIR/$p"; done
 # One dummy token per account; claude.env keeps the fixture line above, which no wrapper may load.
 mkdir -p "$WORK/agy-home/.gemini"
@@ -453,7 +453,7 @@ if mk claude "$PD"; then
 else bad "claude wrapper with a control in CAGE_SECRETS: cage_build failed ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
 CAGE_SECRETS=$SAVED_SECRETS
 # shellcheck disable=SC2016 # The child shell expands its own arguments.
-chk "cage-cleanup.sh escapes controls" 'x\x1B[31my\x09z\w' \
+chk "cage-cleanup.sh escapes controls" 'x\x1B[31my\x09z\\w' \
   "$(/bin/bash -c '. "$1"; rex_term_text "$2"' sh "$SDIR/cage-cleanup.sh" "x${ESC}[31my$(printf '\t')z\w")"
 # shellcheck disable=SC2034  # read by cage_build, as launch's local
 account=""
@@ -604,7 +604,12 @@ chk "case: an executable under ~/.Claude-zt is refused" 2 "$rc"
 # their names show as \x1B and \x09, never as raw bytes.
 ESC=$(printf '\033') TAB=$(printf '\t')
 mkdir -p "$WORK/shim${ESC}[31mred"; cp "$WORK/shims/codex" "$WORK/shim${ESC}[31mred/codex"
-no_raw() { if LC_ALL=C grep -q "[$ESC$TAB]" "$WORK/build.log"; then echo raw; else echo escaped; fi; }
+# Any C0 control or DEL left in the notes (line breaks aside) counts as raw.
+no_raw() {
+  local left
+  left=$(LC_ALL=C tr -d '\040-\176\200-\377\n' <"$WORK/build.log" | wc -c | tr -d ' ')
+  if [ "$left" = 0 ]; then echo escaped; else echo "raw ($left bytes)"; fi
+}
 if sa_build "$WORK/shim${ESC}[31mred:$LINKED"; then
   chk "escape: the skipped shim's path is escaped" yes "$(grep -qF 'shim\x1B[31mred/codex' "$WORK/build.log" && echo yes || echo no)"
   chk "escape: no raw control in the skip note" escaped "$(no_raw)"

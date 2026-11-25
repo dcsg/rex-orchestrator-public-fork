@@ -2,17 +2,7 @@
 mkdir -p "$CT/claude-config" "$CT/zdot"
 [ -f "$CT/claude-config/.claude.json" ] || cp "$TPL/claude.json" "$CT/claude-config/.claude.json"
 [ -f "$CT/claude-config/settings.json" ] || cp "$TPL/claude-settings.json" "$CT/claude-config/settings.json"
-# Print $1 with its C0 controls and DEL shown as \xNN, never raw, so caller- or filesystem-supplied text can't drive
-# the terminal. Backslashes stay as they are: Lua's diagnostics arrive here already escaped.
-rex_term_text() (
-  export LC_ALL=C
-  s=$1
-  case $s in *[[:cntrl:]]*) ;; *) printf '%s' "$s"; exit 0 ;; esac
-  while [ -n "$s" ]; do
-    c=${s%"${s#?}"}; s=${s#?}
-    case $c in [[:cntrl:]]) printf '\\x%02X' "'$c" ;; *) printf '%s' "$c" ;; esac
-  done
-)
+# rex_term_text comes from term-text.sh, which the launcher puts ahead of this file in the wrapper.
 # CLAUDE_CODE_OAUTH_TOKEN for the child only, from its account's file (outside the cage), loaded silently: a malformed
 # line would print itself, the token, on the child's screen.
 # shellcheck disable=SC1090 # CRED is the chosen per-account credential file, known only at launch.
