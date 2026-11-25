@@ -35,7 +35,8 @@
 #     skipped and never run while a Node script is taken, a PATH of shims only is refused
 #     naming the override, REX_ORCHESTRATOR_CAGE_CODEX_BIN picks the executable, an agent executable elsewhere
 #     under an agent home is refused, and one outside them reached through a link inside one runs by its physical path;
-#     agent homes match whatever their case (a link spelled ~/.CODEX, HOME spelled otherwise, an on-disk ~/.Claude-zt);
+#     agent homes match whatever their case (a link spelled ~/.CODEX, HOME spelled otherwise, an on-disk ~/.Claude-zt,
+#     and a non-ASCII HOME typed in another case or Unicode form);
 #     paths with terminal controls in launch's notes and refusals are escaped;
 #   - a grok download, HOME/.grok/downloads/<file> reached through ~/.local/bin/grok and ~/.grok/bin/grok, runs in the
 #     cage from its physical path with only that file readable and executable: sibling downloads, the folder, the
@@ -619,6 +620,29 @@ else bad "case: cage_build failed with HOME spelled otherwise (rc $SA_RC: $(tr '
 mkdir -p "$FH/.Claude-zt"; cp "$ARGPROBE" "$FH/.Claude-zt/codex"
 rc=0; cage_build codex "$FH/.Claude-zt/codex" "$PD" >/dev/null 2>"$WORK/build.log" || rc=$?
 chk "case: an executable under ~/.Claude-zt is refused" 2 "$rc"
+# Non-ASCII case: a HOME typed "ärger-home" (and in decomposed form) for the on-disk "Ärger-home". ASCII folding can't
+# match those; launch compares on-disk spellings (/bin/realpath) first. The cage's own rules match them too.
+NA=$(printf '\303\204rger-home') NA_LOWER=$(printf '\303\244rger-home') NA_NFD=$(printf 'a\314\210rger-home')
+NREL="$WORK/$NA/.codex/packages/standalone/releases/9.9.9-n"
+mkdir -p "$NREL/bin" "$WORK/$NA/.codex/proj" "$WORK/$NA/.codex/bin"; cp "$ARGPROBE" "$NREL/bin/codex"
+printf 'fixture\n' | tee "$WORK/$NA/.codex/auth.json" >"$WORK/$NA/.codex/config.toml"
+ln -s "$WORK/opt/codex" "$WORK/$NA/.codex/bin/codex-link"
+for typed in "$NA_LOWER" "$NA_NFD"; do
+  if HOME="$WORK/$typed" cage_build codex "$WORK/$typed/.codex/packages/standalone/releases/9.9.9-n/bin/codex" "$PD" \
+    >/dev/null 2>"$WORK/build.log"; then
+    W=$cage_wrapper CT=$cage_tmp CWD=$PD
+    chk "non-ASCII case: the release is found under HOME typed otherwise" "BINDIR='$NREL'" "$(grep -m1 -o "BINDIR='[^']*'" "$W")"
+    chk "non-ASCII case: the release starts" RAN "$(cg -c 'echo RAN')"
+    want r DENY "$WORK/$NA/.codex/config.toml" "$WORK/$typed/.CODEX/config.toml"
+  else bad "non-ASCII case: cage_build failed ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
+  if HOME="$WORK/$typed" cage_build codex "$WORK/$typed/.codex/bin/codex-link" "$PD" >/dev/null 2>"$WORK/build.log"; then
+    chk "non-ASCII case: a link in the home typed otherwise is not followed" "REAL='$WORK/opt/codex'" \
+      "$(grep -m1 -o "^REAL='[^']*'" "$cage_wrapper")"
+  else bad "non-ASCII case: cage_build failed for a link ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
+  chk "non-ASCII case: launch refuses DIR in the agent home" yes \
+    "$(HOME="$WORK/$typed" ZT_OVERLAP=1 cage_build codex "$ARGPROBE" "$WORK/$NA/.CODEX/proj" >/dev/null 2>&1
+      case $cage_tmp in *codex\*) echo yes ;; *) echo "no ($cage_tmp)" ;; esac)"
+done
 # Paths in launch's notes and refusals are escaped: a shim folder, a link and an executable with terminal controls in
 # their names show as \x1B and \x09, never as raw bytes.
 ESC=$(printf '\033') TAB=$(printf '\t')

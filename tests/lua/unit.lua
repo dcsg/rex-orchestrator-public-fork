@@ -747,7 +747,7 @@ eq(state["/state/block_child.own"][1],orch); eq(state["/state/block_child.cage"]
 -- path matching ignore case, so ~/.CODEX is ~/.codex.
 do
   os.getenv=function(key) return ({HOME="/Users/test"})[key] end
-  local fs={canonical=function(path) return path end}
+  local fs={canonical=function(path) return path end,ondisk=function() return nil end}
   local K=dofile(dir .. "launch_cage.lua")({rex={},fs=fs,script_dir="/opt/skills/rex-orchestrator/scripts",dir="/state"},M)
   for _,case in ipairs({{"/Users/test/.CODEX/proj","/Users/test/.codex*"},{"/Users/test/.Claude-work/x","/Users/test/.claude*"},
     {"/Users/test/.GROK","/Users/test/.grok*"},{"/Users/test/.gemini/x","/Users/test/.gemini*"},

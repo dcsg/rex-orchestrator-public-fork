@@ -16,7 +16,12 @@ return function(C,M)
   -- Path checks against the protected locations ignore ASCII case: the home volume is case-insensitive by default,
   -- and the cage's own path matching (literal, prefix, subpath and regex) ignores case there too, so ~/.CODEX/x is
   -- ~/.codex/x to the profile. A check that compared case would let a case-variant spelling past it.
+  -- First line: every path compared is put in its on-disk spelling (disk), which also settles non-ASCII case and
+  -- Unicode normalization; second line: the comparison itself ignores ASCII case, for a path that doesn't exist.
   local function starts_nocase(s,p) return M.starts(s:lower(),p:lower()) end
+  local function disk(path) return F.ondisk(path) or F.canonical(path) or path end
+  -- A path that may not exist (a link's own location): its folder on disk, its last name as given.
+  local function disk_parent(path) return disk(M.dirname(path)):gsub("/$","") .. "/" .. M.basename(path) end
   local function below(path,dir)
     return starts_nocase(path:gsub("/$","") .. "/",dir:gsub("/$","") .. "/")
   end
@@ -28,7 +33,8 @@ return function(C,M)
     end
   end
   function K.overlap(dir)
-    local h=F.canonical(home) or home
+    local h=disk(home)
+    dir=disk(dir)
     for _,path in ipairs({"/","/Users",h,h .. "/Library",h .. "/Repos"}) do
       if dir:lower()==path:lower() then return path end
     end
@@ -37,7 +43,7 @@ return function(C,M)
     for _,path in ipairs({C.dir,secrets,h .. "/.ssh",h .. "/.local/bin",h .. "/.agents",h .. "/Library/LaunchAgents",
       M.dirname(M.dirname(M.dirname(C.script_dir))),"/opt/homebrew","/Applications",
       h .. "/.claude",h .. "/.codex",h .. "/.grok",h .. "/.gemini"}) do
-      local physical=F.canonical(path) or path
+      local physical=disk(path)
       if below(dir,physical) or below(dir,path) or below(physical,dir) then return path end
     end
   end
@@ -197,12 +203,12 @@ return function(C,M)
   local function agent_bin_dir(r,name)
     local real=F.realpath(r.bin)
     if not real then return nil,"cage: cannot resolve " .. name .. "'s executable " .. r.bin end
-    local h=F.canonical(home) or home
+    local h=disk(home)
     local prefix=agent_home(real,h)
     if prefix then
       if r.runtime=="codex" and not M.dir_control(real) then
         for _,codex_home in ipairs({env("CODEX_HOME") or "",h .. "/.codex"}) do
-          local physical=codex_home~="" and F.canonical(codex_home)
+          local physical=codex_home~="" and disk(codex_home)
           local base=physical and physical .. "/packages/standalone/releases/"
           local version=base and starts_nocase(real,base) and real:sub(#base+1):match("^([^/]+)/.")
           -- The release folder as the physical path spells it (the on-disk case), not as CODEX_HOME does.
@@ -213,7 +219,7 @@ return function(C,M)
       -- from ~/.grok/bin/grok: that file alone is re-opened (AGENT_BIN_FILE).
       if r.runtime=="grok" and not M.dir_control(real) then
         for _,grok_home in ipairs({env("GROK_HOME") or "",h .. "/.grok"}) do
-          local physical=grok_home~="" and F.canonical(grok_home)
+          local physical=grok_home~="" and disk(grok_home)
           local base=physical and physical .. "/downloads/"
           local file=base and starts_nocase(real,base) and real:sub(#base+1)
           if file and file~="" and not file:find("/",1,true) and F.test("-f",real) then return real,nil,real end
@@ -231,7 +237,7 @@ return function(C,M)
     local links=F.link_locations(r.bin)
     if not links then return nil,"cage: cannot resolve " .. name .. "'s executable " .. r.bin end
     for _,link in ipairs(links) do
-      if agent_home(link,h) then
+      if agent_home(disk_parent(link),h) then
         C.note("cage: " .. r.bin .. " reaches " .. real .. " through the link " .. link ..
           ", which the cage can't follow; running " .. real)
         return real

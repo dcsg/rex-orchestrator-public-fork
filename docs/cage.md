@@ -202,9 +202,11 @@ home stops the wrapper with exit **70**.
   `scp`, `sftp`, `crontab`, `at`, `batch`.
 
 Case: the home volume is case-insensitive by default, and on it the profile's path rules ignore case too, so
-`~/.CODEX/auth.json` is as denied as `~/.codex/auth.json` (checked for literal, prefix, subpath and regex rules).
-`launch`'s own checks against these locations (the DIR refusal below, the agent-home and release checks above, the
-link walk) ignore ASCII case to match.
+`~/.CODEX/auth.json` is as denied as `~/.codex/auth.json` (checked for literal, prefix, subpath and regex rules, and
+for a non-ASCII folder typed in another case or Unicode form). `launch`'s own checks against these locations (the DIR
+refusal below, the agent-home and release checks above, the link walk) first put HOME and each path in its on-disk
+spelling with `/bin/realpath`, which settles non-ASCII case and Unicode normalization, and then compare ignoring ASCII
+case, for a path that doesn't exist.
 
 `launch` also refuses a caged DIR that *is, holds or sits in* any of the protected locations above, or is `/`, `/Users`,
 your home, `~/Library` or `~/Repos`: give each task its own folder.

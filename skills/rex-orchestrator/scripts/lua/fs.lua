@@ -62,6 +62,12 @@ return function(rex)
     end
     return paths
   end
+  -- An existing path as the disk spells it: links resolved, and each name in its on-disk case and Unicode form
+  -- (pwd -P keeps the case it was typed in). nil if it doesn't exist.
+  function F.ondisk(path)
+    local ok,out=sh('[ -e "$1" ] && /bin/realpath -- "$1"',path)
+    return ok and out:gsub("\n$","") or nil
+  end
   -- The physical path of a file, every symlink resolved, the last component too.
   function F.realpath(path)
     local ok,out=sh('[ -f "$1" ] && /bin/realpath -- "$1"',path)

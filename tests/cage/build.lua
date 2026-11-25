@@ -47,6 +47,8 @@ end
 local C=M.new(rex,F)
 C.dir,C.script_dir,C.git=state,script_dir,F.git()
 local K=dofile(assets .. "/lua/launch_cage.lua")(C,M)
+-- With ZT_OVERLAP set, print what launch's DIR refusal names for DIR (or "-") instead of building.
+if os.getenv("ZT_OVERLAP") then print(K.overlap(dir) or "-"); os.exit(0) end
 -- AGENT is what launch got as --agent: a bare name resolves on PATH, a path (the default, BIN) is used as given.
 local cage,code=K.build(name,bin,{dir=dir,account=account,label=name,agent=agent~="" and agent or bin},function() end)
 if not cage then os.exit(code) end
