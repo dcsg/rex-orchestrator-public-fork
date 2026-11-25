@@ -33,7 +33,7 @@ fi
 # Rex's JSON decoder replaces invalid UTF-8. Transport argv as bytes so
 # diagnostics and file arguments retain the same spelling as in Bash.
 json_string() {
-  local LC_ALL=C v="$1" bytes="$2" c i byte
+  local v="$1" bytes="$2" c i byte
   printf '"'
   for ((i=0; i<${#v}; i++)); do
     c=${v:i:1}
@@ -59,7 +59,9 @@ finish_launch() {
   trap '' HUP INT TERM
   if [ "$launch_reported" = 0 ] && [ -s "$launch_dir/state" ]; then
     local recovery
-    recovery=$(printf '{"recover":true,"script_dir":'; json_string "$SCRIPT_DIR" no
+    # shellcheck disable=SC2030 # This subshell is only serializing bytes.
+    recovery=$(export LC_ALL=C
+      printf '{"recover":true,"script_dir":'; json_string "$SCRIPT_DIR" no
       printf ',"journal":'; json_string "$launch_dir/state" no; printf '}')
     if ! REX_SESSION='' REX_BLOCK='' "$REX" --autostart=false "do" "$SCRIPT_DIR/lua/main.lua" --args - --fail-fast <<<"$recovery"; then
       printf 'rex-orchestrator: launch recovery is pending in %s\n' "$launch_dir/state" >&2
@@ -83,7 +85,11 @@ if [ "$1" = launch ]; then
   trap 'cancel_launch 130' INT
   trap 'cancel_launch 143' TERM
 fi
-args=$(printf '{"forward_errors":true,"script_dir":'; json_string "$SCRIPT_DIR" no
+# Keep the byte locale for the whole subshell. Restoring a function-local locale here can make
+# Homebrew Bash re-enter macOS locale preferences after fork and crash.
+# shellcheck disable=SC2031
+args=$(export LC_ALL=C
+  printf '{"forward_errors":true,"script_dir":'; json_string "$SCRIPT_DIR" no
   printf ',"rex_bin":'; json_string "$REX" no
   printf ',"journal":'; json_string "$launch_dir/state" no
   printf ',"session":'; json_string "${REX_SESSION:-}" yes

@@ -36,6 +36,18 @@ test_has_pty() {
     </dev/null 2>/dev/null | /usr/bin/grep -q 'PTY OK'
 }
 
+test_find_bash5() {
+  local exe
+  # shellcheck disable=SC2016 # Inspect the version in the candidate shell.
+  for exe in "${REX_TEST_BASH:-}" /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    if [ -x "$exe" ] && "$exe" -p -c '[ "${BASH_VERSINFO[0]}" -ge 5 ]'; then
+      printf '%s\n' "$exe"
+      return
+    fi
+  done
+  return 1
+}
+
 test_skip() {
   if [ "${REX_TEST_REQUIRE_ENV:-0}" = 1 ]; then
     printf 'FAIL  required test environment: %s\n' "$*" >&2

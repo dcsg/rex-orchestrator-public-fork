@@ -350,7 +350,7 @@ try:
     u = socket.socket(socket.AF_UNIX); u.bind(sys.argv[1]); u.listen(5)
 except OSError as exc:
     if exc.errno not in (errno.EACCES, errno.EPERM, errno.EAFNOSUPPORT,
-                         errno.EPROTONOSUPPORT, errno.EADDRNOTAVAIL, errno.ENAMETOOLONG):
+                         errno.EPROTONOSUPPORT):
         raise
     print(f"PRECONDITION: {exc}", file=sys.stderr)
     sys.exit(77)

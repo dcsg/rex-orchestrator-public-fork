@@ -6,12 +6,12 @@ set -u
 . "${BASH_SOURCE[0]%/*}/../isolate.inc.sh" || exit 2
 here=$(cd "$(dirname "$0")" && pwd)
 runs=${REX_TEST_HARNESS_RUNS:-$(mktemp -d /tmp/rex-orchestrator-harness.XXXXXX)}
-bashes=/bin/bash
-[ -x /opt/homebrew/bin/bash ] && bashes="$bashes /opt/homebrew/bin/bash"
+bashes=(/bin/bash)
+if bash5=$(test_find_bash5); then bashes+=("$bash5"); else test_skip 'shell harness requires Bash 5'; fi
 # shellcheck disable=SC2016  # the inner bash expands it
 ver() { "$1" -c 'echo "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"'; }
 
-for b in $bashes; do
+for b in "${bashes[@]}"; do
   v=$(ver "$b")
   mkdir -p "$runs/bash-$v"
   (
@@ -33,7 +33,7 @@ done
 wait
 
 fail=0
-for b in $bashes; do
+for b in "${bashes[@]}"; do
   v=$(ver "$b")
   log="$runs/bash-$v.log"
   p=$(grep -c '^PASS' "$log"); f=$(grep -c '^FAIL' "$log")

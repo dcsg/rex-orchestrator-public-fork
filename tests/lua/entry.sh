@@ -6,10 +6,12 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd -P)
 T=$(mktemp -d /tmp/rex-lua-entry.XXXXXX)
 trap 'rm -rf "$T"' EXIT
+export REX_ORCHESTRATOR_STATE_DIR="$T/state"
 mkdir -p "$T/bin" "$T/install space"
 cat > "$T/bin/rex" <<'REX'
 #!/bin/bash
 set -eu
+[ "$REX_ORCHESTRATOR_STATE_DIR" = "${0%/bin/rex}/state" ]
 case "${REX_TEST_NO_WAIT_RESULT:-}" in
   yes) exit 0 ;;
   old) printf 'Error: unknown flag: --all\n' >&2; exit 2 ;;
@@ -25,7 +27,8 @@ chmod +x "$T/bin/rex"
 ln -s "$ROOT/skills/rex-orchestrator/scripts/rex-orchestrator.sh" "$T/install space/first"
 ln -s first "$T/install space/chain"
 pass=0
-bashes=(/bin/bash /opt/homebrew/bin/bash)
+bashes=(/bin/bash)
+if bash5=$(test_find_bash5); then bashes+=("$bash5"); else test_skip 'Lua entry checks require Bash 5'; fi
 [ -z "${REX_TEST_BASH:-}" ] || bashes=("$REX_TEST_BASH")
 for bash in "${bashes[@]}"; do
   # shellcheck disable=SC2016 # Pass literal shell syntax through JSON without expanding it.
