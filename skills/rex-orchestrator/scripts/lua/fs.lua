@@ -12,12 +12,12 @@ return function(rex)
     return sh('[ -e "$1" ] || [ -L "$1" ] || (umask 077; mkdir -p "$1") 2>/dev/null; [ -d "$1" ] && [ ! -L "$1" ] && [ -O "$1" ]', dir)
   end
   function F.read(path)
-    local f = io.open(path, "r")
-    if not f then return nil end
-    local s = f:read("*a"); f:close(); return s
+    local f,err = io.open(path, "r")
+    if not f then return nil,err end
+    local s,why = f:read("*a"); f:close(); return s,why
   end
   function F.read_file(path)
-    if not sh('[ -f "$1" ]',path) then return nil end
+    if not sh('[ -f "$1" ]',path) then return nil,"not_file" end
     return F.read(path)
   end
   function F.exists(path)

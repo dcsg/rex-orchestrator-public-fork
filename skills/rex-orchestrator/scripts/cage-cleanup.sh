@@ -34,5 +34,5 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   case "$2" in "$base/"*) leaf=${2#"$base"/} ;; *) exit 2 ;; esac
   case "$leaf" in ''|*/*|.*) exit 2 ;; esac
   note() { printf 'rex-orchestrator: %s\n' "$*" >&2; }
-  cleanup_cage "$2"
+  cleanup_cage "$2" || exit 1
 fi

@@ -171,8 +171,9 @@ return function(C, M)
     end
     if not same_record(C.root(C.block),rec) then return 2 end
     -- A lost reply may mean Enter already reached the pane.
-    local result=C.enter()
-    if not result then C.note("--approve-in could not press Enter in " .. C.block); return 1 end
+    local result,err,pressed=C.enter()
+    if not result and not pressed then C.note("--approve-in could not press Enter in " .. C.block); return 1 end
+    if err then C.raw("Error: " .. err) end
     C.note("approved once: " .. msg)
     A.pressed=true
     local keep={}; for i=math.max(1,#old-18),#old do keep[#keep+1]=old[i] end

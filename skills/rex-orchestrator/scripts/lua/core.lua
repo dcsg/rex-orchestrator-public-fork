@@ -74,14 +74,15 @@ end
 function M.mode(s)
   local last
   for _,l in ipairs(M.region(s)) do
+    l=l .. " "
     local last_pos=0
     for _,c in ipairs({"⏵⏵", "⏸"}) do
       local p=1
       while true do
-        local i,j=l:find(c .. " [a-z][a-z ]* on",p)
+        local i,j=l:find(c .. " [a-z][a-z ]* on ",p)
         if not i then break end
-        if i>last_pos and (j==#l or l:sub(j+1,j+1)==" ") then
-          last=l:sub(i,j)
+        if i>last_pos then
+          last=l:sub(i,j-1)
           last_pos=i
         end
         p=j+1
@@ -89,6 +90,24 @@ function M.mode(s)
     end
   end
   return last
+end
+function M.prompt_control(text)
+  if text:find("[%z\1-\8\11\12\14-\31\127]") then return true end
+  -- A C1 byte can also be the continuation of an ordinary UTF-8 character.
+  local i=1
+  while i<=#text do
+    local b=text:byte(i)
+    local n=b>=194 and b<=223 and 2 or b>=224 and b<=239 and 3 or b>=240 and b<=244 and 4 or 1
+    local tail=text:sub(i+1,i+n-1)
+    if n>1 and #tail==n-1 and not tail:find("[^\128-\191]") then
+      if b==194 and tail:byte()<=159 then return true end
+      i=i+n
+    else
+      if b>=128 and b<=159 then return true end
+      i=i+1
+    end
+  end
+  return false
 end
 function M.duration(opt, value, die)
   local n,u=value:match("^(%d+)([smh]?)$")
@@ -100,7 +119,8 @@ function M.new(rex, fs, output)
   C.out=(output and output.out) or function(s) io.stdout:write(s .. "\n"); io.stdout:flush() end
   C.raw=(output and output.raw) or function(s) io.stderr:write(s .. "\n"); io.stderr:flush() end
   C.note=(output and output.note) or function(s) C.raw("rex-orchestrator: " .. s) end
-  function C.die(s,code) C.note(s); rex.stop(code or 2) end
+  C.finish=(output and output.finish) or function(code) rex.stop(code) end
+  function C.die(s,code) C.note(s); C.finish(code or 2) end
   local env=M.env
   C.dir=env("REX_ORCHESTRATOR_STATE_DIR") or ((env("XDG_STATE_HOME") or (env("HOME") and env("HOME") .. "/.local/state")) or "")
   if not env("REX_ORCHESTRATOR_STATE_DIR") and C.dir~="" then C.dir=C.dir .. "/rex-orchestrator" end
@@ -135,7 +155,7 @@ function M.new(rex, fs, output)
     key.action="release"
     key.text=""
     local released,release_error=rex.call("client.key",args)
-    if not released and release_error then C.raw("Error: " .. release_error) end
+    if not released then return nil,release_error,true end
     return true
   end
   local function plain_key(name)

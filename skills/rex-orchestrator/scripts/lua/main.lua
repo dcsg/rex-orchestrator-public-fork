@@ -1,10 +1,16 @@
+-- Report execution separately from the CLI's own transport exit status.
+local control=rex.args.forward_errors and io.open("/dev/fd/4","w")
+if control then control:write("\30rex-orchestrator:started\n"); control:flush() end
 local dir=rex.args.script_dir .. "/lua/"
 local M=dofile(dir .. "core.lua")
 local fs=dofile(dir .. "fs.lua")(rex)
-local diagnostic=rex.args.forward_errors and io.open("/dev/fd/4","w") or io.stderr
+local diagnostic=rex.args.forward_errors and io.open("/dev/fd/5","w") or io.stderr
 local C=M.new(rex,fs,{raw=function(text)
   diagnostic:write(text .. "\n")
   diagnostic:flush()
+end,finish=function(code)
+  if code==4 and control then control:write("\30rex-orchestrator:rejected\n"); control:flush() end
+  rex.stop(code)
 end})
 local A=dofile(dir .. "approval.lua")(C,M)
 local commands=dofile(dir .. "commands.lua")(C,M,A)

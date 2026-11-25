@@ -69,7 +69,8 @@ rex-orchestrator send [--force] BLOCK -f FILE
 
 Types the prompt at the child's input box and presses Return. Newlines become spaces. A leading `/` runs a slash command.
 
-It **refuses** (exit 2): an empty prompt; one starting with `!` (agents run it as a shell command without asking); for claude,
+It **refuses** (exit 2): an empty prompt, terminal control characters, or a prompt starting with `!` (agents run it as a
+shell command without asking). For claude it also refuses
 one starting with a digit (Claude's survey would take it as a rating); for an uncaged claude, `/permissions`,
 `/allowed-tools`, `/config`, `/settings`, `/add-dir`, `/hooks`, `/plugin`, `/mcp` or a prefix of one (each widens what the
 child may do for the rest of the session — scope permissions at launch instead).
@@ -101,6 +102,7 @@ is held until that work ends and the agent has had 20s to resume, at most `--bg-
 | 10 | `blocked permission approve Write: /path`, or `stopped` | Waiting on a person (permission, question, login), or the pane was stopped |
 | 11 | `error …` | The agent reported an error |
 | 12 | `exited` | The agent is gone |
+| 1 | | The connection to Rex was lost, including during a server restart |
 | 124 | `timeout (state=working)` | Still running: wait again or look at the screen |
 
 `--approve-in DIR` is covered in [safety.md](safety.md#wait---approve-in).
@@ -113,7 +115,8 @@ rex-orchestrator keys [--force] BLOCK KEY...
 
 Presses keys: `enter`, `escape`, `up`, `down`, `tab`, `ctrl+c`, digits… At a dialog on an uncaged pane, only `escape`,
 `ctrl+c`, `up` and `down` always pass; `enter` or a digit passes only alone in its call and only when the option it picks is a
-one-time Yes, No or Continue. `shift+tab` (which cycles Claude's permission mode) is refused for claude. See
+one-time Yes, No or Continue. Claude refuses Shift with Tab, BackTab aliases and key sequences. Native keys and
+Rex CLI key spellings both run functions bound to those keys in Rex's `init.lua`. See
 [safety.md](safety.md).
 
 ## screen, status, ls
@@ -145,6 +148,7 @@ other. Claims are released by `close` and pruned when the pane or the agent proc
 - `claims [--json]` — live claims across sessions.
 
 Neither needs a Rex pane.
+The Lua claim operations wait up to about 30 seconds for the registry lock.
 
 ## Environment
 

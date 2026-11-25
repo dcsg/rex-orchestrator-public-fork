@@ -40,9 +40,9 @@ return function(C, M)
       if not gone then
         if type(claim.block)~="string" or not M.starts(claim.block,"block:") or
           type(claim.session)~="string" or claim.session=="" then return nil,"invalid claim: " .. path end
-        local _,code=C.resolve(claim.block,"block",claim.session)
-        if code==1 then return nil,"cannot check write claim for " .. claim.block .. " in " .. claim.session end
-        gone=code==3
+        local _,code,err=C.resolve(claim.block,"block",claim.session)
+        gone=code==3 or type(err)=="string" and err:find("session_not_found",1,true)~=nil
+        if code==1 and not gone then return nil,"cannot check write claim for " .. claim.block .. " in " .. claim.session end
       end
       if gone then
         if not C.fs.unlink(path) then return nil,"cannot remove claim: " .. path end

@@ -36,7 +36,11 @@ local function test(options)
   local fs={}
   function fs.init() return not options.bad_state end
   function fs.read(p) return files[p] end
-  fs.read_file=fs.read
+  function fs.read_file(path)
+    if options.unreadable==path then return nil,path .. ": Permission denied" end
+    if not files[path] then return nil,"not_file" end
+    return fs.read(path)
+  end
   function fs.put(p,s) files[p]=s; return not options.bad_write end
   function fs.remove(p) files[p]=nil end
   function fs.unlink(p) files[p]=nil; return true end
@@ -95,6 +99,7 @@ local function test(options)
       return {}
     end
     if method=="target.resolve" then
+      if a.scope and a.scope.session==options.gone_session then return nil,"code=session_not_found" end
       if options.resolve_error then return nil,"offline" end
       local q=a.queries[1]
       if a.kinds[1]=="session" then return {results={{status="resolved",target={session_id="session:test"}}}} end
@@ -273,6 +278,7 @@ r=test({rec=d,screen=fixture("bg/claude-1shell-many-footer-rows")})("wait",{chil
   {at=20.9,set={rec={app="claude-code",state="working",updated_at="later"}}}})
 eq(r.code,124); eq(r.out,"timeout (state=working)")
 eq(M.mode("──────────\n⏸ manual mode on · ⏵⏵ accept edits on"),"⏵⏵ accept edits on")
+eq(M.mode("──────────\n⏸ manual mode on then looks onyx"),"⏸ manual mode on")
 -- Stale Claude prompt recovery and permission-mode pin.
 r=test({rec=b,files={["/state/block_child"]="new\n\n"}})("wait",{child,"--timeout","20"})
 eq(r.code,10); eq(r.elapsed,11)
@@ -341,15 +347,18 @@ for _,verb in ipairs({"send","keys","close"}) do
   eq(test()(verb,args).code,2,verb .. " requires ownership")
   eq(test(owned())(verb,{"self","enter"}).code,2,verb .. " refuses self")
 end
-for _,text in ipairs({"","    ","!whoami","  !whoami","7"," /PERM","/m"}) do
+for _,text in ipairs({"","    ","!whoami","  !whoami","7"," /PERM","/m","x\27[0m","x\127","x\194\155","x\155","x\3"}) do
   o=owned({rec=d})
   r=test(o)("send",{child,text}); eq(r.code,2,text); eq(o.typed,nil)
 end
 o=owned({rec=d,screen=composer(""),typed_screen=composer("-sample text"),
-  files={["/work/input"]="-sample\ntext\n",["/state/block_child.hold"]="old hold"}})
+  files={["/work/input"]="-sample\ntext\n\0",["/state/block_child.hold"]="old hold"}})
 r=test(o)("send",{child,"-f","/work/input"})
 eq(r.code,0); eq(o.typed,"-sample text"); eq(o.presses,1); eq(r.files["/state/block_child"],"new\n\n")
 eq(r.files["/state/block_child.hold"],nil)
+o=owned({rec=d,unreadable="/work/locked"})
+eq(test(o)("send",{child,"-f","/work/locked"}).code,1); eq(o.typed,nil)
+eq(M.prompt_control("emoji 🦊 and 中文\t\n\r"),false)
 o=owned({rec=d,screen=composer(""),typed_screen=composer("different")})
 r=test(o)("send",{child,"a prompt not visible"})
 eq(r.code,4); eq(o.typed,"a prompt not visible"); eq(o.presses,nil)
@@ -368,6 +377,11 @@ for _,keys in ipairs({{"2"},{"enter","down"},{"shift+Tab"},{"[Slash]"}}) do
   o=owned({rec=opts.rec,screen=cl})
   local args={child}; for _,key in ipairs(keys) do args[#args+1]=key end
   r=test(o)("keys",args); eq(r.code,2); eq(o.presses,nil); eq(o.key_args,nil)
+end
+for _,key in ipairs({"shift+tab","s-tab","SHIFT-Tab","Shift+[Tab]","ctrl+Shift+Tab","s+[TAB]",
+  "backtab","btab","shift+backtab","ctrl+b>tab",">"}) do
+  o=owned({rec={app="claude-code",state="idle",updated_at="new"},screen=composer("")})
+  r=test(o)("keys",{child,key}); eq(r.code,2,key); eq(o.key_events,nil); eq(o.key_args,nil)
 end
 o=owned({rec=opts.rec,screen=cl,files={["/state/block_child"]="prior\n7 shells\n",["/state/block_child.hold"]="hold"}})
 r=test(o)("keys",{child,"enter"})
@@ -390,6 +404,9 @@ r=test(o)("claims",{})
 eq(r.code,0); eq(r.out,"block:child\ttask\\tname\tsession:test\tclaude\t42\t/work"); eq(r.files[stale_path],nil)
 r=test(o)("claims",{"--json"}); eq(r.out,claim_json)
 eq(test()("claims",{"--unknown"}).code,2)
+local lost_session={block=child,session="session:gone",pid=42}
+r=test({gone_session=lost_session.session,files={[claim_path]="gone"},decoded={gone=lost_session}})("claims",{})
+eq(r.code,0); eq(r.files[claim_path],nil)
 r=test({files={[claim_path]="bad"}})("claims",{}); eq(r.code,1); eq(r.files[claim_path],"bad")
 o=owned({files={[claim_path]=claim_json,["/state/block_child.hold"]="active"},close_error=true})
 r=test(o)("close",{child})

@@ -11,6 +11,10 @@ set -eu
 case "${REX_TEST_NO_WAIT_RESULT:-}" in
   yes) exit 0 ;;
   old) printf 'Error: unknown flag: --all\n' >&2; exit 2 ;;
+  lost) printf '\036rex-orchestrator:started\n' >&4; printf 'Error: no Rex server is running at fixture\n' >&2; exit 4 ;;
+  rejected)
+    printf '\036rex-orchestrator:started\n\036rex-orchestrator:rejected\n' >&4
+    exit 4 ;;
 esac
 [ "$1" = do ] && [ "$3" = --args ] && [ "$4" = - ] && [ "$5" = --fail-fast ]
 cat
@@ -37,5 +41,18 @@ for scenario in yes old; do
   if [ "$scenario" = yes ]; then grep -qx 'rex-orchestrator: rex did not answer' "$T/err"
   else grep -qx 'rex-orchestrator: this Rex CLI lacks rex do with --args, --all and --fail-fast; update Rex' "$T/err"; fi
   pass=$((pass+1))
+done
+for scenario in lost rejected; do
+  for verb in send keys close; do
+    rc=0
+    REX_TEST_NO_WAIT_RESULT="$scenario" REX_ORCHESTRATOR_REX_BIN_DIR="$T/bin" \
+      /bin/bash "$T/install space/chain" "$verb" block:fixture > "$T/out" 2> "$T/err" || rc=$?
+    if [ "$scenario" = lost ]; then
+      [ "$rc" -eq 1 ] && grep -qx 'rex-orchestrator: rex did not answer' "$T/err"
+    else
+      [ "$rc" -eq 4 ] && [ ! -s "$T/err" ]
+    fi
+    pass=$((pass+1))
+  done
 done
 printf 'Lua entry: %d passed\n' "$pass"

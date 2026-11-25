@@ -223,4 +223,5 @@ check 'server disconnect fails promptly' "$code:$(cat "$T/wait.out")" '1:'
 grep -q 'rex did not answer' "$T/wait.err"
 error_parity 'server down' "$REX_SESSION" '' status "$B"
 error_parity 'server down with implicit session' '' "$B" wait "$B"
+. "$ROOT/tests/lua/mutation-disconnect.inc.sh"
 printf 'Lua live: %d passed\n' "$pass"

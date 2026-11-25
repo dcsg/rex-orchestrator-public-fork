@@ -26,16 +26,40 @@ command_code 'close refuses an unowned block' 2 close "$B"
 printf '%s\n' "$REX_BLOCK" "$pid" '' claude "$work_phase2" '⏸ manual mode on' /bin/bash > "$sf.own"
 command_code 'send refuses working status' 4 send "$B" 'not allowed'
 type_line composer; await_state idle
+before_keys=$(grep -c 'method=client.key' "$T/server.log" || :)
+for shift_key in 'shift+tab' 's-tab' 'Shift+[Tab]' 'ctrl+Shift+Tab' 'backtab' 'ctrl+b>tab'; do
+  command_code "idle Claude refuses $shift_key" 2 keys "$B" "$shift_key"
+done
+check 'refused keys emit no keyboard events' "$(grep -c 'method=client.key' "$T/server.log" || :)" "$before_keys"
 command_code 'send refuses a shell command' 2 send "$B" ' !echo fixture'
 command_code 'send refuses the Claude survey key' 2 send "$B" '9 rating'
 command_code 'send refuses a permission slash prefix' 2 send "$B" /PERM
 command_code 'send rejects a missing file' 2 send "$B" -f "$work_phase2/missing"
+printf unreadable > "$work_phase2/unreadable"; chmod 000 "$work_phase2/unreadable"
+command_code 'send rejects an unreadable regular file with exit 1' 1 send "$B" -f "$work_phase2/unreadable"
+chmod 600 "$work_phase2/unreadable"
+for control in $'\003' $'\033' $'\177' $'\302\233'; do
+  command_code 'send refuses terminal control characters' 2 send "$B" "prompt${control}text"
+  grep -q 'terminal control character' "$T/lua.err"
+done
 touch "$REX_ORCHESTRATOR_STATE_DIR/disabled.claude"
 command_code 'send observes an agent kill switch' 2 send "$B" 'not allowed'
+command_code 'keys observes an agent kill switch' 2 keys "$B" tab
 rm "$REX_ORCHESTRATOR_STATE_DIR/disabled.claude"
+printf '%s\n' 'fixture stop' > "$sf.stopped"
+command_code 'send refuses a stopped pane' 2 send "$B" 'not allowed'
+rm "$sf.stopped"
+cp "$sf.own" "$T/correct.own"
+sed '6s/.*/⏵⏵ accept edits on/' "$T/correct.own" > "$sf.own"
+command_code 'send stops on a permission pin mismatch' 2 send "$B" 'not allowed'
+[ -s "$sf.stopped" ]
+rm "$sf.stopped"
+sed '2s/.*/99999999/' "$T/correct.own" > "$sf.own"
+command_code 'send reports a replaced child process as exited' 12 send "$B" 'not allowed'
+cp "$T/correct.own" "$sf.own"
 [ ! -e "$work_phase2/prompts" ]
 
-printf '%s\n' '-from file' 'now' > "$work_phase2/input"
+printf '%s\n%s\n\000' '-from file' 'now' > "$work_phase2/input"
 command_code 'send types and submits an exact file prompt' 0 send "$B" -f "$work_phase2/input"
 await_state 'done'
 check 'send normalizes line endings and preserves a leading dash' "$(cat "$work_phase2/prompts")" '-from file now'
@@ -62,12 +86,15 @@ registry="$REX_ORCHESTRATOR_STATE_DIR/registry"
 mkdir -p "$registry"
 claim="$registry/${B//[^A-Za-z0-9_-]/_}.json"
 dead_claim="$registry/block_stale.json"
+gone_claim="$registry/block_gone_session.json"
 jq -nc --arg block "$B" --arg session "$REX_SESSION" --argjson pid "$pid" --arg dir "$work_phase2" \
   '{block:$block,session:$session,pid:$pid,label:"claim\tlabel",kind:"claude",canonical_dir:$dir}' > "$claim"
 jq -c '.pid=99999999' "$claim" > "$dead_claim"
+jq -c '.session="session:01a10000-0000-7000-8000-000000000001"' "$claim" > "$gone_claim"
 (REX_SESSION='' REX_BLOCK='' cli claims --json) > "$T/lua.out"
 cmp "$claim" "$T/lua.out"
 check 'claims prunes a dead PID without a caller session' "$([ ! -e "$dead_claim" ] && echo yes)" yes
+check 'claims prunes a removed session with a live PID' "$([ ! -e "$gone_claim" ] && echo yes)" yes
 (REX_SESSION='' REX_BLOCK='' cli claims) > "$T/lua.out"
 (REX_SESSION='' REX_BLOCK='' old claims) > "$T/old.out"
 cmp "$T/old.out" "$T/lua.out"
@@ -90,12 +117,15 @@ check 'Lua claims waits for the Bash registry lock' "$([ ! -s "$T/lua.out" ] && 
 wait "$lock_pid"; wait "$claims_pid"
 cmp "$claim" "$T/lua.out"
 
-cage="$REX_ORCHESTRATOR_STATE_DIR/cage/codex.fixture"
-mkdir -p "$cage"
-printf '%s\n' '{"kind":"codex","label":"phase2-fixture"}' > "$cage/run-meta.json"
-printf '%s\n' codex.fixture > "$sf.cage"
+cage="$REX_ORCHESTRATOR_STATE_DIR/cage/agy.fixture"
+private_cage_command="$REX_ORCHESTRATOR_STATE_DIR/cage-commands/agy.fixture"
+mkdir -p "$cage" "$(dirname "$private_cage_command")"
+printf '%s\n' '{"kind":"agy","label":"phase2-fixture"}' > "$cage/run-meta.json"
+: > "$private_cage_command"
+printf '%s\n' agy.fixture > "$sf.cage"
 command_code 'close removes the pane, claim and cage' 0 close "$B"
 [ ! -e "$claim" ] && [ ! -e "$sf.own" ] && [ ! -e "$sf.hold" ] && [ ! -e "$cage" ]
 check 'close harvested a manifest' "$(find "$REX_ORCHESTRATOR_STATE_DIR/runs" -name manifest.json | wc -l | tr -d ' ')" 1
+check 'caged close removes a reserved agy command file' "$([ ! -e "$private_cage_command" ] && echo yes)" yes
 command_code 'close accepts a full ID for a previously deleted pane' 0 close --force "$B"
 export REX_ORCHESTRATOR_STATE_DIR="$previous_state_dir"

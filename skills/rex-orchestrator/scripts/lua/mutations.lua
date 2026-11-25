@@ -2,7 +2,6 @@ return function(C, M, I, registry)
   local R=C.rex
   local commands={}
   local interrupts={escape=true,esc=true,["ctrl+c"]=true}
-  local mode_keys={["shift+tab"]=true,btab=true,backtab=true,["s-tab"]=true}
   local restricted={"/permissions","/allowed-tools","/config","/settings","/add-dir","/hooks","/plugin","/mcp"}
 
   local function target(verb,args,gone)
@@ -79,12 +78,18 @@ return function(C, M, I, registry)
     local text
     if args[1]=="-f" then
       local path=args[2] or ""
-      text=C.fs.read_file(path)
-      if not text then C.die("send: no such file: " .. path) end
-      text=text:gsub("\n+$",""):gsub("%z","")
+      local err
+      text,err=C.fs.read_file(path)
+      if not text then
+        if err=="not_file" then C.die("send: no such file: " .. path) end
+        C.raw("cat: " .. (err or path))
+        R.stop(1)
+      end
+      text=text:gsub("%z",""):gsub("\n+$","")
     else
       text=table.concat(args," ")
     end
+    if M.prompt_control(text) then C.die("send: refusing a prompt containing a terminal control character") end
     text=text:gsub("[\r\n\t]"," ")
     if not text:find("[^ ]") then C.die("send: empty prompt") end
     if text:match("^%s*!") then
@@ -114,9 +119,10 @@ return function(C, M, I, registry)
     local app=rec.effective_app or rec.app
     for attempt=0,6 do
       if not I.dialog(screen,true) and I.typed_shown(screen,text,app) then
-        local entered=C.enter()
-        if not entered then R.sleep(0.3); entered=C.enter() end
+        local entered,err,pressed=C.enter()
+        if not entered and not pressed then R.sleep(0.3); entered,err=C.enter() end
         if not entered then
+          if err then C.raw("Error: " .. err) end
           C.die("send: the prompt is typed but not submitted (Return failed twice); check screen " ..
             C.block .. ", then keys " .. C.block .. " enter",1)
         end
@@ -131,13 +137,27 @@ return function(C, M, I, registry)
     C.die("send: " .. C.block .. "'s input box doesn't show the prompt; the text is typed but not submitted. Look with screen",4)
   end
 
+  local function changes_mode(key)
+    local shift,tab=false,false
+    for part in key:lower():gmatch("[%a]+") do
+      if part=="backtab" or part=="btab" then return true end
+      if part=="shift" or part=="s" or part=="leftshift" or part=="rightshift" or
+        part=="shiftleft" or part=="shiftright" then shift=true end
+      if part=="tab" then tab=true end
+    end
+    return shift and tab
+  end
+
   local function guard_keys(args,rec)
     local kind=kill_switch("keys",rec)
     local why=C.stopped()
     if why~="" then C.die("keys: " .. C.block .. " is stopped (" .. why .. "): only escape and ctrl+c; report it") end
     if kind=="claude" then
       for _,key in ipairs(args) do
-        if mode_keys[key:lower()] then
+        if key:find(">",1,true) then
+          C.die("keys: refusing " .. key .. " for claude: key sequences are not allowed")
+        end
+        if changes_mode(key) then
           C.die("keys: refusing " .. key .. " for claude: it switches the session's permission mode; leave that to the user")
         end
       end
