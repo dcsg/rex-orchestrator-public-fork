@@ -817,11 +817,15 @@ do
     local states=o.states or {["block:c"]="done"}
     local fs={}
     function fs.own_paths(dir)
-      local list={}
-      for p in pairs(files) do if M.starts(p,dir .. "/") and p:match("%.own$") then list[#list+1]=p end end
-      table.sort(list)
-      return list
+      local list,watch={},{}
+      for p in pairs(files) do
+        if M.starts(p,dir .. "/watch/") then watch[#watch+1]=p
+        elseif M.starts(p,dir .. "/") and p:match("%.own$") then list[#list+1]=p end
+      end
+      table.sort(list); table.sort(watch)
+      return list,watch
     end
+    function fs.lock(path) if o.locked and o.locked[path] then return nil,2 end; return function() end end
     function fs.read(p) return files[p] end
     function fs.put(p,t) files[p]=t; return true end
     function fs.unlink(p) files[p]=nil; return true end
@@ -830,7 +834,18 @@ do
     function fs.daemon(lock,log,tries,argv) daemons[#daemons+1]={lock=lock,tries=tries,argv=argv}; return true end
     local rex={session={},block={},json={encode=json}}
     function rex.sleep(n) sleeps=sleeps+n; now=now+n; if o.after_sleep then blocks=o.after_sleep end end
-    function rex.call(method) if method=="session.attach" then return {} end end
+    function rex.call(method,a)
+      if method=="session.attach" then return {} end
+      if method=="server.status" then return {host_id="host:a"} end
+      if method=="target.resolve" then
+        if o.resolve_error then return nil,"offline" end
+        local q=a.queries[1]
+        if (o.live_sessions or {})[q] or q=="session:s" then
+          return {results={{status="resolved",target={session_id=q}}}}
+        end
+        return {results={{status="not_found",query=q}}}
+      end
+    end
     function rex.session.list_blocks()
       if o.list_error then return nil end
       local list={}
@@ -979,6 +994,31 @@ do
   r=f.W.sweep()
   eq(#f.closed,0,"other sessions, sessionless records and live orchestrators are untouched")
   eq(r.remaining,1,"only the live orchestrator's child in this session is counted")
+  -- Watch files of an orchestrator no record names are removed once no watcher holds the lock.
+  f=sweep_fixture{files={["/state/watch/block_x.lock"]="",["/state/watch/block_x.log"]="old\n",
+    ["/state/watch/block_o.lock"]="",["/state/watch/block_o.log"]="mine\n"},records={}}
+  f.W.scan()
+  eq(f.files["/state/watch/block_x.log"],nil,"an orchestrator without children loses its watch files")
+  eq(f.files["/state/watch/block_x.lock"],nil); eq(f.files["/state/watch/block_o.log"],nil)
+  f=sweep_fixture{files={["/state/watch/block_x.lock"]="",["/state/watch/block_x.log"]="old\n",
+    ["/state/watch/block_o.log"]="mine\n"},locked={["/state/watch/block_x.lock"]=true}}
+  f.W.scan()
+  eq(f.files["/state/watch/block_x.log"],"old\n","a running watcher keeps its files")
+  eq(f.files["/state/watch/block_o.log"],"mine\n","an orchestrator with children keeps its files")
+  -- Records of a session the server no longer has are forgotten (state only, nothing closed), two per call.
+  local dead=function(s,host) return {"block:o","42","","claude","/w","","/bin/claude",s,"close","0","0",host} end
+  f=sweep_fixture{records={["block:c"]=dead("session:s","host:a"),["block:d"]=dead("session:gone","host:a"),
+    ["block:e"]=dead("session:gone","host:b"),["block:f"]=dead("session:gone",""),["block:g"]=dead("session:live","host:a"),
+    ["block:h"]=dead("session:gone","host:a"),["block:i"]=dead("session:gone","host:a")},live_sessions={["session:live"]=true}}
+  f.W.scan()
+  eq(table.concat(f.closed,","),"block:d missing,block:h missing","a gone session's records go, two per call, as already closed")
+  eq(f.files["/state/block_e.own"]~=nil and f.files["/state/block_f.own"]~=nil and f.files["/state/block_g.own"]~=nil,true,
+    "another server's, a hostless and a live session's records stay")
+  f.W.scan(); eq(f.closed[3],"block:i missing","the next call goes on")
+  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},files={["/state/disabled"]=""}}
+  f.W.scan(); eq(#f.closed,0,"the kill switch keeps a gone session's records")
+  f=sweep_fixture{records={["block:d"]=dead("session:gone","host:a")},resolve_error=true}
+  f.W.scan(); eq(#f.closed,0,"a session Rex can't check is kept")
   -- Rex can't list the blocks: nothing is decided.
   f=sweep_fixture{list_error=true,grace="0"}
   r=f.W.sweep(); eq(#f.closed,0,"no block list, no close"); eq(r.remaining,1,"no block list, still watched")

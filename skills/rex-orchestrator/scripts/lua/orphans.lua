@@ -5,7 +5,8 @@
 --
 -- An ownership record (STATE_DIR/<block>.own) names the orchestrator on line 1, the Rex session on line 8, and the
 -- launch's orphan policy, grace period and maximum wait on lines 9 to 11: each child keeps the settings it was launched
--- with, whoever looks at it later. A record without a session (an older launch, or a recovery stub) is never an orphan.
+-- with, whoever looks at it later. Line 12 is the Rex server's host ID, so state is forgotten only for a session that
+-- server says is gone. A record without a session (an older launch, or a recovery stub) is never an orphan.
 local O={}
 O.grace=600
 O.max_wait=7200
@@ -82,19 +83,68 @@ function O.new(C,M,close_block)
   function W.path(block) return C.dir .. "/watch/" .. block:gsub("[^A-Za-z0-9_-]","_") end
 
   -- Every ownership record, with the block ID read back from its file name.
+  -- Also returns the orchestrators that have files in the watch folder.
   function W.records()
-    local list={}
-    for _,path in ipairs(C.fs.own_paths(C.dir) or {}) do
+    local list,watched={},{}
+    local paths,watch=C.fs.own_paths(C.dir)
+    for _,path in ipairs(watch or {}) do
+      local id=path:match("/watch/block_([%w%-]+)%.%a+$")
+      if id then watched["block:" .. id]=true end
+    end
+    for _,path in ipairs(paths or {}) do
       local id=path:match("/block_([%w%-]+)%.own$")
       local block=id and "block:" .. id
       local text=block and C.sf(block) .. ".own"==path and C.fs.read(path)
       if text then
         local l=M.lines(text)
         list[#list+1]={block=block,owner=l[1] or "",session=l[8] or "",policy=l[9] or "",
-          grace=tonumber(l[10]) or O.grace,max_wait=tonumber(l[11]) or O.max_wait}
+          grace=tonumber(l[10]) or O.grace,max_wait=tonumber(l[11]) or O.max_wait,host=l[12] or ""}
       end
     end
-    return list
+    return list,watched
+  end
+
+  -- Remove the watch files of an orchestrator no record names, once no watcher holds its lock.
+  local function tidy(owners,watched)
+    for orch in pairs(watched) do
+      if not owners[orch] then
+        local base=W.path(orch)
+        local release=C.fs.lock(base .. ".lock",false)
+        if release then
+          for _,suffix in ipairs({".alive",".gone",".log",".lock"}) do C.fs.unlink(base .. suffix) end
+          release()
+        end
+      end
+    end
+  end
+
+  -- Children of a session this Rex server no longer has: their panes went with it. Close nothing; remove their claim,
+  -- cage home and state, at most LIMIT of them per call. Only records launched on this server (its host ID) count.
+  local function forget(records,limit)
+    local host
+    local sessions={}
+    for _,r in ipairs(records) do
+      if limit<=0 then return end
+      if r.session~="" and r.session~=C.session and r.host~="" and r.owner:match("^block:[%w%-]+$") then
+        if host==nil then
+          local status=R.call("server.status")
+          host=type(status)=="table" and type(status.host_id)=="string" and status.host_id or false
+        end
+        if not host then return end
+        if r.host==host then
+          if sessions[r.session]==nil then
+            local _,code,item=C.resolve(r.session,"session")
+            sessions[r.session]=code==3 and (type(item)~="table" or item.status=="not_found")
+          end
+          if sessions[r.session] then
+            limit=limit-1
+            local removed,err=close_block(r.block,true)
+            if removed then C.note("removed the state of " .. r.block .. ": its session " .. r.session .. " is gone")
+            else C.note("could not remove the state of " .. r.block .. ": " .. tostring(err)) end
+          end
+        end
+      end
+    end
   end
 
   function W.blocks()
@@ -165,13 +215,18 @@ function O.new(C,M,close_block)
     local result={status={}}
     if C.dir=="" or not C.session then return result end
     local children={}
-    for _,r in ipairs(W.records()) do
+    local records,watched=W.records()
+    local owners={}
+    for _,r in ipairs(records) do
+      owners[r.owner]=true
       if r.session==C.session and r.owner:match("^block:[%w%-]+$") then children[#children+1]=r end
     end
+    tidy(owners,watched)
+    local disabled=C.killed()
+    if not disabled then forget(records,2) end
     if #children==0 then return result end
     local blocks=W.blocks()
     if not blocks then return result end
-    local disabled=C.killed()
     local watch={}
     local now=os.time()
     for _,r in ipairs(children) do

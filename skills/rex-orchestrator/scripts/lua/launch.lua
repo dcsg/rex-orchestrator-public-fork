@@ -422,9 +422,11 @@ return function(C,M,D,I,K,G)
     local watched=orphans~=nil and C.gone(C.me)==false
     local keep=orphans~=nil and orphans.settings.keep
     local limits=orphans and orphans.settings or {}
+    local server=watched and R.call("server.status")
+    local host=type(server)=="table" and type(server.host_id)=="string" and server.host_id or ""
     local function save_owner(owner,pill)
       if not C.put(sf .. ".own",C.me,pid or "",owner,opts.kind,opts.dir,pill,bin,watched and C.session or "",
-        keep and "keep" or "close",limits.grace or "",limits.max_wait or "") then
+        keep and "keep" or "close",limits.grace or "",limits.max_wait or "",host) then
         C.note("could not save the state of " .. C.block)
       end
     end

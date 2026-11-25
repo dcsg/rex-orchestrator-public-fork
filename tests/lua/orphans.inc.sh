@@ -218,6 +218,29 @@ REX_BLOCK=$O2 cli ls > /dev/null
 check 'a record without a session is left alone' "$(orphan_open "$E" && [ -s "$(orphan_sf "$E").own" ] && echo open)" open
 REX_BLOCK=$O2 cli close --force "$E"
 
+# A session that is destroyed takes its panes with it: a call from another session forgets its children's state and
+# claims, and once their watcher is gone, its files.
+orphan_main_session=$REX_SESSION
+rex_test session new lua-orphans-dead --shell none --keep-open --json -- /bin/cat > "$T/orphan-dead.json"
+REX_SESSION=$(jq -r .session_id "$T/orphan-dead.json")
+O6=$(jq -r '.initial_windows[0].block_ids[0]' "$T/orphan-dead.json")
+G=$(orphan_launch "$O6" dead-session-child)
+orphan_await_watchers "$O6" 1
+check 'launch records the server host' "$(sed -n '12p' "$(orphan_sf "$G").own")" \
+  "$(rex_test api call server.status | jq -r .host_id)"
+rex_test session kill "$REX_SESSION"
+REX_SESSION=$orphan_main_session
+orphan_await_watchers "$O6" 0
+REX_BLOCK=$O2 cli ls > /dev/null 2> "$T/orphan.err"
+check "a destroyed session's child state is removed" "$([ -e "$(orphan_sf "$G").own" ] && echo kept || echo removed)" removed
+check "a destroyed session's child claim is released" \
+  "$(cli claims --json | jq -r --arg id "$G" 'select(.block==$id) | .block')" ''
+grep -Fq "removed the state of $G: its session" "$T/orphan.err"
+pass=$((pass+1))
+REX_BLOCK=$O2 cli ls > /dev/null
+check 'the watch files of an orchestrator without children are removed' \
+  "$(find "$REX_ORCHESTRATOR_STATE_DIR/watch" -name "${O6//[^A-Za-z0-9_-]/_}*" | wc -l | tr -d ' ')" 0
+
 # A state dir whose name isn't ASCII: the watcher gets it byte for byte, and calls don't start another one. One whose
 # name isn't UTF-8 is refused before anything starts.
 orphan_ascii_state_dir=$REX_ORCHESTRATOR_STATE_DIR

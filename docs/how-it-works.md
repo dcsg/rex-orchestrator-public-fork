@@ -67,7 +67,7 @@ refused) holds:
 | Path | Content |
 |---|---|
 | `<block>` | Last send or keypress baseline and background count |
-| `<block>.own`, `<block>.cage` | Parent pane, process identity, agent kind, pinned mode, session and orphan policy, and cage metadata |
+| `<block>.own`, `<block>.cage` | Parent pane, process identity, agent kind, pinned mode, session, orphan settings and server host ID, and cage metadata |
 | `<block>.orphan` | `expired`: an orphan left open after the maximum wait |
 | `watch/` | One watcher lock, log and heartbeat per orchestrator, and when its pane was first and last seen gone |
 | `registry/` | Write claims, one per launch, guarded by a lock |
