@@ -28,6 +28,9 @@ project uses [Semantic Versioning](https://semver.org/).
   Keep private command files denied after profile read exceptions, including custom state under `~/.config/git`.
 - Resolve the session from `REX_BLOCK` when `REX_SESSION` is empty, supporting Rex server 0.1.0-preview.23.
   An explicit `REX_SESSION` selects the session.
+- Match agent homes and the other protected locations without regard to ASCII case in `launch`'s checks, as the
+  home volume and the cage profile do: a DIR in `~/.CODEX`, a link spelled `~/.CODEX`, or a HOME spelled in another
+  case no longer slips past them.
 - Run a caged grok from its standard install (`~/.grok/downloads/<file>`, linked from `~/.grok/bin/grok`): the cage runs
   that one file by its physical path and re-opens only it, read and execute only, for that launch.
 - Run a caged codex from a standalone install (`~/.codex/packages/standalone/releases/<version>/`): the cage runs it by

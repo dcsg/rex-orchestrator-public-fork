@@ -35,6 +35,7 @@
 #     skipped and never run while a Node script is taken, a PATH of shims only is refused
 #     naming the override, REX_ORCHESTRATOR_CAGE_CODEX_BIN picks the executable, an agent executable elsewhere
 #     under an agent home is refused, and one outside them reached through a link inside one runs by its physical path;
+#     agent homes match whatever their case (a link spelled ~/.CODEX, HOME spelled otherwise, an on-disk ~/.Claude-zt);
 #   - a grok download, HOME/.grok/downloads/<file> reached through ~/.local/bin/grok and ~/.grok/bin/grok, runs in the
 #     cage from its physical path with only that file readable and executable: sibling downloads, the folder, the
 #     links, config, sessions, logs and (with AGENT_AUTH elsewhere) auth.json stay closed;
@@ -563,6 +564,25 @@ for p in codex-chain codex-dirchain; do
     chk "$p: it starts in the cage" RAN "$(cg -c 'echo RAN')"
   else bad "$p: cage_build failed ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
 done
+# Agent homes are matched without regard to case, as the home volume and the cage do: a link spelled ~/.CODEX, a HOME
+# spelled in another case than the disk, and an executable in a home whose on-disk name is ~/.Claude-zt.
+ln -s "$FH/.CODEX/bin/codex-link" "$FH/.local/bin/codex-case"
+if cage_build codex "$FH/.local/bin/codex-case" "$PD" >/dev/null 2>"$WORK/build.log"; then
+  W=$cage_wrapper CT=$cage_tmp CWD=$PD
+  chk "case: a link spelled ~/.CODEX is inside the agent home" "REAL='$WORK/opt/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
+  chk "case: it starts in the cage" RAN "$(cg -c 'echo RAN')"
+else bad "case: cage_build failed for a link spelled ~/.CODEX ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
+if sa_build "$LINKED" HOME="${FH%/home}/HOME"; then
+  chk "case: HOME spelled otherwise still finds the release" "BINDIR='$REL'" "$(grep -m1 -o "BINDIR='[^']*'" "$W")"
+  chk "case: HOME spelled otherwise, the release starts" RAN "$(cg -c 'echo RAN')"
+  # The profile's own rules ignore case on this volume: case-variant spellings of denied paths stay denied.
+  want r DENY "$FH/.CODEX/config.toml" "$FH/.Codex/history.jsonl" "$FH/.GROK/config.toml" "$FH/.SSH/id_x" \
+    "$FH/.CODEX/packages/standalone/releases/9.9.8-ZT/bin/codex"
+  want w DENY "$FH/.CODEX/planted" "$FH/.Local/Bin/planted"
+else bad "case: cage_build failed with HOME spelled otherwise (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
+mkdir -p "$FH/.Claude-zt"; cp "$ARGPROBE" "$FH/.Claude-zt/codex"
+rc=0; cage_build codex "$FH/.Claude-zt/codex" "$PD" >/dev/null 2>"$WORK/build.log" || rc=$?
+chk "case: an executable under ~/.Claude-zt is refused" 2 "$rc"
 cp "$REL/bin/codex" "$FH/.grok/grok"; chmod 755 "$FH/.grok/grok"
 rc=0; cage_build grok "$FH/.grok/grok" "$PD" >/dev/null 2>"$WORK/build.log" || rc=$?
 chk "a grok executable under ~/.grok: refused" 2 "$rc"

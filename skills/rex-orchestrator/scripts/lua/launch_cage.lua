@@ -13,18 +13,27 @@ return function(C,M)
 
   local function ere(s) return (s:gsub("[%[%](){}.^$*+?|\\]",function(c) return "\\" .. c end)) end
   local function quote(s) return "'" .. s:gsub("'","'\\''") .. "'" end
+  -- Path checks against the protected locations ignore ASCII case: the home volume is case-insensitive by default,
+  -- and the cage's own path matching (literal, prefix, subpath and regex) ignores case there too, so ~/.CODEX/x is
+  -- ~/.codex/x to the profile. A check that compared case would let a case-variant spelling past it.
+  local function starts_nocase(s,p) return M.starts(s:lower(),p:lower()) end
   local function below(path,dir)
-    return M.starts(path:gsub("/$","") .. "/",dir:gsub("/$","") .. "/")
+    return starts_nocase(path:gsub("/$","") .. "/",dir:gsub("/$","") .. "/")
+  end
+  local agent_homes={".claude",".codex",".grok",".gemini"}
+  -- The agent home prefix (HOME/.codex, ...) PATH sits under, by the profile's prefix rule (~/.codex-work counts), or nil.
+  local function agent_home(path,h)
+    for _,leaf in ipairs(agent_homes) do
+      if starts_nocase(path,h .. "/" .. leaf) then return h .. "/" .. leaf end
+    end
   end
   function K.overlap(dir)
     local h=F.canonical(home) or home
     for _,path in ipairs({"/","/Users",h,h .. "/Library",h .. "/Repos"}) do
-      if dir==path then return path end
+      if dir:lower()==path:lower() then return path end
     end
-    for _,leaf in ipairs({".claude",".codex",".grok",".gemini"}) do
-      local prefix=h .. "/" .. leaf
-      if M.starts(dir,prefix) then return prefix .. "*" end
-    end
+    local prefix=agent_home(dir,h)
+    if prefix then return prefix .. "*" end
     for _,path in ipairs({C.dir,secrets,h .. "/.ssh",h .. "/.local/bin",h .. "/.agents",h .. "/Library/LaunchAgents",
       M.dirname(M.dirname(M.dirname(C.script_dir))),"/opt/homebrew","/Applications",
       h .. "/.claude",h .. "/.codex",h .. "/.grok",h .. "/.gemini"}) do
@@ -162,45 +171,43 @@ return function(C,M)
     local real=F.realpath(r.bin)
     if not real then return nil,"cage: cannot resolve " .. name .. "'s executable " .. r.bin end
     local h=F.canonical(home) or home
-    for _,leaf in ipairs({".claude",".codex",".grok",".gemini"}) do
-      if M.starts(real,h .. "/" .. leaf) then
-        if r.runtime=="codex" and not M.dir_control(real) then
-          for _,codex_home in ipairs({env("CODEX_HOME") or "",h .. "/.codex"}) do
-            local physical=codex_home~="" and F.canonical(codex_home)
-            local base=physical and physical .. "/packages/standalone/releases/"
-            local version=base and M.starts(real,base) and real:sub(#base+1):match("^([^/]+)/.")
-            if version and version~="." and version~=".." then return real,base .. version end
-          end
+    local prefix=agent_home(real,h)
+    if prefix then
+      if r.runtime=="codex" and not M.dir_control(real) then
+        for _,codex_home in ipairs({env("CODEX_HOME") or "",h .. "/.codex"}) do
+          local physical=codex_home~="" and F.canonical(codex_home)
+          local base=physical and physical .. "/packages/standalone/releases/"
+          local version=base and starts_nocase(real,base) and real:sub(#base+1):match("^([^/]+)/.")
+          -- The release folder as the physical path spells it (the on-disk case), not as CODEX_HOME does.
+          if version and version~="." and version~=".." then return real,real:sub(1,#base) .. version end
         end
-        -- grok's installer keeps each version as one file, GROK_HOME/downloads/grok-<version>-<platform>, linked
-        -- from ~/.grok/bin/grok: that file alone is re-opened (AGENT_BIN_FILE).
-        if r.runtime=="grok" and not M.dir_control(real) then
-          for _,grok_home in ipairs({env("GROK_HOME") or "",h .. "/.grok"}) do
-            local physical=grok_home~="" and F.canonical(grok_home)
-            local base=physical and physical .. "/downloads/"
-            local file=base and M.starts(real,base) and real:sub(#base+1)
-            if file and file~="" and not file:find("/",1,true) and F.test("-f",real) then return real,nil,real end
-          end
-        end
-        return nil,"cage: " .. name .. "'s executable " .. real .. " is under " .. h .. "/" .. leaf ..
-          ", which the cage can't read" .. (r.runtime=="codex" and
-          " (of a codex home it opens only a standalone release, packages/standalone/releases/<version>/)" or
-          r.runtime=="grok" and " (of a grok home it opens only a download, downloads/<file>)" or "") ..
-          "; install " .. name .. " elsewhere" .. (direct[r.runtime] and
-          " or point REX_ORCHESTRATOR_CAGE_" .. name:upper() .. "_BIN at a copy outside it" or "")
       end
+      -- grok's installer keeps each version as one file, GROK_HOME/downloads/grok-<version>-<platform>, linked
+      -- from ~/.grok/bin/grok: that file alone is re-opened (AGENT_BIN_FILE).
+      if r.runtime=="grok" and not M.dir_control(real) then
+        for _,grok_home in ipairs({env("GROK_HOME") or "",h .. "/.grok"}) do
+          local physical=grok_home~="" and F.canonical(grok_home)
+          local base=physical and physical .. "/downloads/"
+          local file=base and starts_nocase(real,base) and real:sub(#base+1)
+          if file and file~="" and not file:find("/",1,true) and F.test("-f",real) then return real,nil,real end
+        end
+      end
+      return nil,"cage: " .. name .. "'s executable " .. real .. " is under " .. prefix ..
+        ", which the cage can't read" .. (r.runtime=="codex" and
+        " (of a codex home it opens only a standalone release, packages/standalone/releases/<version>/)" or
+        r.runtime=="grok" and " (of a grok home it opens only a download, downloads/<file>)" or "") ..
+        "; install " .. name .. " elsewhere" .. (direct[r.runtime] and
+        " or point REX_ORCHESTRATOR_CAGE_" .. name:upper() .. "_BIN at a copy outside it" or "")
     end
     -- The executable itself is outside the agent homes, but the cage can't follow a link that sits inside one on the
     -- way there (~/.local/bin/codex -> ~/.codex/bin/codex -> /opt/x/codex): run it by its physical path instead.
     local links=F.link_locations(r.bin)
     if not links then return nil,"cage: cannot resolve " .. name .. "'s executable " .. r.bin end
     for _,link in ipairs(links) do
-      for _,leaf in ipairs({".claude",".codex",".grok",".gemini"}) do
-        if M.starts(link,h .. "/" .. leaf) then
-          C.note("cage: " .. r.bin .. " reaches " .. real .. " through the link " .. link ..
-            ", which the cage can't follow; running " .. real)
-          return real
-        end
+      if agent_home(link,h) then
+        C.note("cage: " .. r.bin .. " reaches " .. real .. " through the link " .. link ..
+          ", which the cage can't follow; running " .. real)
+        return real
       end
     end
     return r.bin

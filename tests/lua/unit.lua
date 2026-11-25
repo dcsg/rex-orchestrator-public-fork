@@ -698,5 +698,21 @@ reply,seen,state=run_launch({}, {files={["/tmp/launch-id/state"]="fixture"},reco
 eq(reply.code,0); eq(seen.removed_claim,nil); eq(seen.removed_cage,nil)
 eq(state["/state/block_child.own"][1],orch); eq(state["/state/block_child.cage"][1],"test")
 
+-- launch refuses a caged DIR in a protected location however its path is cased: the home volume and the cage's own
+-- path matching ignore case, so ~/.CODEX is ~/.codex.
+do
+  os.getenv=function(key) return ({HOME="/Users/test"})[key] end
+  local fs={canonical=function(path) return path end}
+  local K=dofile(dir .. "launch_cage.lua")({rex={},fs=fs,script_dir="/opt/skills/rex-orchestrator/scripts",dir="/state"},M)
+  for _,case in ipairs({{"/Users/test/.CODEX/proj","/Users/test/.codex*"},{"/Users/test/.Claude-work/x","/Users/test/.claude*"},
+    {"/Users/test/.GROK","/Users/test/.grok*"},{"/Users/test/.gemini/x","/Users/test/.gemini*"},
+    {"/Users/test/.SSH/keys","/Users/test/.ssh"},{"/USERS/TEST","/Users/test"},{"/users","/Users"},
+    {"/Users/test/LIBRARY","/Users/test/Library"},{"/Users/test/.Local/Bin/x","/Users/test/.local/bin"},
+    {"/Users/test/.config/REX-orchestrator/Cage-Secrets/x","/Users/test/.config/rex-orchestrator/cage-secrets"},
+    {"/Users/test/projects/x",nil},{"/Users/test/.codexish-notes",  "/Users/test/.codex*"}}) do
+    eq(K.overlap(case[1]),case[2],"overlap " .. case[1])
+  end
+end
+
 os.time,os.getenv=original_time,original_getenv
 print("Lua unit: " .. pass .. " passed")

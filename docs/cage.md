@@ -198,6 +198,11 @@ home stops the wrapper with exit **70**.
   WindowServer, TCC; no `iokit-open`; no signals outside the cage; no `sudo`, `launchctl`, `osascript`, `open`, `ssh`,
   `scp`, `sftp`, `crontab`, `at`, `batch`.
 
+Case: the home volume is case-insensitive by default, and on it the profile's path rules ignore case too, so
+`~/.CODEX/auth.json` is as denied as `~/.codex/auth.json` (checked for literal, prefix, subpath and regex rules).
+`launch`'s own checks against these locations (the DIR refusal below, the agent-home and release checks above, the
+link walk) ignore ASCII case to match.
+
 `launch` also refuses a caged DIR that *is, holds or sits in* any of the protected locations above, or is `/`, `/Users`,
 your home, `~/Library` or `~/Repos`: give each task its own folder.
 
