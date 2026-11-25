@@ -23,7 +23,8 @@ return function(M,J,F,N)
     local hash=result.ok and result.stdout:match("^(%x+)")
     return hash and #hash==64 and hash or nil
   end
-  return function(home,state)
+  -- INSTR: launch's record of DIR's instruction files; the manifest lists what the run changed in instructions_changed.
+  return function(home,state,instr)
     N.private_umask()
     home=home:gsub("/+$","")
     local root,err=N.open_dir(home)
@@ -81,6 +82,15 @@ return function(M,J,F,N)
       local manifest={kind=kind,label=label,files=files,errors=errors,
         end_time=os.date("!%Y-%m-%dT%H:%M:%S",secs) .. suffix .. "+00:00"}
       for _,key in ipairs({"account","block","DIR","start_time"}) do manifest[key]=meta[key] or "unknown" end
+      if instr then
+        local dir,before=M.instructions_read(F.read(instr))
+        local after=dir and M.instructions(N.exec,dir)
+        if after then
+          local changed=J.array()
+          for _,change in ipairs(M.instructions_changed(before,after)) do changed[#changed+1]=change end
+          manifest.instructions_changed=changed
+        else errors[#errors+1]="cannot check the instruction files" end
+      end
       if not F.put(dest .. "/manifest.json",J.encode(manifest) .. "\n") then return nil,"cannot write archive manifest" end
       for _,message in ipairs(errors) do io.stderr:write("rex-orchestrator: harvest: ",M.terminal_text(message),"\n") end
       return true

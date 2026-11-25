@@ -15,14 +15,16 @@
 #     wrapper and the one locked config file stay write-denied;
 #   - what runs or is sourced outside the cage (the cage secrets, also through a link, and the launcher's skill folder)
 #     stays write-locked even in a DIR that holds it: no write, swapped link, move or hard link;
-#   - reads of the secret stores, of every agent home by prefix (~/.claude*, ~/.codex*, ~/.grok*, ~/.gemini*), of
+#   - reads of the secret stores, of every agent home by prefix (~/.claude*, ~/.codex*, ~/.grok*, ~/.gemini*,
+#     ~/.factory*, ~/.aider*) and of other agents' homes (~/.windsurf, ~/.codeium, ~/.continue, ~/.kiro, ...), of
 #     ~/.config but its git folder, of the keychains and of other sessions' scratchpads are denied; the one AGENT_AUTH
 #     file is readable and a file beside it is not; other home files stay readable;
 #   - the child writes its own tty, /dev/tty and the sub-ptys it opens (any /dev/ttysN, by design);
 #   - other repos under ~/Repos are unreadable (contents, listings; stat works), DIR's own is not, in or outside ~/Repos;
 #   - a child reads its own cage home and not a sibling's (another home under the same cage root), nor the root itself;
-#   - every DIR auto-run plant lock holds (.agents, which agy loads as instructions, too: the entry itself as well), for a plain DIR and for DIRs holding each regex metacharacter, while ordinary
-#     writes there work; a repo's core.hooksPath inside DIR is locked (also a missing one, one from a subfolder DIR,
+#   - every DIR auto-run plant lock holds (.agents, which agy loads as instructions, too: the entry itself as well; mise's
+#     config files and folders and .tool-versions; Copilot's instruction files), for a plain DIR and for DIRs holding
+#     each regex metacharacter, while ordinary writes there work (CLAUDE.md, AGENTS.md and GEMINI.md included); a repo's core.hooksPath inside DIR is locked (also a missing one, one from a subfolder DIR,
 #     one written "~/");
 #   - the child can't signal a process outside the cage, connect to a loopback port or a unix socket, or run
 #     /usr/bin/open or launchctl;
@@ -109,6 +111,9 @@ for p in .ssh/id_x .aws/credentials .gnupg/x .netrc $CS/claude.env $CS/claude-on
   .claude.json .claude.json.backup .claude.json.bak-trust .claude/x .claude-work/x \
   .claude-server-commander/x .codex/auth.json .codex/other .codex-alt/x .grok/auth.json .grok/other \
   .grokbot/x .gemini/x .cursor/x .copilot/x .hermes/x .pi/x .mastracode/x "Library/Application Support/Claude/x" \
+  .factory/auth.json .factory-drafts/x .aider.conf.yml .aider/oauth-keys.env .windsurf/x .codeium/windsurf/mcp_config.json \
+  .continue/config.yaml .amp/x .opencode/x .kiro/settings/mcp.json .qwen/oauth_creds.json .augment/session.json .cline/x \
+  .local/share/amp/secrets.json .local/share/opencode/auth.json .local/share/other/x \
   "Library/Application Support/Codex/x" "Library/Application Support/com.openai.codex/x" \
   "Library/Application Support/Muse/x" "Library/Application Support/rex/host-id" \
   notes.txt .gitconfig .config/git/config "Library/Application Support/SomeApp/x" Repos/other/x; do
@@ -199,7 +204,8 @@ chk "hardlink a locked DIR file into the cage temp" DENY "$(cg -c "ln $(q "$DIR/
 
 echo "== reads: secrets and agent homes denied, AGENT_AUTH re-opened =="
 chk "codex: AGENT_AUTH is HOME/.codex/auth.json" "$RH/.codex/auth.json" "$AUTH"
-want r READ "$AUTH" "$RH/notes.txt" "$RH/.gitconfig" "$RH/.config/git/config" "$RH/Library/Application Support/SomeApp/x"
+want r READ "$AUTH" "$RH/notes.txt" "$RH/.gitconfig" "$RH/.config/git/config" "$RH/Library/Application Support/SomeApp/x" \
+  "$RH/.local/share/other/x"
 want r DENY "$RH/.codex/other" "$RH/.codex" "$RH/.ssh" "$RH/.ssh/id_x" "$RH/.aws/credentials" "$RH/.gnupg/x" "$RH/.netrc" \
   "$RH/$CS/claude.env" "$RH/$CS/claude-one.env" "$RH/$CS/claude-two.env" "$RH/Library/Keychains/login.keychain-db" \
   "$RH/Library/Messages/chat.db" "$RH/Library/Mail/x" \
@@ -210,6 +216,10 @@ want r DENY "$RH/.codex/other" "$RH/.codex" "$RH/.ssh" "$RH/.ssh/id_x" "$RH/.aws
   "$RH/.claude.json.bak-trust" "$RH/.claude/x" "$RH/.claude-work/x" \
   "$RH/.claude-server-commander/x" "$RH/.codex-alt/x" "$RH/.grok/auth.json" "$RH/.grokbot/x" \
   "$RH/.gemini/x" "$RH/.cursor/x" "$RH/.copilot/x" "$RH/.hermes/x" "$RH/.pi/x" "$RH/.mastracode/x" \
+  "$RH/.factory/auth.json" "$RH/.factory" "$RH/.factory-drafts/x" "$RH/.aider.conf.yml" "$RH/.aider/oauth-keys.env" \
+  "$RH/.windsurf/x" "$RH/.codeium/windsurf/mcp_config.json" "$RH/.continue/config.yaml" "$RH/.amp/x" "$RH/.opencode/x" \
+  "$RH/.kiro/settings/mcp.json" "$RH/.qwen/oauth_creds.json" "$RH/.augment/session.json" "$RH/.cline/x" \
+  "$RH/.local/share/amp/secrets.json" "$RH/.local/share/opencode/auth.json" \
   "$RH/Library/Application Support/Claude/x" "$RH/Library/Application Support/Codex/x" \
   "$RH/Library/Application Support/com.openai.codex/x" "$RH/Library/Application Support/Muse/x" \
   "$RH/Library/Application Support/rex" "$RH/Library/Application Support/rex/host-id"
@@ -305,8 +315,17 @@ want r DENY "$CT1/history.txt" "$CT2/own.txt"
 echo "== DIR auto-run plant locks =="
 LOCKS=".git/hooks/post-commit .git/config .git/config.worktree .envrc .mcp.json .claude/x .codex/x .gemini/x .grok/x .cursor/x
   .zed/x .vscode/x .idea/x .husky/pre-commit .githooks/pre-commit sub/.envrc sub/.husky/x sub/.git/hooks/x
-  .agents/skills/x/SKILL.md .agents/rules.md .agents sub/.agents/x"
-PLAIN="src/app.py README.md .gitignore .github/workflows/ci.yml package.json sub/x.txt"
+  .agents/skills/x/SKILL.md .agents/rules.md .agents sub/.agents/x
+  .mise.toml mise.toml .mise/config.toml .mise mise/config.toml mise .config/mise/config.toml .config/mise/conf.d/x.toml
+  .config/mise .config/mise.toml .tool-versions mise.local.toml .mise.local.toml .mise.dev.toml mise.dev.toml
+  sub/.mise.toml sub/mise.toml sub/.tool-versions sub/.config/mise/config.toml
+  .github/copilot-instructions.md .github/instructions/x.instructions.md .github/instructions
+  sub/.github/copilot-instructions.md"
+# CLAUDE.md, AGENTS.md and GEMINI.md stay writable (close reports a caged run's changes to them instead), and so do
+# names that only contain a locked one.
+PLAIN="src/app.py README.md .gitignore .github/workflows/ci.yml package.json sub/x.txt CLAUDE.md AGENTS.md GEMINI.md
+  sub/CLAUDE.md sub/AGENTS.md src/mise_utils.py premise/x.txt src/premise.toml docs/mise.md tool-versions.txt
+  .github/instructions.md"
 # locks_hold LABEL DIR: in the cage built for DIR, every lock is write-denied and every ordinary write allowed.
 locks_hold() {
   local d="$2" l got a=() p=()

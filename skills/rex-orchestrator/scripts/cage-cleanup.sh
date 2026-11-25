@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# Delete a throwaway cage home (cleanup_cage DIR). A child or a tool it ran (Go's module cache is read-only) can leave
+# Delete a throwaway cage home (cleanup_cage DIR [INSTR], INSTR being launch's record of DIR's instruction files, for
+# the harvest manifest). A child or a tool it ran (Go's module cache is read-only) can leave
 # what rm -rf can't remove: folders without the owner's rwx, the uchg or uappnd flag, an ACL that denies the owner.
 # Clear them, nested ones too (find fixes each folder before it reads it); chflags, chmod, find and rm follow no link
 # inside, and the cage can't link a file from outside in. The agent may still be writing as it exits: retry once.
@@ -18,7 +19,7 @@ cleanup_cage() {
   { chflags -R nouchg,nouappnd "$1"; chmod -R -N "$1"; chmod -R u+rwX "$1"; } 2>/dev/null || true
   # Measurement never prevents cleanup, including when Lua or storage fails.
   local harvest_status=0
-  /bin/bash -p "${SCRIPT_DIR:-${SDIR:-.}}/local-lua.sh" harvest "$1" "${STATE_DIR:-${1%/cage/*}}" || harvest_status=$?
+  /bin/bash -p "${SCRIPT_DIR:-${SDIR:-.}}/local-lua.sh" harvest "$1" "${STATE_DIR:-${1%/cage/*}}" ${2:+"$2"} || harvest_status=$?
   case "$harvest_status" in
     0) ;;
     69) note "continuing cage removal without a transcript archive" ;;
@@ -34,12 +35,12 @@ cleanup_cage() {
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   set -euo pipefail
   unset CDPATH
-  [ "$#" -eq 2 ] || exit 2
+  [ "$#" -eq 2 ] || [ "$#" -eq 3 ] || exit 2
   STATE_DIR=$1
   SCRIPT_DIR=${BASH_SOURCE[0]%/*}
   base=$(cd "$STATE_DIR/cage" && pwd -P) || exit 1
   case "$2" in "$base/"*) leaf=${2#"$base"/} ;; *) exit 2 ;; esac
   case "$leaf" in ''|*/*|.*) exit 2 ;; esac
   note() { printf 'rex-orchestrator: %s\n' "$(rex_term_text "$*")" >&2; }
-  cleanup_cage "$2" || exit 1
+  cleanup_cage "$2" ${3:+"$3"} || exit 1
 fi

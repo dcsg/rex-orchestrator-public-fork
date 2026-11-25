@@ -199,6 +199,27 @@ for entry in 'claude:claude-config/projects/sub/session.jsonl' 'codex:codex-home
   check "$kind manifest is private" "$(stat -f '%Lp' "$manifest")" 600
 done
 check 'archive leaves external targets alone' "$(cat "$fixture/external")" 'external fixture'
+# The manifest lists the instruction files a caged run changed, added or removed, against launch's record of them.
+task="$fixture/instr-task"
+mkdir -p "$task/sub" "$task/.git" "$task/node_modules/x"
+printf 'before\n' > "$task/CLAUDE.md"; printf 'same\n' > "$task/sub/AGENTS.md"; printf 'gone\n' > "$task/GEMINI.md"
+printf 'ignored\n' > "$task/.git/AGENTS.md"; printf 'ignored\n' > "$task/node_modules/x/CLAUDE.md"
+rec="$fixture/instr-record"
+{ printf '%s\n' "$task"
+  for f in CLAUDE.md sub/AGENTS.md GEMINI.md; do printf '%s\t%s\n' "$(/usr/bin/shasum -a 256 < "$task/$f" | cut -d' ' -f1)" "$f"; done
+} > "$rec"
+printf 'after\n' > "$task/CLAUDE.md"; rm "$task/GEMINI.md"; printf 'new\n' > "$task/sub/agents.override.md"
+ln -s /etc/hosts "$task/CLAUDE.local.md"
+printf 'changed\n' > "$task/.git/AGENTS.md"; printf 'changed\n' > "$task/node_modules/x/CLAUDE.md"
+cage="$REX_ORCHESTRATOR_STATE_DIR/cage/codex.instr"
+mkdir -p "$cage"
+printf '%s\n' '{"kind":"codex","label":"instr","block":"block:instr"}' > "$cage/run-meta.json"
+/bin/bash "$scripts/cage-cleanup.sh" "$REX_ORCHESTRATOR_STATE_DIR" "$cage" "$rec" > "$fixture/cleanup.out" 2> "$fixture/cleanup.err"
+manifest=$(find "$REX_ORCHESTRATOR_STATE_DIR/runs" -name manifest.json -exec grep -l '"label":"instr"' {} \;)
+check 'manifest lists the changed instruction files' "$("$checker" -c '.instructions_changed' "$manifest")" \
+  '["CLAUDE.local.md (added)","CLAUDE.md (changed)","GEMINI.md (removed)","sub/agents.override.md (added)"]'
+check 'instruction check reports no harvest error' "$("$checker" -c '.errors' "$manifest")" '[]'
+check 'cage removed with an instruction record' "$([ ! -e "$cage" ] && echo gone)" gone
 bad_name=$(printf 'transcript\033[2J\n\302\233\t-café.jsonl')
 for label in unsafe-kind unsafe-name; do
   cage="$REX_ORCHESTRATOR_STATE_DIR/cage/codex.$label"

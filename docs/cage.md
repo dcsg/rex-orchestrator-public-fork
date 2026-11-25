@@ -201,14 +201,27 @@ home stops the wrapper with exit **70**.
 - **Writes** anywhere but DIR, the child's own cage home and terminal devices — also through symlinks, renames and hard
   links. Even inside DIR: the cage secrets, this tool's folder, `~/.ssh`, `~/.local/bin`, `~/.agents`,
   `~/Library/LaunchAgents`, `~/Library/Application Support/rex`, `/opt/homebrew`, `/Applications` and every agent home.
-- **Auto-run files inside DIR** that would execute unsandboxed later: `.git/hooks/`, `.git/config`, `.envrc`, `.mcp.json`,
-  `.claude/`, `.codex/`, `.gemini/`, `.grok/`, `.cursor/`, `.zed/`, `.vscode/`, `.idea/`, `.husky/`, `.githooks/`,
-  `.agents/`, and a repo's own `core.hooksPath`. (So `git init`/`git config` fail in the cage: create the repo first.)
+- **Auto-run files inside DIR** that would execute unsandboxed later, or steer the next agent there, at any depth:
+
+  | Locked | Why |
+  |---|---|
+  | `.git/hooks/`, `.git/config`, `.git/config.worktree`, `.husky/`, `.githooks/`, a repo's own `core.hooksPath` | git runs hooks on checkout, commit and merge |
+  | `.envrc` | direnv runs it when a shell enters DIR |
+  | `.mise.toml`, `mise.toml`, `mise.*.toml` and `.mise.*.toml` (`mise.local.toml`, `.mise.dev.toml`), `.mise/`, `mise/`, `.config/mise/`, `.config/mise.toml`, `.tool-versions` | mise runs a trusted project's `[env]` and hooks, and installs its tools, without checking the config again |
+  | `.mcp.json`, `.claude/`, `.codex/`, `.gemini/`, `.grok/`, `.cursor/`, `.zed/`, `.vscode/`, `.idea/` | agents' and editors' project config: MCP servers, hooks, tasks |
+  | `.agents/`, `.github/copilot-instructions.md`, `.github/instructions/` | loaded as instructions by the next agy or Copilot session |
+
+  A folder is locked with its entry, so a task can't create it either. (So `git init`/`git config` fail in the cage:
+  create the repo first.) `CLAUDE.md`, `AGENTS.md` and `GEMINI.md` are **not** locked, because tasks edit them: see
+  [Instruction files](#instruction-files).
 - **Execution** under every agent home (`~/.claude*`, `~/.codex*`, `~/.grok*`, `~/.gemini*`), except the launched codex
   release folder or grok download and the child's own cage home.
 - **Reads** of secret stores and agent homes: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.config` (except `git`),
-  `~/Library/Keychains`, shell histories, Messages, Mail, every `~/.claude*`, `~/.codex*`, `~/.grok*`, `~/.gemini*`, other
-  agents' folders in `~/Library/Application Support`, your Rex folder (`~/Library/Application Support/rex`: its
+  `~/Library/Keychains`, shell histories, Messages, Mail, every `~/.claude*`, `~/.codex*`, `~/.grok*`, `~/.gemini*`,
+  `~/.factory*` (Factory Droid) and `~/.aider*`, the other agents' homes `~/.cursor`, `~/.copilot`, `~/.windsurf`,
+  `~/.codeium`, `~/.continue`, `~/.amp`, `~/.opencode`, `~/.kiro`, `~/.qwen`, `~/.augment`, `~/.cline`, `~/.hermes`,
+  `~/.pi`, `~/.mastracode`, `~/.local/share/amp` and `~/.local/share/opencode` (logins, API keys, MCP configs with
+  tokens), other agents' folders in `~/Library/Application Support`, your Rex folder (`~/Library/Application Support/rex`: its
   socket, server records, ssh folder and host list), other cage homes, other Claude sessions' temp files, and every repo
   under `~/Repos` except DIR's. The exceptions are the agent's one login file (codex, grok) and a launched codex
   release folder or grok download.
@@ -227,6 +240,20 @@ case, for a path that doesn't exist.
 
 `launch` also refuses a caged DIR that *is, holds or sits in* any of the protected locations above, or is `/`, `/Users`,
 your home, `~/Library` or `~/Repos`: give each task its own folder.
+
+### Instruction files
+
+`CLAUDE.md`, `AGENTS.md` and `GEMINI.md` (and `CLAUDE.local.md`, `AGENTS.override.md`) steer the next agent that works
+in DIR, caged or not, but tasks edit them legitimately, so the cage leaves them writable. Instead, before a caged child
+starts, `launch` records the SHA-256 of each one in DIR, at any depth but under `.git` and `node_modules`, matched
+ignoring case (a link by its target), in `STATE_DIR/<block>.instr`. `close` (and an orphan close) compares and reports
+every file the run changed, added or removed:
+
+```text
+rex-orchestrator: block:…'s caged run changed instruction files in /path/to/task: AGENTS.md (added), CLAUDE.md (changed); review them before an agent reads them uncaged
+```
+
+The harvest manifest lists the same in `instructions_changed`. Read those files before an uncaged agent works in DIR.
 
 ## What the cage does NOT cover
 

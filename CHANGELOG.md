@@ -28,6 +28,13 @@ project uses [Semantic Versioning](https://semver.org/).
   runtime dependencies.
 
 ### Fixed
+- The cage read-denies more agent homes: `~/.factory*` (Factory Droid), `~/.aider*`, `~/.windsurf`, `~/.codeium`,
+  `~/.continue`, `~/.amp`, `~/.opencode`, `~/.kiro`, `~/.qwen`, `~/.augment`, `~/.cline`, `~/.local/share/amp` and
+  `~/.local/share/opencode`. It write-locks mise's config in DIR (`.mise.toml`, `mise.toml`, `mise.*.toml`,
+  `.mise.*.toml`, `.mise/`, `mise/`, `.config/mise/`, `.config/mise.toml`, `.tool-versions`), which mise runs without
+  checking it again, and Copilot's instructions (`.github/copilot-instructions.md`, `.github/instructions/`).
+  `CLAUDE.md`, `AGENTS.md` and `GEMINI.md` stay writable; `close` and the harvest manifest report the ones a caged run
+  changed, against hashes `launch` takes before the child starts.
 - Host git (`clone`, `launch`'s repo checks, the claims) runs nothing a repo or its attributes name: every call gets
   `-c` settings that switch off hooks, the fsmonitor, git-lfs, the external diff, credential helpers, askpass and the
   ssh command and allow only the `file` protocol, in a clean environment without system config or attributes. Before

@@ -384,6 +384,11 @@ return function(C,M,D,I,K,G)
       else C.note("running " .. opts.name .. " uncaged: no cage recipe for it (pass --no-cage to silence)") end
     end
     local command=spawn_args(opts,bin,cage)
+    -- The instruction files before a caged child can touch them, for close to report what the run changed.
+    local instructions=cage and M.instructions(R.exec,opts.dir)
+    if cage and not instructions then
+      C.note("could not hash the CLAUDE.md, AGENTS.md and GEMINI.md files in " .. opts.dir .. "; close can't report changes to them")
+    end
     local identity=G.identity(opts.dir,opts.given)
     if not identity then C.die("launch: cannot determine the write claim for " .. opts.dir,1) end
     local release,why=G.acquire()
@@ -439,6 +444,9 @@ return function(C,M,D,I,K,G)
       cage.meta.block=C.block
       if not C.put(cage.home .. "/run-meta.json",R.json.encode(cage.meta)) then C.note("could not save harvest block") end
       if not C.put(sf .. ".cage",M.basename(cage.home),cage.account or "") then C.note("could not save the cage marker of " .. C.block) end
+      if instructions and not C.put(sf .. ".instr",(M.instructions_record(opts.dir,instructions):gsub("\n$",""))) then
+        C.note("could not save the instruction file hashes of " .. C.block)
+      end
     end
     C.note("launched " .. C.block .. " in " .. opts.dir)
     local result_code=startup(opts,cage,save_owner)

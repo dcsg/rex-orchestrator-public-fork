@@ -95,7 +95,9 @@ rex-orchestrator ls                         Live agent panes in this Rex session
                                             status JSON with label, mine (launched from your pane) and orphan added.
 rex-orchestrator close [--force] BLOCK      Close the pane (ends its agent) and remove its state and cage home, also for a
                                             pane already closed in Rex given by its full ID. When rex can't close the pane
-                                            the state stays (exit 1): run close again.
+                                            the state stays (exit 1): run close again. For a caged child it reports the
+                                            CLAUDE.md, AGENTS.md and GEMINI.md files in DIR its run changed, added or
+                                            removed: review them before an agent reads them uncaged.
 
 DUR is N, Ns, Nm or Nh. BLOCK is any form rex takes (full ID, short ID, label). The state is the agent's own (root)
 status record. Any agent running in a Rex pane can be the orchestrator: launch, send, keys, close and wait

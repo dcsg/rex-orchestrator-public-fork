@@ -62,6 +62,7 @@ local function test(options)
   function fs.append(p,s) files[p]=(files[p] or "") .. s; return true end
   function fs.exists(p) return files[p]~=nil end
   function fs.canonical(p)
+    if options.canonical and options.canonical[p] then return options.canonical[p] end
     if p=="/missing" then return nil end
     if p=="/tmp/work" then return "/private/tmp/work" end
     return p=="/" and "/" or (p=="/work" or p=="/home/test" or p=="/private/tmp/work") and p or nil
@@ -78,6 +79,7 @@ local function test(options)
   function rex.stop(code) error({stop=code},0) end
   function rex.sleep(n) now=now+n end
   function rex.exec(a)
+    if options.exec then local r=options.exec(a); if r then return r end end
     if a[2]=="send-key" then
       options.key_args=a
       return {ok=not options.fail_keys,stderr=""}
@@ -520,6 +522,48 @@ r=test(o)("close",{child})
 eq(r.code,0); eq(o.closed,child); eq(r.files[claim_path],nil); eq(r.files["/state/block_child.hold"],nil)
 o={files={["/state/block_missing.own"]=own}}
 eq(test(o)("close",{"block:missing"}).code,0); eq(o.closed,nil)
+-- Instruction files: launch's record round-trips any path; close reports what a caged run changed, added or removed,
+-- and hands the record to the cage cleanup for the harvest manifest.
+do
+  local files={["CLAUDE.md"]="h1",["sub/a\tb\\c\nd/AGENTS.md"]="h2",["GEMINI.md"]="link:/etc/x"}
+  local dir,back=M.instructions_read(M.instructions_record("/work/t\tx",files))
+  eq(dir,"/work/t\tx")
+  for rel,hash in pairs(files) do eq(back[rel],hash,"record " .. rel) end
+  eq(table.concat(M.instructions_changed({a="1",b="2",c="3"},{a="1",b="9",d="4"}),","),"b (changed),c (removed),d (added)")
+  eq(#M.instructions_changed(files,files),0)
+  eq(M.instructions_read(nil),nil)
+  local seen
+  local got=M.instructions(function(a) seen=a; return {ok=true,stdout="h1\0CLAUDE.md\0link:x\0sub/agents.md\0"} end,"/work")
+  eq(got["CLAUDE.md"],"h1"); eq(got["sub/agents.md"],"link:x")
+  local argv=table.concat(seen," ")
+  eq(seen[5],"rex-orchestrator"); eq(seen[6],"/work")
+  for _,name in ipairs({"CLAUDE.md","CLAUDE.local.md","AGENTS.md","AGENTS.override.md","GEMINI.md"}) do
+    eq(not not argv:find("-iname " .. name,1,true),true,"instruction name " .. name)
+  end
+  eq(not not argv:find("-name .git -o -name node_modules ) -prune",1,true),true)
+  eq(M.instructions(function() return {ok=false,stdout=""} end,"/work"),nil)
+  local cleanup
+  local function exec(a)
+    if a[1]=="/bin/bash" and a[2]=="-p" then return {ok=true,stdout="h9\0CLAUDE.md\0h3\0AGENTS.md\0"} end
+    if a[2] and a[2]:find("cage-cleanup.sh",1,true) then cleanup=a; return {ok=true,stdout="",stderr=""} end
+  end
+  local cfiles={["/state/block_child.own"]=own,["/state/block_child.cage"]="codex.x\n",
+    ["/state/block_child.instr"]=M.instructions_record("/work",{["CLAUDE.md"]="h1",["GEMINI.md"]="h2"})}
+  o={files=cfiles,exec=exec,canonical={["/state/cage"]="/state/cage"}}
+  r=test(o)("close",{child})
+  eq(r.code,0)
+  eq(not not r.notes:find(child .. "'s caged run changed instruction files in /work: AGENTS.md (added), CLAUDE.md " ..
+    "(changed), GEMINI.md (removed); review them before an agent reads them uncaged",1,true),true)
+  eq(cleanup[4],"/state/cage/codex.x"); eq(cleanup[5],"/state/block_child.instr")
+  eq(r.files["/state/block_child.instr"],nil,"the record goes with the state")
+  -- Unchanged: no note. An uncaged child has no record and nothing is checked.
+  cfiles["/state/block_child.instr"]=M.instructions_record("/work",{["CLAUDE.md"]="h9",["AGENTS.md"]="h3"})
+  cfiles["/state/block_child.cage"]="codex.x\n"; cfiles["/state/block_child.own"]=own
+  r=test({files=cfiles,exec=exec,canonical={["/state/cage"]="/state/cage"}})("close",{child})
+  eq(r.code,0); eq(r.notes:find("instruction",1,true),nil)
+  r=test({files={["/state/block_child.own"]=own},exec=function() error("no check for an uncaged child") end})("close",{child})
+  eq(r.code,0)
+end
 
 local LaunchDialog=dofile(dir .. "launch_dialog.lua")
 os.getenv=function(k) return k=="HOME" and "/logical/home" or nil end
@@ -709,6 +753,12 @@ local function run_launch(args,opts,recovery)
   function R.session.set_block_label() return true end
   function R.session.set_window_label() return true end
   function R.sleep() end
+  -- The instruction file snapshot a caged launch takes before the child starts.
+  function R.exec(a)
+    observed.snapshot=a[6]
+    if opts.no_snapshot then return {ok=false,stdout=""} end
+    return {ok=true,stdout="h1\0CLAUDE.md\0"}
+  end
   local cage={secrets="/credentials",profile="/cage.sb"}
   function cage.build(_,_,cfg,reserved)
     observed.chosen=cfg.account
@@ -751,6 +801,12 @@ eq(not not state["/tmp/launch-id/state"][1]:find('"block":"block:child"',1,true)
 reply,seen,state=run_launch({"--agent","codex","--tab","target"},{
   cage={home="/state/cage/codex.test",wrapper="/state/cage/codex.test/bin/codex",meta={},bin="/release/bin/codex"}})
 eq(reply.code,0); eq(state["/state/block_child.own"][7],"/release/bin/codex")
+eq(seen.snapshot,"/work"); eq(state["/state/block_child.instr"][1],"/work\nh1\tCLAUDE.md")
+reply,seen,state=run_launch({"--agent","codex","--tab","target"},{no_snapshot=true,
+  cage={home="/state/cage/codex.test",wrapper="/state/cage/codex.test/bin/codex",meta={},bin="/release/bin/codex"}})
+eq(reply.code,0); eq(state["/state/block_child.instr"],nil)
+reply,seen,state=run_launch({"--no-cage","--tab","t"})
+eq(reply.code,0); eq(seen.snapshot,nil,"no snapshot for an uncaged child"); eq(state["/state/block_child.instr"],nil)
 -- REX_ORCHESTRATOR_CAGE_<AGENT>_BIN stands in for a missing PATH match only when the child is caged.
 reply,seen=run_launch({"--agent","claude","--tab","target"},{missing=true,override="/opt/claude"})
 eq(reply.code,2); eq(not not reply.text:find("applies to caged launches only",1,true),true); eq(seen.window,nil)

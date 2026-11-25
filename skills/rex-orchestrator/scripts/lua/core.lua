@@ -291,6 +291,74 @@ function M.git(exec,git,args,worktree)
   end
   return exec(M.git_argv(git,args,extra))
 end
+-- The instruction files agents load from DIR (CLAUDE.md, AGENTS.md, GEMINI.md and their local and override forms), at
+-- any depth but under .git and node_modules, matched ignoring case as the home volume does. The cage doesn't lock them,
+-- because a task edits them legitimately; launch hashes them before a caged child starts, and close (and the harvest
+-- manifest) report the ones the run changed, added or removed, so the orchestrator reviews them before an agent reads
+-- them uncaged. A link is recorded by its target, never followed.
+local instruction_names={"CLAUDE.md","CLAUDE.local.md","AGENTS.md","AGENTS.override.md","GEMINI.md"}
+-- DIR's instruction files through EXEC: a table of relative path -> SHA-256 (or "link:TARGET"), or nil.
+function M.instructions(exec,dir)
+  local find={"/usr/bin/find",".","(","-name",".git","-o","-name","node_modules",")","-prune","-o","(","-type","f","-o",
+    "-type","l",")","("}
+  for i,name in ipairs(instruction_names) do
+    if i>1 then find[#find+1]="-o" end
+    find[#find+1]="-iname"; find[#find+1]=name
+  end
+  find[#find+1]=")"; find[#find+1]="-print0"
+  local argv={"/bin/bash","-p","-c",[=[
+    cd -- "$1" || exit 1
+    shift
+    "$@" 2>/dev/null | while IFS= read -r -d '' f; do
+      if [ -L "$f" ]; then t=$(/usr/bin/readlink -- "$f" && printf .) || continue; printf 'link:%s\0%s\0' "${t%?.}" "${f#./}"
+      else h=$(/usr/bin/shasum -a 256 < "$f") || continue; printf '%s\0%s\0' "${h%% *}" "${f#./}"; fi
+    done
+  ]=],"rex-orchestrator",dir}
+  for _,word in ipairs(find) do argv[#argv+1]=word end
+  local r=exec(argv)
+  if not r or not r.ok then return nil end
+  local files={}
+  for hash,rel in r.stdout:gmatch("([^%z]*)%z([^%z]*)%z") do files[rel]=hash end
+  return files
+end
+-- The record launch keeps: DIR on the first line, then one "HASH<TAB>PATH" line per file, PATH escaped as M.tsv does.
+function M.instructions_record(dir,files)
+  local lines={M.tsv(dir)}
+  local paths={}
+  for rel in pairs(files) do paths[#paths+1]=rel end
+  table.sort(paths)
+  for _,rel in ipairs(paths) do lines[#lines+1]=M.tsv(files[rel]) .. "\t" .. M.tsv(rel) end
+  return table.concat(lines,"\n") .. "\n"
+end
+local function untsv(s)
+  return (s:gsub("\\(.)",function(c) return ({t="\t",n="\n",r="\r",["\\"]="\\"})[c] or c end))
+end
+-- DIR and the files a record holds, or nil for no record.
+function M.instructions_read(text)
+  if not text or text=="" then return nil end
+  local dir,files
+  for line in text:gmatch("([^\n]*)\n") do
+    if not dir then dir=untsv(line); files={}
+    else
+      local hash,rel=line:match("^([^\t]*)\t(.*)$")
+      if hash then files[untsv(rel)]=untsv(hash) end
+    end
+  end
+  return dir,files
+end
+-- What changed between two snapshots: a sorted list of "PATH (changed|added|removed)".
+function M.instructions_changed(before,after)
+  local changes={}
+  for rel,hash in pairs(after) do
+    if before[rel]==nil then changes[#changes+1]=rel .. " (added)"
+    elseif before[rel]~=hash then changes[#changes+1]=rel .. " (changed)" end
+  end
+  for rel in pairs(before) do
+    if after[rel]==nil then changes[#changes+1]=rel .. " (removed)" end
+  end
+  table.sort(changes)
+  return changes
+end
 function M.new(rex, fs, output)
   local C={rex=rex, fs=fs, session=nil, me="", force=false}
   C.out=(output and output.out) or function(s) io.stdout:write(s .. "\n"); io.stdout:flush() end
@@ -518,8 +586,9 @@ function M.new(rex, fs, output)
     end
     return C.gone(b)
   end
-  function C.remove_cage(path)
-    local result=rex.exec({"/bin/bash",C.script_dir .. "/cage-cleanup.sh",C.dir,path})
+  -- INSTR: launch's instruction file record, for the harvest manifest to list what the run changed.
+  function C.remove_cage(path,instr)
+    local result=rex.exec({"/bin/bash",C.script_dir .. "/cage-cleanup.sh",C.dir,path,instr or nil})
     if result and result.stderr~="" then C.lines((result.stderr:gsub("\n$",""))) end
     return result and result.ok
   end

@@ -96,7 +96,19 @@
   ; the task" from "planted", so a task that needs a .agents folder has the user make it. Reading stays allowed.
   (regex (string-append (param "DIR_RE") "/(.*/)?\.agents(/|$)"))
   (regex (string-append (param "DIR_RE") "/(.*/)?\.husky(/|$)"))
-  (regex (string-append (param "DIR_RE") "/(.*/)?\.githooks(/|$)")))
+  (regex (string-append (param "DIR_RE") "/(.*/)?\.githooks(/|$)"))
+  ; mise runs a trusted project's [env] and hooks (and installs its tools) when a shell enters DIR, without checking the
+  ; config again: every file and folder mise reads its config from, at any depth, the entry itself too.
+  (regex (string-append (param "DIR_RE") "/(.*/)?\.?mise\.toml$"))
+  (regex (string-append (param "DIR_RE") "/(.*/)?\.?mise\.[^/]*\.toml$"))          ; mise.local.toml, .mise.dev.toml
+  (regex (string-append (param "DIR_RE") "/(.*/)?\.?mise(/|$)"))                     ; .mise/ and mise/ (config.toml, conf.d)
+  (regex (string-append (param "DIR_RE") "/(.*/)?\.config/mise(\.toml$|/|$)"))
+  (regex (string-append (param "DIR_RE") "/(.*/)?\.tool-versions$"))
+  ; Copilot loads these as instructions in the next session in DIR, like agy's .agents: denied outright.
+  (regex (string-append (param "DIR_RE") "/(.*/)?\.github/copilot-instructions\.md$"))
+  (regex (string-append (param "DIR_RE") "/(.*/)?\.github/instructions(/|$)")))
+; CLAUDE.md, AGENTS.md and GEMINI.md are NOT locked: a task edits them legitimately. launch hashes them instead and
+; close reports a caged run that changed one (docs/cage.md).
 ; A repo's custom core.hooksPath inside DIR (the launcher resolves it uncaged). Optional, see header.
 (when (param "HOOKSPATH")
   (deny file-write* (subpath (param "HOOKSPATH"))))
@@ -166,6 +178,21 @@
   (subpath (string-append (param "HOME") "/.hermes"))
   (subpath (string-append (param "HOME") "/.pi"))
   (subpath (string-append (param "HOME") "/.mastracode"))
+  ; Other agents' homes: logins, API keys, MCP configs with tokens. By prefix where companions sit beside the home
+  ; (~/.factory-drafts, ~/.aider.conf.yml, ~/.aider.chat.history.md).
+  (prefix (string-append (param "HOME") "/.factory"))                ; Factory Droid
+  (prefix (string-append (param "HOME") "/.aider"))
+  (subpath (string-append (param "HOME") "/.windsurf"))
+  (subpath (string-append (param "HOME") "/.codeium"))               ; Windsurf's login and MCP config
+  (subpath (string-append (param "HOME") "/.continue"))
+  (subpath (string-append (param "HOME") "/.amp"))
+  (subpath (string-append (param "HOME") "/.opencode"))
+  (subpath (string-append (param "HOME") "/.kiro"))
+  (subpath (string-append (param "HOME") "/.qwen"))
+  (subpath (string-append (param "HOME") "/.augment"))
+  (subpath (string-append (param "HOME") "/.cline"))
+  (subpath (string-append (param "HOME") "/.local/share/amp"))       ; amp's and opencode's stored keys
+  (subpath (string-append (param "HOME") "/.local/share/opencode"))
   (subpath (string-append (param "HOME") "/Library/Application Support/Claude"))  ; the Claude app: MCP env tokens
   (subpath (string-append (param "HOME") "/Library/Application Support/Codex"))
   (subpath (string-append (param "HOME") "/Library/Application Support/com.openai.codex"))

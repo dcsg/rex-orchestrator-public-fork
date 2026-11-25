@@ -132,6 +132,7 @@ if test_nested_sandbox; then
   test_skip_nested 'a caged codex launch'
 else
 mkdir "$T/launch-work/caged O'Brien [work]"
+printf 'before\n' > "$T/launch-work/caged O'Brien [work]/CLAUDE.md"
 launch_case 0 caged --dir "$T/launch-work/caged O'Brien [work]" --cage --agent "$T/launch-agents/codex" \
   --tab 'Caged fixture' --trust
 sf="$REX_ORCHESTRATOR_STATE_DIR/${child//[^A-Za-z0-9_-]/_}"
@@ -139,7 +140,17 @@ cage="$REX_ORCHESTRATOR_STATE_DIR/cage/$(sed -n '1p' "$sf.cage")"
 check 'launch created an executable cage wrapper' "$([ -x "$cage/bin/codex" ] && echo yes)" yes
 check 'caged codex trusts the exact task directory' "$(grep -A1 -F "$(cd "$T/launch-work/caged O'Brien [work]" && pwd -P)" "$cage/codex-home/config.toml" | tail -1)" 'trust_level = "trusted"'
 check 'caged launch saves harvest metadata' "$(jq -r .block "$cage/run-meta.json")" "$child"
+check 'caged launch hashes the instruction files' "$(sed -n 2p "$sf.instr")" \
+  "$(/usr/bin/shasum -a 256 < "$T/launch-work/caged O'Brien [work]/CLAUDE.md" | cut -d' ' -f1)"$'\t'CLAUDE.md
+# The run changes CLAUDE.md and adds an AGENTS.md (the cage leaves both writable): close says so, and so does the manifest.
+printf 'after\n' > "$T/launch-work/caged O'Brien [work]/CLAUDE.md"
+printf 'new\n' > "$T/launch-work/caged O'Brien [work]/AGENTS.md"
 launch_close
+check 'close reports the changed instruction files' \
+  "$(grep -Fc "caged run changed instruction files in $(cd "$T/launch-work/caged O'Brien [work]" && pwd -P): AGENTS.md (added), CLAUDE.md (changed)" "$T/launch-close.err")" 1
+check 'the harvest manifest lists them' \
+  "$(jq -c '.instructions_changed' "$(grep -l '"label":"caged"' "$REX_ORCHESTRATOR_STATE_DIR"/runs/*/manifest.json)")" \
+  '["AGENTS.md (added)","CLAUDE.md (changed)"]'
 check 'close removed the generated cage' "$([ ! -e "$cage" ] && echo removed)" removed
 fi
 launch_case 2 cage-overlap --dir "$HOME" --cage --agent "$T/launch-agents/codex"

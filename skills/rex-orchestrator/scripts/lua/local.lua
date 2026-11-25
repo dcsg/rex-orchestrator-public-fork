@@ -11,7 +11,7 @@ if command=="clone" then
   C.git=F.git()
   dofile(dir .. "/clone.lua")(C,M)(arg)
 elseif command=="harvest" then
-  local ok,err=dofile(dir .. "/harvest.lua")(M,J,F,N)(arg[1],arg[2])
+  local ok,err=dofile(dir .. "/harvest.lua")(M,J,F,N)(arg[1],arg[2],arg[3])
   if not ok then C.die("harvest failed: " .. tostring(err),1) end
 elseif command=="validate-agy" then
   local login=J.decode(N.read(nil,arg[1]))

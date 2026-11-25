@@ -139,7 +139,8 @@ rex-orchestrator close [--force] BLOCK
 ```
 
 Closes the pane (ending its agent), harvests a caged child's transcripts into `STATE_DIR/runs/`, and removes its state and
-cage home. Works for a pane already closed in Rex, given its full ID. If `rex` can't close it, `close` exits 1 and keeps the
+cage home. For a caged child it also reports every `CLAUDE.md`, `AGENTS.md` or `GEMINI.md` in DIR the run changed, added or
+removed since launch ([cage.md](cage.md#instruction-files)). Works for a pane already closed in Rex, given its full ID. If `rex` can't close it, `close` exits 1 and keeps the
 state: run it again.
 
 ## Orphans
