@@ -60,6 +60,7 @@ the wrapper with 71 (`launch` reports 12 if observed during startup). Unset keep
    bash "$RA" wait "$B" --timeout 900
    ```
    Exit 0 done · 10 blocked (needs a person) · 11 error · 12 exited · 124 still working.
+   124 can also mean background work the turn started outlived `--bg-max` (default 300s); `wait` again to keep holding.
 4. **On `blocked`,** look first (`bash "$RA" screen "$B" 30`). Approve one action within the user's request with
    `keys "$B" enter` while a one-time "Yes" is selected, refuse with `keys "$B" escape`, then `wait` again. When in doubt,
    report the prompt to the user.

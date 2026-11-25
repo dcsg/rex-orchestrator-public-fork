@@ -218,6 +218,12 @@ cp "$sf.hold" "$T/first.hold"
 code=0; cli wait "$B" --timeout 0 > "$T/wait.out" 2> "$T/wait.err" || code=$?
 check 'remaining background hold is carried across waits' "$code" 124
 cmp "$T/first.hold" "$sf.hold"
+sleep 1
+code=0; cli wait "$B" --bg-max 1 --timeout 10 > "$T/wait.out" 2> "$T/wait.err" || code=$?
+check 'background work past --bg-max is still working' "$code:$(cat "$T/wait.out")" \
+  '124:timeout (state=done, background: 1 shell still running after --bg-max 1s)'
+check 'the --bg-max note stays' "$(grep -c 'background work still running after 1s (1 shell)' "$T/wait.err")" 1
+check 'the --bg-max expiry drops the hold' "$([ -e "$sf.hold" ] && echo kept || echo gone)" gone
 check 'ignore-background completes a carried hold' "$(cli wait "$B" --ignore-background)" 'done'
 [ ! -e "$sf.hold" ]
 # Self-target checks through a label and missing context retain usage exit 2.

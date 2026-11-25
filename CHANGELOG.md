@@ -21,6 +21,9 @@ project uses [Semantic Versioning](https://semver.org/).
   too, and its panes run in the same cage. See [docs/cage.md](docs/cage.md#a-private-rex-server).
 
 ### Changed
+- `wait` exits 124 (still working), not 0, when background work the turn started is still running after `--bg-max`.
+  It keeps the note and prints `timeout (state=done, background: N shells still running after --bg-max 300s)`; the
+  next `wait` holds for a fresh `--bg-max`.
 - Rex commands run in Lua via `rex do`. LuaJIT is required for local operations, and `jq` and `python3` are no longer
   runtime dependencies.
 

@@ -338,8 +338,20 @@ r=test({rec=d,screen=fixture("bg/claude-1shell-many-footer-rows"),files=basefile
 eq(r.code,124); eq(r.files["/state/block_child.hold"]~=nil,true)
 r=test({rec=d,screen=fixture("bg/claude-1shell-many-footer-rows"),files=basefiles})("wait",{child,"--ignore-background"})
 eq(r.code,0); eq(r.files["/state/block_child.hold"],nil)
-r=test({rec=d,screen=fixture("bg/claude-1shell-many-footer-rows")})("wait",{child,"--bg-max","1"})
-eq(r.code,0); eq(r.notes:find("background work still running",1,true)~=nil,true)
+-- Background work that outlives --bg-max: still working, 124 with the note; the hold goes, so the next wait gives the
+-- work a fresh --bg-max instead of returning at once.
+r=test({rec=d,screen=fixture("bg/claude-1shell-many-footer-rows"),files=basefiles})("wait",{child,"--bg-max","1"})
+eq(r.code,124); eq(r.out,"timeout (state=done, background: 1 shell still running after --bg-max 1s)")
+eq(r.notes:find("background work still running after 1s (1 shell)",1,true)~=nil,true); eq(r.elapsed,1)
+eq(r.files["/state/block_child.hold"],nil)
+r=test({rec=d,screen=fixture("bg/claude-1shell-many-footer-rows"),files=r.files})("wait",{child,"--bg-max","3"})
+eq(r.code,124); eq(r.elapsed,3)
+r=test({rec={app="claude-code",state="idle",updated_at="new"},screen=fixture("bg/claude-1shell-many-footer-rows"),
+  files=basefiles})("wait",{child,"--bg-max","1"})
+eq(r.code,124); eq(r.out,"timeout (state=idle, background: 1 shell still running after --bg-max 1s)")
+r=test({rec=d,screen=fixture("bg/claude-1shell-many-footer-rows"),files=basefiles})("wait",{child,"--bg-max","5"},
+  {{at=2,set={screen=fixture("bg/live-idle")}}})
+eq(r.code,0); eq(r.out,"done")
 r=test({rec=d,screen=fixture("bg/claude-1shell-many-footer-rows")})("wait",{child},{{at=1,set={screen=fixture("bg/live-idle")}}})
 eq(r.code,0); eq(r.elapsed,21)
 r=test({rec=d,screen=fixture("bg/claude-1shell-many-footer-rows")})("wait",{child,"--timeout","22"},{

@@ -94,8 +94,9 @@ Waits for the turn started by the last `send` or `keys` and prints the final sta
 count, so a previous turn's `done` can't end it — start `wait` after `send` returns, never before.
 
 A turn that ends with **more background work than at the send** (Claude's `N shells`, Gemini's `N tasks`, grok's tasks pane)
-is held until that work ends and the agent has had 20s to resume, at most `--bg-max` (default 300s).
-`--ignore-background` returns as soon as the turn ends.
+is held until that work ends and the agent has had 20s to resume. Work still running after `--bg-max` (default 300s)
+exits 124 with a note (`background work still running after 300s (1 shell)`): the agent is still working. The next
+`wait` holds for a fresh `--bg-max`. `--ignore-background` returns as soon as the turn ends.
 
 | Exit | Output | Meaning |
 |---|---|---|
@@ -104,7 +105,7 @@ is held until that work ends and the agent has had 20s to resume, at most `--bg-
 | 11 | `error …` | The agent reported an error |
 | 12 | `exited` | The agent is gone |
 | 1 | | The connection to Rex was lost, including during a server restart |
-| 124 | `timeout (state=working)` | Still running: wait again or look at the screen |
+| 124 | `timeout (state=working)`, or `timeout (state=done, background: 1 shell still running after --bg-max 300s)` | Still running (the turn, or background work it started): wait again or look at the screen |
 
 `--approve-in DIR` is covered in [safety.md](safety.md#wait---approve-in).
 

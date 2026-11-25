@@ -82,9 +82,10 @@ return function(C, M, A, P)
     end
     local function after(delay,fn) return R.after(delay,guard(fn)) end
     local function every(delay,fn) return R.every(delay,guard(fn)) end
-    local function finish(text,code)
+    -- A 124 keeps the hold for the next wait, unless DROP: then the next wait starts a fresh --bg-max window.
+    local function finish(text,code,drop)
       save()
-      if code~=124 then C.fs.remove(sf .. ".hold") end
+      if code~=124 or drop then C.fs.remove(sf .. ".hold") end
       C.out(text)
       stop(code)
     end
@@ -98,7 +99,7 @@ return function(C, M, A, P)
       if bg~="" and count>base then
         if held~=upd then held=upd; held_at=now end
         bg_gone=nil
-        if now-(held_at or now)>=bgmax then C.note("background work still running after " .. bgmax .. "s (" .. bg .. ")"); return true end
+        if now-(held_at or now)>=bgmax then return "expired" end
         return false
       end
       bg=""
@@ -109,6 +110,15 @@ return function(C, M, A, P)
       end
       bg_gone=bg_gone or now
       return now-bg_gone>=20
+    end
+    -- A turn over but for background work that outlived --bg-max: the agent is still working, so 124 like a timeout,
+    -- never a finished turn. The hold goes, so a next wait gives the work a fresh --bg-max.
+    local function finish_turn(over)
+      if over=="expired" then
+        C.note("background work still running after " .. bgmax .. "s (" .. bg .. ")")
+        finish("timeout (state=" .. state .. ", background: " .. bg .. " still running after --bg-max " .. bgmax .. "s)",124,true)
+      end
+      finish(state,0)
     end
     local evaluate
     local function later_retry()
@@ -161,19 +171,21 @@ return function(C, M, A, P)
       end
       if fresh then
         if state=="done" then
-          if turn_over() then
+          local over=turn_over()
+          if over then
             -- A screen timer can race a queued status event. Recheck before returning a cached result.
             if not refresh then return evaluate(true,true) end
-            finish(state,0)
+            finish_turn(over)
           end
         elseif state=="idle" then
           if not idle_at then
             idle_at=os.time()
             idle_timer=after(8,function() idle_timer=nil; evaluate(false,false) end)
           end
-          if turn_over() and (worked or held~="" or os.time()-idle_at>=8) then
+          local over=turn_over()
+          if over and (worked or held~="" or os.time()-idle_at>=8) then
             if not refresh then return evaluate(true,true) end
-            finish(state,0)
+            finish_turn(over)
           end
         elseif state=="blocked" then
           if not refresh then return end -- Only a fresh snapshot can authorize a key press.
