@@ -603,10 +603,53 @@ local function clone_test(race)
   return commands,removed,ok,err
 end
 local commands,removed,ok,err=clone_test(false)
-eq(ok,true); eq(removed,1); eq(commands[3],"/usr/bin/git clone --local -- /repo /dest")
-eq(commands[4],"/usr/bin/git -C /dest switch -c new"); eq(commands.out,"/dest")
+-- Every git runs through M.git: a clean environment, the settings that switch off hooks, fsmonitor, drivers, helpers
+-- and every protocol but file, and before a call that writes a worktree, a look at the drivers its config defines.
+local git_prefix=table.concat(M.git_argv("/usr/bin/git",{})," ")
+eq(ok,true); eq(removed,1)
+eq(commands[1],git_prefix .. " -C /repo rev-parse --show-toplevel")
+eq(commands[3],git_prefix .. " -C /repo config -z --name-only --list")
+eq(commands[4],git_prefix .. " clone --local -- /repo /dest")
+eq(commands[5],git_prefix .. " -C /dest config -z --name-only --list")
+eq(commands[6],git_prefix .. " -C /dest switch -c new"); eq(commands.out,"/dest")
 commands,removed,ok,err=clone_test(true)
 eq(ok,false); eq(removed,1); eq(#commands,2); eq(err.code,2)
+-- The host git settings and environment.
+do
+  os.getenv=function(key) return ({HOME="/home/test",TMPDIR="/tmp/t/",GIT_DIR="/elsewhere"})[key] end
+  local argv=M.git_argv("/usr/bin/git",{"status"},{"filter.x.smudge="})
+  local text=table.concat(argv," ")
+  eq(argv[1],"/usr/bin/env"); eq(argv[2],"-i"); eq(argv[#argv],"status")
+  for _,word in ipairs({"HOME=/home/test","TMPDIR=/tmp/t/","GIT_CONFIG_NOSYSTEM=1","GIT_ATTR_NOSYSTEM=1",
+    "GIT_TERMINAL_PROMPT=0","PATH=/usr/bin:/bin:/usr/sbin:/sbin"}) do
+    eq(not not text:find(" " .. word .. " ",1,true),true,"git env " .. word)
+  end
+  eq(text:find("GIT_DIR",1,true),nil,"the caller's GIT_* stay out")
+  for _,setting in ipairs({"core.hooksPath=/dev/null","core.fsmonitor=false","credential.helper=","core.askPass=",
+    "core.sshCommand=/usr/bin/false","core.attributesFile=/dev/null","diff.external=","filter.lfs.process=",
+    "filter.lfs.smudge=","filter.lfs.clean=","filter.lfs.required=false","submodule.recurse=false",
+    "protocol.allow=never","protocol.file.allow=always","protocol.ext.allow=never","filter.x.smudge="}) do
+    eq(not not text:find(" -c " .. setting .. " ",1,true),true,"git setting " .. setting)
+  end
+  local listed
+  local function exec(a)
+    listed=a
+    return {ok=true,stdout="core.hookspath\0filter.Evil.smudge\0filter.Evil.clean\0filter.a.b.process\0" ..
+      "diff.tc.textconv\0core.fsmonitor\0alias.co\0credential.helper\0filter.lfs.smudge\0"}
+  end
+  local drivers=M.git_drivers(exec,"/usr/bin/git","/repo")
+  eq(table.concat(listed," ",#listed-5),"-C /repo config -z --name-only --list")
+  eq(table.concat(drivers," "),"filter.Evil.clean= filter.Evil.smudge= filter.Evil.process= filter.Evil.required=false " ..
+    "filter.a.b.clean= filter.a.b.smudge= filter.a.b.process= filter.a.b.required=false diff.tc.textconv= diff.tc.command= " ..
+    "filter.lfs.clean= filter.lfs.smudge= filter.lfs.process= filter.lfs.required=false")
+  local none,why=M.git_drivers(function() return {ok=true,stdout="filter.a=b.smudge\0"} end,"/usr/bin/git","/repo")
+  eq(none,nil); eq(not not why:find("can't switch off: a=b",1,true),true)
+  eq(M.git(function() return {ok=false,stdout=""} end,"/usr/bin/git",{"switch"},"/repo"),nil,"unreadable config: no git call")
+  local calls=0
+  eq(M.git(function() calls=calls+1; return {ok=true,stdout="filter.a=b.smudge\0"} end,"/usr/bin/git",{"switch"},"/repo"),nil)
+  eq(calls,1,"a driver that can't be switched off: the call doesn't run")
+  os.getenv=original_getenv
+end
 
 local Launch=dofile(dir .. "launch.lua")
 local function run_launch(args,opts,recovery)

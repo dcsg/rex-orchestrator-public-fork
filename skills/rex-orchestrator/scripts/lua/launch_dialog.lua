@@ -155,7 +155,7 @@ return function(C,M,I)
   function D.trusted_above(opts,before)
     local top
     if opts.kind=="codex" then
-      local r=C.rex.exec({C.git,"-C",opts.dir,"rev-parse","--show-toplevel"})
+      local r=M.git(C.rex.exec,C.git,{"-C",opts.dir,"rev-parse","--show-toplevel"})
       if r and r.ok then top=r.stdout:gsub("\n+$","") end
     end
     local trusted=trusted_in(opts.kind,before)

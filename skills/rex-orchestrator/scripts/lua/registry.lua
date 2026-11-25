@@ -100,7 +100,7 @@ return function(C, M)
 
   function G.identity(dir,given)
     local function git(...)
-      local r=C.rex.exec({C.git,"-C",dir,...})
+      local r=M.git(C.rex.exec,C.git,{"-C",dir,...})
       return r and r.ok and r.stdout:gsub("\n+$","") or nil
     end
     local top=git("rev-parse","--show-toplevel")

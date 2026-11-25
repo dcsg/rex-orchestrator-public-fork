@@ -25,6 +25,12 @@ project uses [Semantic Versioning](https://semver.org/).
   runtime dependencies.
 
 ### Fixed
+- Host git (`clone`, `launch`'s repo checks, the claims) runs nothing a repo or its attributes name: every call gets
+  `-c` settings that switch off hooks, the fsmonitor, git-lfs, the external diff, credential helpers, askpass and the
+  ssh command and allow only the `file` protocol, in a clean environment without system config or attributes. Before
+  `clone`'s `git clone --local` and `switch`, every filter and diff driver the repo's config defines is switched off
+  by name; a driver whose name holds `=` is refused (exit 1). A caged worker's repo could otherwise run a
+  post-checkout hook or a clean/smudge filter on the host through `clone -b`.
 - `launch` starts the agent directly (`login = false` beside `shell = "none"`), as `rex split --shell none` does. Rex
   otherwise ran it through `/usr/bin/login`: a "Last login" line, a `-`-prefixed name, and a setuid program that a
   sandboxed process can't start, so no pane could be launched from inside a cage.

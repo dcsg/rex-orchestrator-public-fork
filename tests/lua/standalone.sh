@@ -43,6 +43,64 @@ printf 'this stays in the APFS copy\n' > "$fixture/source/untracked"
 check 'clone works offline and creates parents' \
   "$(cli clone "$fixture/source" "$fixture/new/parent/task")" "$fixture/new/parent/task"
 check 'clone preserves untracked content' "$(cat "$fixture/new/parent/task/untracked")" 'this stays in the APFS copy'
+
+# Host git runs nothing a repo (or the user's global config) names: a source whose config and attributes try every
+# vector, cloned by both paths (the APFS copy, then switch; git clone --local, then switch). Each program records itself.
+marks="$fixture/git-ran"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> %s\nexec <&-\nexit 0\n' "'$marks'" > "$fixture/vector"
+chmod +x "$fixture/vector"
+vector="$fixture/vector"
+vec="$fixture/vector-source"
+git init -q "$vec"
+printf 'a\n' > "$vec/a.txt"; printf 'g\n' > "$vec/b.g"; printf 'l\n' > "$vec/c.lfs"; printf 'd\n' > "$vec/d.dot"
+printf '*.txt filter=evil diff=evil\n*.g filter=gevil\n*.lfs filter=lfs\n*.dot filter=x.y\n' > "$vec/.gitattributes"
+git -C "$vec" add -A
+git -C "$vec" -c core.hooksPath=/dev/null -c user.name=t -c user.email=t@t.invalid commit -qm vectors
+mkdir -p "$vec/tools/hooks" "$fixture/template/hooks"
+for hook in "$vec/.git/hooks/post-checkout" "$vec/tools/hooks/post-checkout" "$fixture/template/hooks/post-checkout"; do
+  printf '#!/bin/sh\n%s hook %s\n' "'$vector'" "$hook" > "$hook"; chmod +x "$hook"
+done
+printf 'b.g filter=info\n' > "$vec/.git/info/attributes"
+{
+  printf '[core]\n\thooksPath = tools/hooks\n\tfsmonitor = %s\n\tsshCommand = %s ssh\n\taskPass = %s askpass\n' \
+    "$vector" "$vector" "$vector"
+  printf '[filter "evil"]\n\tclean = %s clean\n\tsmudge = %s smudge\n\tprocess = %s process\n\trequired = true\n' \
+    "$vector" "$vector" "$vector"
+  printf '[filter "x.y"]\n\tsmudge = %s dotted\n\tclean = %s dotted\n' "$vector" "$vector"
+  printf '[filter "info"]\n\tsmudge = %s info\n\tclean = %s info\n' "$vector" "$vector"
+  printf '[diff "evil"]\n\ttextconv = %s textconv\n\tcommand = %s diff\n' "$vector" "$vector"
+  printf '[credential]\n\thelper = !%s credential\n' "$vector"
+} >> "$vec/.git/config"
+{
+  printf '[init]\n\ttemplateDir = %s\n' "$fixture/template"
+  printf '[core]\n\tfsmonitor = %s\n' "$vector"
+  printf '[filter "gevil"]\n\tsmudge = %s gsmudge\n\tclean = %s gclean\n' "$vector" "$vector"
+  printf '[filter "lfs"]\n\tsmudge = %s lfs\n\tprocess = %s lfs\n\tclean = %s lfs\n\trequired = true\n' \
+    "$vector" "$vector" "$vector"
+} > "$HOME/.gitconfig"
+check 'host git: a vector runs when git is called plainly (the fixture works)' \
+  "$(git -C "$vec" status --porcelain >/dev/null 2>&1; [ -s "$marks" ] && echo ran)" ran
+rm -f "$marks"
+check 'host git: clone by copy and switch' "$(cli clone "$vec" "$fixture/vector-copy" -b task 2>/dev/null)" "$fixture/vector-copy"
+check 'host git: the copy is on the branch' "$(git -C "$fixture/vector-copy" symbolic-ref --short HEAD)" task
+check 'host git: nothing ran for the copy' "$(cat "$marks" 2>/dev/null)" ''
+# An unreadable untracked file makes the copy fail, so clone falls back to git clone --local.
+: > "$vec/locked"; chmod 000 "$vec/locked"
+rc=0; cli clone "$vec" "$fixture/vector-clone" -b task > "$fixture/vector.out" 2> "$fixture/vector.err" || rc=$?
+chmod 600 "$vec/locked"
+check 'host git: clone --local fallback' "$rc:$(cat "$fixture/vector.out")" "0:$fixture/vector-clone"
+check 'host git: the fallback took git clone --local' "$(grep -Fc 'falling back to git clone --local' "$fixture/vector.err")" 1
+check 'host git: the clone is on the branch' "$(git -C "$fixture/vector-clone" symbolic-ref --short HEAD)" task
+check 'host git: the clone checked out the files' "$(cat "$fixture/vector-clone/a.txt")" a
+check 'host git: nothing ran for the clone' "$(cat "$marks" 2>/dev/null)" ''
+# A driver whose name can't be put in a -c setting is refused, not left on.
+git -C "$vec" config 'filter.a=b.smudge' "$vector unswitchable"
+rc=0; cli clone "$vec" "$fixture/vector-refused" -b task > "$fixture/vector.out" 2> "$fixture/vector.err" || rc=$?
+check 'host git: a driver that cannot be switched off refuses the branch' "$rc:$(cat "$fixture/vector.out")" 1:
+check 'host git: the refusal names the driver' "$(grep -Fc "driver this tool can't switch off: a=b" "$fixture/vector.err")" 1
+check 'host git: the refused copy is removed' "$([ ! -e "$fixture/vector-refused" ] && echo gone)" gone
+check 'host git: nothing ran for the refusal' "$(cat "$marks" 2>/dev/null)" ''
+rm -f "$HOME/.gitconfig"
 mkdir -p "$REX_ORCHESTRATOR_STATE_DIR/registry"
 printf '{"pid":99999999,"block":"block:stale","session":"session:fixture"}\n' > "$REX_ORCHESTRATOR_STATE_DIR/registry/stale.json"
 check 'offline claims prune a dead pid' "$(cli claims --json)" ''

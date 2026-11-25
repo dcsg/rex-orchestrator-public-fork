@@ -54,6 +54,8 @@ rex-orchestrator launch [-d DIR] [-l LABEL] [--split right|left|above|below] [--
     ready after --timeout (default 90s).
 rex-orchestrator clone REPO DEST [-b BRANCH]
     Make a standalone APFS copy-on-write checkout (git clone --local fallback); DEST must not exist. Prints DEST.
+    Its git runs no hook, fsmonitor, filter or diff driver, credential helper or ssh command, and only the file
+    protocol; with -b, a repo whose config defines a driver it can't switch off by name exits 1.
 rex-orchestrator claims [--json]
     List live write claims (one launch per checkout), pruning dead pids and missing Rex blocks.
 rex-orchestrator send [--force] BLOCK TEXT...   Type a prompt (newlines become spaces) and press Return.

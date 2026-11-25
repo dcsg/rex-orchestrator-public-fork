@@ -173,6 +173,9 @@ other. Claims are released by `close` and pruned when the pane or the agent proc
 
 - `clone REPO DEST [-b BRANCH]` — a standalone checkout (APFS copy-on-write, falling back to `git clone --local`), `.git`
   inside DEST. Prefer it to `git worktree` for caged children: a worktree's metadata lives outside DIR, where the cage can't write.
+  Its git runs no hook, fsmonitor, filter or diff driver, credential helper or ssh command, and no protocol but
+  `file` ([cage.md](cage.md#what-the-cage-does-not-cover)); a repo whose config defines a driver it can't switch off
+  by name (one with `=` in its name) is refused with exit 1 when a BRANCH is asked for.
 - `claims [--json]` — live claims across sessions.
 
 Neither needs a Rex pane.

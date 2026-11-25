@@ -216,6 +216,81 @@ function M.duration(opt, value, die)
   if not n then die(opt .. " takes a duration such as 90, 90s, 10m or 1h, not '" .. value .. "'") end
   return tonumber(n)*({s=1,m=60,h=3600,[""]=1})[u]
 end
+-- Host git. clone, launch and the claims run git on the user's Mac, uncaged, in folders a caged worker may have written
+-- (DIR, a repo it worked in, a copy of one). git runs programs that config and attributes name: hooks (post-checkout
+-- runs on clone and switch), the fsmonitor hook, filter drivers (clean, smudge, process: a .gitattributes line picks
+-- one the config defines, git-lfs's too), diff drivers (textconv, command) and the external diff, credential helpers
+-- and askpass, the ssh command, and remote helpers (ext:: runs a shell command). Every host git call goes through
+-- M.git, which switches all of them off for that call:
+--   - these settings as -c (command-line scope, which wins over every config file and include);
+--   - only the file protocol (clone --local needs it): ssh, git://, http(s), ext:: and every other remote helper are
+--     refused, so no ssh command, proxy, credential helper or askpass is ever reached;
+--   - a clean environment: no GIT_* of the caller's (GIT_DIR, GIT_CONFIG_*, GIT_SSH_COMMAND, GIT_EXTERNAL_DIFF...), no
+--     system config or attributes, no prompts, no lazy fetch; HOME, XDG_CONFIG_HOME and TMPDIR stay, so the user's own
+--     global config (safe.directory, identity) still applies, minus what these settings switch off;
+--   - for a call that writes a worktree (clone, switch), every filter and diff driver the repo's config defines, by
+--     name, since a driver's name is free (M.git_drivers). Without it, an attribute line in the worktree or in
+--     .git/info/attributes would pick one.
+M.git_settings={
+  "core.hooksPath=/dev/null",        -- no hook is found there
+  "core.fsmonitor=false",
+  "core.sshCommand=/usr/bin/false",
+  "core.askPass=",
+  "credential.helper=",              -- an empty value clears the list of helpers
+  "core.attributesFile=/dev/null",   -- the user's global attributes
+  "diff.external=",
+  "filter.lfs.clean=","filter.lfs.smudge=","filter.lfs.process=","filter.lfs.required=false",
+  "submodule.recurse=false",
+  "protocol.allow=never","protocol.file.allow=always","protocol.ext.allow=never",
+}
+local git_driver_keys={filter={"clean","smudge","process"},diff={"textconv","command"}}
+-- The argv that runs GIT with ARGS under the settings above, plus EXTRA (more name=value settings).
+function M.git_argv(git,args,extra)
+  local argv={"/usr/bin/env","-i","PATH=/usr/bin:/bin:/usr/sbin:/sbin","GIT_CONFIG_NOSYSTEM=1","GIT_ATTR_NOSYSTEM=1",
+    "GIT_TERMINAL_PROMPT=0","GIT_NO_LAZY_FETCH=1"}
+  for _,key in ipairs({"HOME","XDG_CONFIG_HOME","TMPDIR"}) do
+    local value=M.env(key)
+    if value then argv[#argv+1]=key .. "=" .. value end
+  end
+  argv[#argv+1]=git
+  for _,list in ipairs({M.git_settings,extra or {}}) do
+    for _,setting in ipairs(list) do argv[#argv+1]="-c"; argv[#argv+1]=setting end
+  end
+  for _,arg in ipairs(args) do argv[#argv+1]=arg end
+  return argv
+end
+-- The settings that switch off every filter and diff driver the config seen from DIR defines (the repo's own, its
+-- includes and the user's global config), or nil and why. A driver whose name holds "=" or a line break can't be
+-- named in a -c setting, so it is refused rather than left on.
+function M.git_drivers(exec,git,dir)
+  local r=exec(M.git_argv(git,{"-C",dir,"config","-z","--name-only","--list"}))
+  if not r or not r.ok then return nil,"cannot read the git config in " .. dir end
+  local settings,seen={},{}
+  for name in r.stdout:gmatch("([^%z]+)%z") do
+    local section,driver=name:match("^(%a+)%.(.+)%.[%w-]+$")
+    section=section and section:lower()
+    if git_driver_keys[section] and not seen[section .. "." .. driver] then
+      seen[section .. "." .. driver]=true
+      if driver:find("[=\n]") then
+        return nil,"the git config in " .. dir .. " defines a " .. section .. " driver this tool can't switch off: " .. driver
+      end
+      for _,key in ipairs(git_driver_keys[section]) do settings[#settings+1]=section .. "." .. driver .. "." .. key .. "=" end
+      if section=="filter" then settings[#settings+1]="filter." .. driver .. ".required=false" end
+    end
+  end
+  return settings
+end
+-- Run host git through EXEC (rex.exec or the standalone one). WORKTREE, for a call that writes one: the folder whose
+-- config names the drivers to switch off too. Returns EXEC's result, or nil and why.
+function M.git(exec,git,args,worktree)
+  local extra
+  if worktree then
+    local why
+    extra,why=M.git_drivers(exec,git,worktree)
+    if not extra then return nil,why end
+  end
+  return exec(M.git_argv(git,args,extra))
+end
 function M.new(rex, fs, output)
   local C={rex=rex, fs=fs, session=nil, me="", force=false}
   C.out=(output and output.out) or function(s) io.stdout:write(s .. "\n"); io.stdout:flush() end

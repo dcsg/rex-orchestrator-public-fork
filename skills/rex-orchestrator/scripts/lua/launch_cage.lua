@@ -60,13 +60,23 @@ return function(C,M)
   end
 
   local function git_value(dir,...)
-    local r=R.exec({C.git,"-C",dir,...})
+    local r=M.git(R.exec,C.git,{"-C",dir,...})
     return r and r.ok and r.stdout:gsub("\n+$","") or nil
+  end
+  -- The repo's own core.hooksPath, as git would use it outside this tool: M.git's own command-line setting
+  -- (core.hooksPath=/dev/null) is the last value git lists, so the last one from any other scope is taken.
+  local function repo_hooks_path(dir)
+    local listed=git_value(dir,"config","-z","--show-scope","--path","--get-all","core.hooksPath")
+    local value
+    for scope,v in (listed or ""):gmatch("([^%z]*)%z([^%z]*)%z") do
+      if scope~="command" then value=v end
+    end
+    return value
   end
 
   local function hooks_path(dir)
     local top=git_value(dir,"rev-parse","--show-toplevel")
-    local hooks=top and git_value(dir,"config","--path","--get","core.hooksPath")
+    local hooks=top and repo_hooks_path(dir)
     if not hooks or hooks=="" then return nil end
     if not M.starts(hooks,"/") then hooks=top .. "/" .. hooks end
     hooks=hooks:gsub("/+","/")

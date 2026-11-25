@@ -235,7 +235,12 @@ your home, `~/Library` or `~/Repos`: give each task its own folder.
 - **DIR is attacker-written.** Build steps that run code (`package.json` scripts, `.npmrc`, `pyproject.toml`, `Makefile`,
   `.devcontainer/`, `.gitattributes` filters) aren't locked, nor are symlink or gitdir-file reroutes. **Review DIR's diff
   before running anything against it uncaged** — git (hooks fire on checkout/merge), direnv, an editor, another agent,
-  `npm install`, a build.
+  `npm install`, a build. This tool's own git calls on the host (`clone`, and `launch`'s and the claims' repo checks)
+  run with hooks, the fsmonitor, filter and diff drivers, the external diff, credential helpers, askpass, the ssh
+  command and every protocol but `file` switched off (`-c` settings, which win over every config file), in a clean
+  environment without system config or attributes; before `clone` and `switch`, every filter and diff driver the
+  repo's config defines is switched off by name, and a driver whose name can't be named that way is refused. Your own
+  git is not: it still runs what DIR's config and attributes name.
 - **TLS services** (`com.apple.SecurityServer`, `trustd.agent`) are reachable; safe only while keychain files stay
   read-denied.
 - **Your Rex.** A caged agent can't reach your Rex server over its unix socket, so it can't orchestrate children

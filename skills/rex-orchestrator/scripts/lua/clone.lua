@@ -1,8 +1,10 @@
 return function(C,M)
   local R,F=C.rex,C.fs
-  local function git(args,diagnostics)
-    table.insert(args,1,C.git)
-    local result=R.exec(args)
+  -- Every git here runs through M.git: REPO and the copy may hold hooks, an fsmonitor, filter drivers and the like that a
+  -- caged worker wrote, and none of them may run on the host. WORKTREE names the folder whose drivers to switch off.
+  local function git(args,diagnostics,worktree)
+    local result,why=M.git(R.exec,C.git,args,worktree)
+    if not result and why then C.note("clone: " .. why) end
     if diagnostics and result then
       for _,text in ipairs({result.stdout,result.stderr}) do
         if text~="" then C.lines((text:gsub("\n$",""))) end
@@ -33,12 +35,12 @@ return function(C,M)
       C.note("clone: cp -c failed; falling back to git clone --local")
       if not F.remove_tree(dest) then C.die("clone failed",1) end
       reserve_destination()
-      if not git({"clone","--local","--",repo,dest},true) then
+      if not git({"clone","--local","--",repo,dest},true,repo) then
         F.remove_tree(dest)
         C.die("clone failed",1)
       end
     end
-    if branch and not git({"-C",dest,"switch","-c",branch},true) then
+    if branch and not git({"-C",dest,"switch","-c",branch},true,dest) then
       F.remove_tree(dest)
       C.die("clone: cannot create branch " .. branch,1)
     end
