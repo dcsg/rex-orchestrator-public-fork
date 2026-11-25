@@ -242,6 +242,9 @@ function M.new(rex, fs, output)
     if C.dir=="" then C.die("no state dir: set HOME or REX_ORCHESTRATOR_STATE_DIR") end
     if not fs.init(C.dir) then C.die("refusing state dir " .. C.dir .. ": a link, not a directory, or not yours (REX_ORCHESTRATOR_STATE_DIR picks another)") end
   end
+  function C.missing_context()
+    C.die("REX_SESSION is empty and no session could be resolved from REX_BLOCK; run inside a Rex terminal with REX_BLOCK set (check with: rex whoami --json), or set REX_SESSION explicitly")
+  end
   function C.init()
     local context=C.context or {session=env("REX_SESSION"),block=env("REX_BLOCK")}
     local session=context.session~="" and context.session or nil
@@ -255,7 +258,7 @@ function M.new(rex, fs, output)
       -- A confirmed missing explicit scope is kept for the same diagnostic as block inspect.
       session=canonical or session
     end
-    if not session then C.die("REX_SESSION is empty and no session could be resolved from REX_BLOCK; run inside a Rex terminal with REX_BLOCK set (check with: rex whoami --json), or set REX_SESSION explicitly") end
+    if not session then C.missing_context() end
     C.session=session
     C.init_state()
     if caller then

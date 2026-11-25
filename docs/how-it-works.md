@@ -1,9 +1,9 @@
 # How it works
 
 `rex-orchestrator` has a Bash entry point that resolves install symlinks and runs `status`, `ls`, `screen`, `wait`,
-`send`, `keys`, `close`, `claims`, `launch` and `clone` through `rex do`. `clone` can also run through the Bash
-compatibility path when Rex is offline. Both implementations use the same ownership and claim files. Lua generates
-cage wrappers from shell fragments. The wrappers run the cage, and a shared shell helper removes cage files.
+`send`, `keys`, `close`, `claims` and `launch` through `rex do`. Standalone LuaJIT runs `clone`, prunes dead claims
+when Rex is offline, validates agy's token JSON, and harvests transcripts. Lua generates cage wrappers from shell
+fragments. The wrappers run the cage, and a shared shell helper restores permissions and removes cage files.
 
 ## The pieces
 

@@ -61,7 +61,7 @@ for crafted in 'claude:❯ Yes, I trust this folder' 'agy:> Yes, I trust this fo
   launch_case 2 "crafted-$kind" --agent "$T/launch-agents/claude" --kind "$kind" --dir "$crafted_dir" --trust
   grep -q 'refuses a directory name' "$T/launch.err"
   if [ -f "$OLD" ]; then
-    error_parity "$kind crafted trust path" "$REX_SESSION" "$REX_BLOCK" \
+    expect_error "$kind crafted trust path" "$REX_SESSION" "$REX_BLOCK" 2 'refuses a directory name' \
       launch --no-cage --agent "$T/launch-agents/claude" --kind "$kind" --dir "$crafted_dir" --trust
   fi
 done
@@ -229,7 +229,7 @@ printf 'fixture\n' > "$repo/tracked"
 git -C "$repo" add tracked
 git -C "$repo" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgSign=false commit -qm fixture
 printf 'untracked fixture\n' > "$repo/untracked"
-check 'online Lua clone returns the destination' "$(cli clone "$repo" "$T/clone online" -b isolated)" "$T/clone online"
+check 'Lua clone returns the destination' "$(cli clone "$repo" "$T/clone online" -b isolated)" "$T/clone online"
 check 'Lua clone switches branches' "$(git -C "$T/clone online" branch --show-current)" isolated
 check 'APFS clone preserves untracked contents' "$(cat "$T/clone online/untracked")" 'untracked fixture'
 code=0; cli clone "$repo" "$T/clone online" > "$T/clone.out" 2> "$T/clone.err" || code=$?

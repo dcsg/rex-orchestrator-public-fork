@@ -14,8 +14,8 @@ cleanup_cage() {
   esac
   # Restore access to sealed transcript directories before reading them.
   { chflags -R nouchg,nouappnd "$1"; chmod -R -N "$1"; chmod -R u+rwX "$1"; } 2>/dev/null || true
-  # Measurement never prevents cleanup, including when Python/storage fails.
-  python3 -I "${SCRIPT_DIR:-${SDIR:-.}}/harvest.py" "$1" "${STATE_DIR:-${1%/cage/*}}" ||
+  # Measurement never prevents cleanup, including when Lua or storage fails.
+  /bin/bash -p "${SCRIPT_DIR:-${SDIR:-.}}/local-lua.sh" harvest "$1" "${STATE_DIR:-${1%/cage/*}}" ||
     note "harvest failed for $1; continuing removal; storage failure may prevent a manifest"
   until { chflags -R nouchg,nouappnd "$1"; chmod -R -N "$1"; chmod -R u+rwX "$1"; rm -rf "$1"; } 2>/dev/null; do
     [ $((n += 1)) -lt 2 ] || { rm -rf "$1"; return; }

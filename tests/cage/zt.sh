@@ -34,7 +34,7 @@
 # Prints one PASS/FAIL line per check; exits non-zero on any FAIL.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd -P)
-SCRIPT=${REX_ORCHESTRATOR_SH:-$HERE/../../skills/rex-orchestrator/scripts/rex-orchestrator-bash.sh}
+SCRIPT=${REX_ORCHESTRATOR_SH:-$HERE/../../skills/rex-orchestrator/scripts/rex-orchestrator.sh}
 SDIR=$(cd "$(dirname "$SCRIPT")" && pwd -P)
 ASSETS=$SDIR
 PROFILE="$SDIR/cage.sb"
@@ -310,8 +310,6 @@ mkdir -p "$CS"
 git -C "$CS" init -q && printf 'source\n' >"$CS/original.txt" &&
   git -C "$CS" add original.txt && git -C "$CS" -c core.hooksPath=/dev/null commit -qm source || bad "clone source fixture"
 source_head=$(git -C "$CS" rev-parse HEAD)
-# clone needs no live Rex calls; keep discovery hermetic even without the Rex app.
-printf '#!/bin/sh\nexit 1\n' >"$WORK/bin/rex"; chmod +x "$WORK/bin/rex"
 clone_out=$(REX_ORCHESTRATOR_REX_BIN_DIR="$WORK/bin" REX_ORCHESTRATOR_STATE_DIR="$STATE_DIR" "$BASH" "$SCRIPT" clone "$CS" "$CD" -b cage-task 2>"$WORK/clone.log")
 chk "clone prints DEST" "$CD" "$clone_out"
 chk "clone keeps .git inside DEST" yes "$([ -d "$CD/.git" ] && echo yes || echo no)"

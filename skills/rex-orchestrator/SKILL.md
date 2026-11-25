@@ -19,7 +19,8 @@ bash "$RA" help          # full reference: every flag and exit code
 Run it from a shell inside a Rex pane: `launch`, `send`, `keys`, `close` and `wait --approve-in` need `REX_BLOCK`, which
 Rex sets in every pane. When `REX_SESSION` is empty, the CLI resolves the session once with `rex whoami --json`;
 an explicit `REX_SESSION` is used unchanged. If your shell strips Rex's environment (Codex does), prefix each call with
-`REX_BLOCK=…` (and optionally `REX_SESSION=…`) from the session-start text Rex's hook printed. Requires `jq`.
+`REX_BLOCK=…` (and optionally `REX_SESSION=…`) from the session-start text Rex's hook printed. Local operations
+such as `clone` and transcript harvesting require LuaJIT.
 The CLI follows install symlinks to find its cage profile and templates beside the real script; the
 `REX_ORCHESTRATOR_CAGE_PROFILE` and `REX_ORCHESTRATOR_CAGE_TPL` overrides take priority.
 For a caged agy login from a secret store, set `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` to a shell command returning the

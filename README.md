@@ -40,7 +40,7 @@ glue an agent needs to delegate reliably:
 
 - macOS (the cage uses `sandbox-exec`; the rest is POSIX-ish but only tested on macOS)
 - [Rex](https://www.superlogical.com/rex) with its `rex` CLI on `PATH`, including `rex do`, Lua event handlers and timers
-- `bash`, `jq`, `git`, `python3`
+- `bash`, `git`, and LuaJIT (`brew install luajit`).
 - At least one agent CLI that reports Rex program status: `claude`, `codex`, `grok`, `agy` (Gemini)
 
 ## Install
@@ -116,7 +116,7 @@ orchestrator ──Rex layout API──▶ child pane ──OSC 7501──▶ Re
 State lives in `${XDG_STATE_HOME:-~/.local/state}/rex-orchestrator` (mode 700). Details: [docs/how-it-works.md](docs/how-it-works.md).
 `launch`, `status`, `ls`, `screen`, `wait`, `send`, `keys`, `close`, and `claims` run in Lua. `wait` reacts to status and
 lifecycle events. Lua generates the cage wrappers. They run the sandbox and handle cleanup in the shell.
-`clone` runs in Lua when Rex is available and works offline through the shell entry point.
+`clone`, transcript harvesting, and agy token validation use standalone LuaJIT and work without a Rex connection.
 
 ## Safety model
 

@@ -29,7 +29,8 @@ rex_test session new lua-test --shell none --keep-open --json -- /bin/bash "$ROO
 REX_SESSION=$(jq -r .session_id "$T/session.json"); export REX_SESSION
 B=$(jq -r '.initial_windows[0].block_ids[0]' "$T/session.json")
 CLI="$ROOT/skills/rex-orchestrator/scripts/rex-orchestrator.sh"
-OLD="$ROOT/skills/rex-orchestrator/scripts/rex-orchestrator-bash.sh"
+OLD=${REX_LUA_BASELINE:-}
+[ -z "$OLD" ] || [ -f "$OLD" ] || { echo 'REX_LUA_BASELINE must point at an extracted Bash implementation' >&2; exit 2; }
 pass=0
 check() { [ "$2" = "$3" ] || { printf 'FAIL %s: got [%s], want [%s]\n' "$1" "$2" "$3" >&2; exit 1; }; pass=$((pass+1)); }
 cli() { /bin/bash "$CLI" "$@"; }
@@ -47,15 +48,24 @@ prompt_wait() {
   echo "wait did not finish promptly" >&2
   exit 1
 }
-error_parity() {
-  local label=$1 session=$2 caller=$3 bash_code=0 lua_code=0
-  shift 3
-  REX_SESSION="$session" REX_BLOCK="$caller" old "$@" > "$T/old.out" 2> "$T/old.err" || bash_code=$?
+expect_error() {
+  local label=$1 session=$2 caller=$3 expected=$4 message=$5 bash_code=0 lua_code=0
+  shift 5
   REX_SESSION="$session" REX_BLOCK="$caller" cli "$@" > "$T/lua.out" 2> "$T/lua.err" || lua_code=$?
-  check "$label exit" "$lua_code" "$bash_code"
-  check "$label output" "$(cat "$T/lua.out")" "$(cat "$T/old.out")"
-  cmp -s "$T/old.err" "$T/lua.err" || { diff -u "$T/old.err" "$T/lua.err" >&2; exit 1; }
+  check "$label exit" "$lua_code" "$expected"
+  check "$label output" "$(cat "$T/lua.out")" ''
+  grep -Fq "$message" "$T/lua.err" || { cat "$T/lua.err" >&2; exit 1; }
   pass=$((pass+1))
+  if [ -n "$OLD" ]; then
+    REX_SESSION="$session" REX_BLOCK="$caller" old "$@" > "$T/old.out" 2> "$T/old.err" || bash_code=$?
+    check "$label Bash exit" "$bash_code" "$lua_code"
+    cmp "$T/old.out" "$T/lua.out"
+    if [ "$label" = 'server down' ]; then
+      sed -E '/^Error: (REX_SERVER: )?no Rex server is running/d' "$T/old.err" > "$T/old.filtered"
+      mv "$T/old.filtered" "$T/old.err"
+    fi
+    cmp -s "$T/old.err" "$T/lua.err" || { diff -u "$T/old.err" "$T/lua.err" >&2; exit 1; }
+  fi
 }
 await_state working
 # shellcheck disable=SC1003 # The title ends with a literal backslash.
@@ -67,12 +77,13 @@ done
 check 'title fixture' "$(cli status "$B" | jq -r .title)" "$title"
 rex_test "do" -e 'assert(rex.call("session.attach",{session_id=rex.args.s})); assert(rex.session.set_block_label{session_id=rex.args.s,block_id=rex.args.b,label=rex.args.label})' \
   "s=$REX_SESSION" "b=$B" 'label=fixture\label'
-cli status "$B" > "$T/lua.out"; old status "$B" > "$T/old.out"
-cmp "$T/old.out" "$T/lua.out"
-pass=$((pass+1))
-error_parity 'unknown REX_BLOCK' '' block:01a10000-0000-7000-8000-000000000001 status "$B"
-error_parity 'bad REX_SESSION' not-a-rex-session '' status "$B"
-error_parity 'invalid UTF-8 argv' "$REX_SESSION" '' status "$(printf '\377')"
+cli status "$B" > "$T/lua.out"
+check 'status reads the working state of the pane' "$(jq -r '[.state,.alive] | join(":")' "$T/lua.out")" 'working:true'
+if [ -n "$OLD" ]; then old status "$B" > "$T/old.out"; cmp "$T/old.out" "$T/lua.out"; fi
+expect_error 'unknown REX_BLOCK' '' block:01a10000-0000-7000-8000-000000000001 \
+  2 'REX_SESSION is empty and no session could be resolved' status "$B"
+expect_error 'bad REX_SESSION' not-a-rex-session '' 2 'no such block in this session' status "$B"
+expect_error 'invalid UTF-8 argv' "$REX_SESSION" '' 2 'no such block in this session' status "$(printf '\377')"
 implicit_list=$(REX_SESSION='' REX_BLOCK="$B" cli ls)
 check 'resolve session from REX_BLOCK' "$implicit_list" ''
 mkdir -p "$T/install space/bin"
@@ -89,11 +100,12 @@ for delay in 0 0.02 0.05 0.1 0.2 0.4; do
   check "status transition during wait startup after $delay s" "$(cat "$T/wait.out")" 'done'
   check 'wait has no Rex banner' "$(cat "$T/wait.err")" ''
 done
-check 'screen parity' "$(cli screen "$B")" "$(old screen "$B")"
-check 'default screen lines with an empty argument' "$(cli screen "$B" '')" "$(old screen "$B" '')"
-cli ls > "$T/lua.out"; old ls > "$T/old.out"
-cmp "$T/old.out" "$T/lua.out"
-pass=$((pass+1))
+check 'screen agrees with Rex capture' "$(cli screen "$B")" "$(rex_test capture -s "$REX_SESSION" -b "$B" --trim --unwrap)"
+check 'default screen lines with an empty argument' "$(cli screen "$B" '')" "$(cli screen "$B")"
+cli ls > "$T/lua.out"
+check 'ls emits the block ID and status JSON' \
+  "$(cut -f2- "$T/lua.out" | jq -r '.state')" 'done'
+if [ -n "$OLD" ]; then old ls > "$T/old.out"; cmp "$T/old.out" "$T/lua.out"; fi
 for pair in 'blocked:10:blocked question A question' 'error:11:error Boom'; do
   IFS=: read -r command expected_code expected_text <<< "$pair"
   type_line "$command"; await_state "$command"
@@ -188,7 +200,10 @@ type_line permission; await_state blocked
 code=0; cli wait "$B" --approve-in "$T/work" --timeout 5 > "$T/wait.out" 2> "$T/wait.err" || code=$?
 check 'mode change after approval stops pane' "$code:$(cat "$T/wait.out")" '10:stopped'
 check 'mode change after approval sets kill switch' "$([ -f "$REX_ORCHESTRATOR_STATE_DIR/disabled.claude" ] && echo yes)" yes
-if [ -n "${REX_LUA_BENCHMARK:-}" ]; then . "$ROOT/tests/lua/benchmark.inc.sh"; fi
+if [ -n "${REX_LUA_BENCHMARK:-}" ]; then
+  [ -n "$OLD" ] || { echo 'REX_LUA_BENCHMARK requires REX_LUA_BASELINE' >&2; exit 2; }
+  . "$ROOT/tests/lua/benchmark.inc.sh"
+fi
 # Close events end an active wait, even without a last status report.
 type_line working; await_state working
 cli wait "$B" --timeout 5 > "$T/wait.out" 2> "$T/wait.err" &
@@ -203,7 +218,7 @@ await_state working
 rex_test "do" -e 'assert(rex.call("session.attach",{session_id=rex.args.s})); assert(rex.session.set_block_label{session_id=rex.args.s,block_id=rex.args.b,label="twins"})' \
   "s=$REX_SESSION" "b=$B"
 rex_test split -s "$REX_SESSION" -b "$B" --label twins --shell none --keep-open -- /bin/cat >/dev/null
-error_parity 'ambiguous block label' "$REX_SESSION" '' status twins
+expect_error 'ambiguous block label' "$REX_SESSION" '' 2 'is ambiguous' status twins
 cli wait "$B" --timeout 5 > "$T/wait.out" 2> "$T/wait.err" &
 wait_pid=$!
 sleep 0.4; rex_test session kill "$REX_SESSION"
@@ -225,7 +240,7 @@ server_pid=''
 code=0; prompt_wait || code=$?
 check 'server disconnect fails promptly' "$code:$(cat "$T/wait.out")" '1:'
 grep -q 'rex did not answer' "$T/wait.err"
-error_parity 'server down' "$REX_SESSION" '' status "$B"
-error_parity 'server down with implicit session' '' "$B" wait "$B"
+expect_error 'server down' "$REX_SESSION" '' 1 'rex did not answer for block' status "$B"
+expect_error 'server down with implicit session' '' "$B" 2 'REX_SESSION is empty and no session could be resolved' wait "$B"
 . "$ROOT/tests/lua/mutation-disconnect.inc.sh"
 printf 'Lua live: %d passed\n' "$pass"

@@ -43,7 +43,7 @@ if forced_leaf~="" then
     return F.mkdir_new(path) and path or nil
   end
 end
-local C={rex=rex,fs=F,dir=state,script_dir=script_dir,git=F.executable("git"),
+local C={rex=rex,fs=F,dir=state,script_dir=script_dir,git=F.git(),
   note=function(text) io.stderr:write(text,"\n") end,put=F.put}
 local K=dofile(assets .. "/lua/launch_cage.lua")(C,M)
 local cage,code=K.build(name,bin,{dir=dir,account=account,label=name},function() end)

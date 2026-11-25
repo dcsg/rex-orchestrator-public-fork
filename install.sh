@@ -90,7 +90,7 @@ if [ "$uninstall" = 1 ]; then
 fi
 
 missing=()
-for c in rex jq git python3; do command -v "$c" >/dev/null 2>&1 || missing+=("$c"); done
+for c in rex git luajit; do command -v "$c" >/dev/null 2>&1 || missing+=("$c"); done
 [ "$(uname -s)" = Darwin ] || echo "note: only macOS is tested; the cage (sandbox-exec) is macOS-only."
 [ ${#missing[@]} -eq 0 ] || echo "note: not on PATH: ${missing[*]} (rex-orchestrator needs them at run time)."
 

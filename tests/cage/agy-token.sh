@@ -2,7 +2,7 @@
 # Exercise generated agy wrappers with sandbox-exec and shell probes. No agents, Rex, or real secret-store commands.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd -P)
-SCRIPT=${REX_ORCHESTRATOR_SH:-$here/../../skills/rex-orchestrator/scripts/rex-orchestrator-bash.sh}
+SCRIPT=${REX_ORCHESTRATOR_SH:-$here/../../skills/rex-orchestrator/scripts/rex-orchestrator.sh}
 assets=$(cd "$(dirname "$SCRIPT")" && pwd -P)
 ASSETS=$assets
 test_bash=${HARNESS_BASH:-$BASH}

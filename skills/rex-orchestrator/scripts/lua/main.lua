@@ -24,9 +24,6 @@ local function launcher()
   local dialogs=dofile(dir .. "launch_dialog.lua")(C,M,input)
   return dofile(dir .. "launch.lua")(C,M,dialogs,input,cage,registry)
 end
-local function select_git()
-  C.git=fs.executable("git") or "/usr/bin/git"
-end
 C.journal=rex.args.journal
 if rex.args.recover then
   C.init_state()
@@ -42,13 +39,10 @@ local argv=rex.args.argv
 for i,arg in ipairs(argv) do argv[i]=decode(arg) end
 C.context={session=decode(rex.args.session),block=decode(rex.args.block)}
 local command=table.remove(argv,1)
-if command=="clone" then
-  select_git()
-  commands.clone=dofile(dir .. "clone.lua")(C,M)
-elseif command=="claims" then C.init_state()
+if command=="claims" then C.init_state()
 else C.init() end
 if command=="launch" then
-  select_git()
+  C.git=fs.git()
   commands.launch=launcher().launch
 end
 commands[command](argv)

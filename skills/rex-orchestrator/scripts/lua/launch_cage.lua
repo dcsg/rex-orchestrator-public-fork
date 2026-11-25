@@ -123,7 +123,7 @@ return function(C,M)
       {"AUTH",r.auth or ct},{"CFGRO",ct .. "/" .. r.config},{"HOOKS",hooks or ct .. "/.nohooks"},
       {"LRE",lock_regex()},{"SEC",physical_secrets},{"PROF",profile},{"TPL",templates},
       {"CRED",r.account and secrets .. "/claude-" .. r.account .. ".env" or ""},
-      {"RH_AGY",r.login},{"AGYSET",agy_settings(r.login)}
+      {"RH_AGY",r.login},{"AGYSET",agy_settings(r.login)},{"LOCAL_LUA",C.script_dir .. "/local-lua.sh"}
     }
     local assignments={}
     for _,p in ipairs(bindings) do assignments[#assignments+1]=p[1] .. "=" .. quote(p[2]) end

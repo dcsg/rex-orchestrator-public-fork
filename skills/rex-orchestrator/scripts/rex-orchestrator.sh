@@ -13,18 +13,19 @@ while [ -L "$SCRIPT_SRC" ]; do
 done
 SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_SRC")" && pwd -P)
 case "${1:-help}" in
-  status | ls | screen | wait | send | keys | close | claims | launch | clone) ;;
-  *) exec "$BASH" "$SCRIPT_DIR/rex-orchestrator-bash.sh" "$@" ;;
+  help | -h | --help) exec /bin/cat "$SCRIPT_DIR/help.txt" ;;
+  clone) shift; exec "$BASH" -p "$SCRIPT_DIR/local-lua.sh" clone "$@" ;;
+  status | ls | screen | wait | send | keys | close | claims | launch) ;;
+  *) /bin/cat "$SCRIPT_DIR/help.txt" >&2; exit 2 ;;
 esac
 REX="${REX_ORCHESTRATOR_REX_BIN_DIR:+$REX_ORCHESTRATOR_REX_BIN_DIR/}rex"
 if ! command -v "$REX" >/dev/null 2>&1; then
-  for app in "/Applications/Rex Beta.app" "/Applications/Rex.app" "$HOME/Applications/Rex Beta.app" "$HOME/Applications/Rex.app"; do
+  for app in "/Applications/Rex Beta.app" "/Applications/Rex.app" "${HOME:-/nonexistent}/Applications/Rex Beta.app" "${HOME:-/nonexistent}/Applications/Rex.app"; do
     REX="$app/Contents/Helpers/Rex Server.rex/Contents/MacOS/rex"
     [ -x "$REX" ] && break
     REX=""
   done
   if [ -z "$REX" ]; then
-    if [ "$1" = clone ]; then exec "$BASH" "$SCRIPT_DIR/rex-orchestrator-bash.sh" "$@"; fi
     echo "rex-orchestrator: rex is not on PATH and no Rex app bundle was found; set REX_ORCHESTRATOR_REX_BIN_DIR" >&2
     exit 2
   fi
@@ -103,22 +104,19 @@ run_lua() {
     launch_pid=''
     diagnostics=$(<"$launch_dir/diagnostics")
   else
-    local no_autostart=''
-    if [ "$command" = clone ]; then no_autostart=--autostart=false; fi
-    diagnostics=$(REX_SESSION='' REX_BLOCK='' "$REX" ${no_autostart:+"$no_autostart"} "do" "$SCRIPT_DIR/lua/main.lua" \
+    diagnostics=$(REX_SESSION='' REX_BLOCK='' "$REX" "do" "$SCRIPT_DIR/lua/main.lua" \
       --args - "${flags[@]}" 5>&2 2>&1 4>&2 >&3 <<<"$args") || rc=$?
   fi
   case "$diagnostics" in *$'\036rex-orchestrator:started'*) started=1 ;; esac
   case "$diagnostics" in *$'\036rex-orchestrator:rejected'*) rejected=1 ;; esac
   case "$diagnostics" in
     'Error: unknown flag: --all'* | 'Error: unknown flag: --fail-fast'* | 'Error: unknown flag: --args'* | \
-    'Error: unknown flag: --autostart'* | 'Error: unknown command "do"'*)
-      if [ "$command$started" = clone0 ]; then "$BASH" "$SCRIPT_DIR/rex-orchestrator-bash.sh" "$@" >&3; return $?; fi
+    'Error: unknown command "do"'*)
       printf '%s\n' 'rex-orchestrator: this Rex CLI lacks rex do with --args, --all and --fail-fast; update Rex' >&2
       return 1 ;;
     'Error: REX_SERVER: no Rex server is running'* | 'Error: no Rex server is running'*)
       # Rex failed before executing Lua. Preserve startup diagnostics and offline dead-claim pruning.
-      if [ "$started$rc" = 04 ]; then "$BASH" "$SCRIPT_DIR/rex-orchestrator-bash.sh" "$@" >&3; return $?; fi ;;
+      if [ "$started$rc" = 04 ]; then "$BASH" -p "$SCRIPT_DIR/local-lua.sh" offline "$@" >&3; return $?; fi ;;
   esac
   while IFS= read -r line; do
     case "$line" in
@@ -127,7 +125,7 @@ run_lua() {
     esac
   done <<<"$diagnostics"
   case "$command" in
-    send | keys | close | launch | clone)
+    send | keys | close | launch)
       if [ "$rc" = 4 ] && [ "$rejected" = 0 ]; then
         printf '%s\n' 'rex-orchestrator: rex did not answer' >&2
         return 1

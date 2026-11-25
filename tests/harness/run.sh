@@ -1,10 +1,7 @@
 #!/bin/bash
-# Run every harness scenario and unit check under /bin/bash (3.2) and, if present, /opt/homebrew/bin/bash (5.3),
-# both bashes at once. Prints passed/total per bash and the failing checks; exits 1 if any failed.
-#   tests/harness/run.sh [NAME_SUBSTRING ...]   (selects scenario functions, e.g. t_approve; unit checks always run)
-# REX_ORCHESTRATOR_SH picks the script under test; HARNESS_RUNS keeps the runs somewhere known (default: a new temp dir).
+# Run the current shell entry and wrapper checks under both Bash versions.
+# REX_ORCHESTRATOR_SH can point at a historical Bash implementation for the legacy fake-Rex scenarios.
 set -u
-export REX_ORCHESTRATOR_SH=${REX_ORCHESTRATOR_SH:-$(cd "$(dirname "$0")/../.." && pwd)/skills/rex-orchestrator/scripts/rex-orchestrator-bash.sh}
 here=$(cd "$(dirname "$0")" && pwd)
 runs=${HARNESS_RUNS:-$(mktemp -d "${TMPDIR:-/tmp}/rex-orchestrator-harness.XXXXXX")}
 bashes=/bin/bash
@@ -17,11 +14,16 @@ for b in $bashes; do
   mkdir -p "$runs/bash-$v"
   (
     export HARNESS_BASH="$b" HARNESS_RUNS="$runs/bash-$v"
-    python3 -I "$here/harness.py" "$@" || echo "FAIL  harness.py exited $?"
-    python3 -I "$here/harness2.py" "$@" || echo "FAIL  harness2.py exited $?"
-    python3 -I "$here/harness4.py" "$@" || echo "FAIL  harness4.py exited $?"
-    "$b" "$here/unit.sh" || echo "FAIL  unit.sh exited $?"
-    "$b" "$here/startup.sh" || echo "FAIL  startup.sh exited $?"
+    if [ -n "${REX_ORCHESTRATOR_SH:-}" ]; then
+      export REX_ORCHESTRATOR_SH
+      python3 -I "$here/harness.py" "$@" || echo "FAIL  harness.py exited $?"
+      python3 -I "$here/harness2.py" "$@" || echo "FAIL  harness2.py exited $?"
+      python3 -I "$here/harness4.py" "$@" || echo "FAIL  harness4.py exited $?"
+      "$b" "$here/unit.sh" || echo "FAIL  unit.sh exited $?"
+      "$b" "$here/startup.sh" || echo "FAIL  startup.sh exited $?"
+    else
+      "$b" "$here/../lua/entry.sh" && echo "PASS  Lua entry checks" || echo "FAIL  entry.sh exited $?"
+    fi
     "$b" "$here/../cage/agy-token.sh" || echo "FAIL  agy-token.sh exited $?"
   ) >"$runs/bash-$v.log" 2>&1 &
 done

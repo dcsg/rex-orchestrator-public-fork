@@ -51,5 +51,5 @@ Every command works with any agent that reports Rex program status. `launch` pic
 ## Adding an agent
 
 An agent works out of the box if it reports OSC 7501 status. To support its dialogs (trust, startup prompts), add a `KIND`
-in `rex-orchestrator-bash.sh` (search for `pane_kind`), screen fixtures under `tests/harness/fixtures/`, and a fake agent in
+in `skills/rex-orchestrator/scripts/lua/`, screen fixtures under `tests/harness/fixtures/`, and a fake agent in
 `tests/harness/agents/`. See [CONTRIBUTING.md](../CONTRIBUTING.md).

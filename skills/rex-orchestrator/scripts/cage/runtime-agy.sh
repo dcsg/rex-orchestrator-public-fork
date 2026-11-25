@@ -89,14 +89,9 @@ if [ -n "$AGY_CMD_FILE" ]; then
   } 2>/dev/null
   AGY_PID=
   /bin/rm -f "$AGY_CMD_FILE"
-  AGY_JQ=/opt/homebrew/bin/jq; [ -x "$AGY_JQ" ] || AGY_JQ=/usr/bin/jq
-  if [ "$AGY_TOKEN_RC" -ne 0 ] || ! "$AGY_JQ" -e -s \
-    'def nonempty_string: if type == "string" then length > 0 else false end;
-     length == 1 and (.[0] | if type == "object" then
-       ((.token | if type == "object" then .refresh_token else null end) | nonempty_string)
-       or (.refresh_token | nonempty_string)
-     else false end)' \
-    "$AGY_TOKEN_FILE" >/dev/null 2>&1 || ! chmod 600 "$AGY_TOKEN_FILE"; then
+  if [ "$AGY_TOKEN_RC" -ne 0 ] ||
+    ! /bin/bash -p "$LOCAL_LUA" validate-agy "$AGY_TOKEN_FILE" >/dev/null 2>&1 ||
+    ! chmod 600 "$AGY_TOKEN_FILE"; then
     echo 'rex-orchestrator cage: REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD failed or returned invalid token JSON; agy not started' >&2
     exit 71
   fi

@@ -96,9 +96,12 @@ cmp "$claim" "$T/lua.out"
 check 'claims prunes a dead PID without a caller session' "$([ ! -e "$dead_claim" ] && echo yes)" yes
 check 'claims prunes a removed session with a live PID' "$([ ! -e "$gone_claim" ] && echo yes)" yes
 (REX_SESSION='' REX_BLOCK='' cli claims) > "$T/lua.out"
-(REX_SESSION='' REX_BLOCK='' old claims) > "$T/old.out"
-cmp "$T/old.out" "$T/lua.out"
-pass=$((pass+1))
+check 'claims keeps the tab-separated field contract' "$(cat "$T/lua.out")" \
+  "$(jq -r '[.block,.label,.session,.kind,(.pid|tostring),.canonical_dir] | @tsv' "$claim")"
+if [ -n "$OLD" ]; then
+  (REX_SESSION='' REX_BLOCK='' old claims) > "$T/old.out"
+  cmp "$T/old.out" "$T/lua.out"
+fi
 
 # Hold the same flock using Bash's inherited descriptor protocol.
 (

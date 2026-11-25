@@ -23,7 +23,9 @@ chmod +x "$T/bin/rex"
 ln -s "$ROOT/skills/rex-orchestrator/scripts/rex-orchestrator.sh" "$T/install space/first"
 ln -s first "$T/install space/chain"
 pass=0
-for bash in /bin/bash /opt/homebrew/bin/bash; do
+bashes=(/bin/bash /opt/homebrew/bin/bash)
+[ -z "${HARNESS_BASH:-}" ] || bashes=("$HARNESS_BASH")
+for bash in "${bashes[@]}"; do
   # shellcheck disable=SC2016 # Pass literal shell syntax through JSON without expanding it.
   [ ! -x "$bash" ] || for value in '' 'a"b\c' $'a\nb\tc\rd\001' '🦊 café' $'\377' '$(touch SHOULD_NOT_EXIST) `id` $HOME'; do
     out=$(REX_ORCHESTRATOR_REX_BIN_DIR="$T/bin" "$bash" "$T/install space/chain" status "$value")
@@ -36,7 +38,7 @@ done
 for scenario in yes old; do
   rc=0
   REX_TEST_NO_WAIT_RESULT="$scenario" REX_ORCHESTRATOR_REX_BIN_DIR="$T/bin" \
-    /bin/bash "$T/install space/chain" wait block:fixture > "$T/out" 2> "$T/err" || rc=$?
+    "${HARNESS_BASH:-/bin/bash}" "$T/install space/chain" wait block:fixture > "$T/out" 2> "$T/err" || rc=$?
   [ "$rc" -eq 1 ] && [ ! -s "$T/out" ] || exit 1
   if [ "$scenario" = yes ]; then grep -qx 'rex-orchestrator: rex did not answer' "$T/err"
   else grep -qx 'rex-orchestrator: this Rex CLI lacks rex do with --args, --all and --fail-fast; update Rex' "$T/err"; fi
@@ -46,7 +48,7 @@ for scenario in lost rejected; do
   for verb in send keys close; do
     rc=0
     REX_TEST_NO_WAIT_RESULT="$scenario" REX_ORCHESTRATOR_REX_BIN_DIR="$T/bin" \
-      /bin/bash "$T/install space/chain" "$verb" block:fixture > "$T/out" 2> "$T/err" || rc=$?
+      "${HARNESS_BASH:-/bin/bash}" "$T/install space/chain" "$verb" block:fixture > "$T/out" 2> "$T/err" || rc=$?
     if [ "$scenario" = lost ]; then
       [ "$rc" -eq 1 ] && grep -qx 'rex-orchestrator: rex did not answer' "$T/err"
     else

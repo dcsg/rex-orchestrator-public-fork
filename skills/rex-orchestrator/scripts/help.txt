@@ -1,0 +1,114 @@
+Drive coding agents (claude, codex, grok, Gemini/agy, muse) in Rex panes from an agent that runs in a Rex pane itself.
+
+rex-orchestrator launch [-d DIR] [-l LABEL] [--split right|left|above|below] [--ratio PCT] [-b ANCHOR] [--tab NAME]
+                     [--trust] [--focus] [--timeout DUR] [--agent CMD] [--kind KIND] [--cage|--no-cage]
+                     [--account NAME] [--allow-edits] [--allow RULE]... [-- AGENT_ARGS...]
+    Open a pane running the agent (default claude) in DIR (default: the current directory), labelled LABEL (default
+    claude), and wait until it is ready for a prompt: no dialog on screen, a status that isn't working, and its
+    footer below the input box or an idle status. Prints the block ID on stdout, also on exits 3, 12 and 124, where
+    the pane stays open for you to read or close; interrupted or failing before that, launch closes the pane.
+    If Rex cannot close it, launch keeps its claim and state for a later close.
+    Placement: a split of ANCHOR taking PCT percent of it (default 50; Rex's "autobalance splits" overrides it), or a
+    new tab NAME with --tab (unfocused, 80x24). With neither -b nor --split, ANCHOR is the largest pane of your own
+    window, split along its longer side, so all agents stay in one view.
+    --trust answers the folder trust dialog with "Yes", only once the dialog names DIR (grok: only its exact
+    "Yes, proceed y" / "No, quit n" form); without it launch stops there with exit 3. With --trust, DIR may not
+    contain terminal controls, selection markers or trust dialog text.
+    --agent CMD runs another agent or a wrapper script, the one your PATH finds. KIND (claude, codex, grok, gemini or
+    muse; gemini is the agy CLI) picks its dialog handling, by default from CMD's name (claude-* and agy-* wrappers
+    count as claude and gemini).
+    Only a designated orchestrator may launch: when ORCH_FILE lists IDs (KIND or KIND:ACCOUNT), a caller not listed
+    exits 2. ACCOUNT is named after the agent's config dir (~/.claude is default, ~/.claude-work is work).
+    An uncaged child gets your CLAUDE_CONFIG_DIR and CODEX_HOME (on its command line, so paths only), a claude child
+    also CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1, and nothing else of your environment; it runs on whatever account
+    CMD uses.
+    Cage: by default (REX_ORCHESTRATOR_CAGE=auto) an agent with a cage recipe runs under sandbox-exec (cage.sb): writes
+    only to DIR and a throwaway config home, no reads of the secret stores and agent homes cage.sb lists, web ports
+    only. codex and grok always have a recipe (they re-open only their login file: codex the auth.json of your
+    CODEX_HOME or ~/.codex, grok ~/.grok/auth.json); claude once a credential file CAGE_SECRETS/claude-NAME.env
+    (export CLAUDE_CODE_OAUTH_TOKEN=...) exists; agy once its cage home CAGE_SECRETS/agy-home exists. Its login can
+    come from REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD (a shell command returning the token JSON on stdout), or that home.
+    The command runs outside the cage from / with a fixed environment; its private command file is unreadable by
+    caged children. Output must be one JSON object with a non-empty string token.refresh_token (or refresh_token
+    for compatibility). The temporary mode 600
+    token is removed after agy exits, including signal shutdown with a bounded wait and KILL if needed.
+    Command failure or invalid output stops the wrapper with exit 71 (launch reports 12 if observed during startup).
+    A caged child runs from the cage's own config templates, not your settings: pass a model and other settings after --.
+    --account NAME picks claude-NAME.env (a caged claude only); without it the only credential is used, else the
+    alphabetically first, and launch says which. --no-cage (or REX_ORCHESTRATOR_CAGE=off) runs uncaged; --cage (or
+    REX_ORCHESTRATOR_CAGE=on) fails (exit 2) for an agent with no recipe. An agent that should be caged but can't be
+    (missing profile, template or login) fails closed (exit 2), never uncaged. A caged DIR may not be, hold or sit in
+    what runs or is read outside the cage (the state and cage-secrets folders, ~/.ssh, ~/.local/bin, ~/.agents,
+    ~/Library/LaunchAgents, this tool's folder, /opt/homebrew, /Applications, every ~/.claude*, ~/.codex*, ~/.grok*,
+    ~/.gemini*; nor be /, /Users, ~, ~/Library or ~/Repos).
+    An uncaged claude never runs in bypass mode: --dangerously-skip-permissions,
+    --allow-dangerously-skip-permissions, --permission-mode bypassPermissions or a "bypass permissions on" footer
+    exit 2. claude only: --allow-edits lets the child read and edit inside DIR without asking (refused for a DIR
+    whose path holds [ ] * ? { } ! ) or \); --allow adds a permission rule such as 'Bash(npm test:*)'. Both last
+    for that session only and can't be combined with -- --settings.
+    Exit: 0 ready; 1 rex error; 2 usage or refused (no CMD on your PATH, a cage that can't be built, a refused
+    --account or DIR, a kill switch, bypass mode, a pane too small to show the trust dialog's options); 3 a dialog
+    left for the user (trust without --trust or not naming DIR, a hooks review, another startup dialog; or --trust
+    made the agent trust an ancestor of DIR, which sets its kill switch); 12 the agent exited during startup; 124 not
+    ready after --timeout (default 90s).
+rex-orchestrator clone REPO DEST [-b BRANCH]
+    Make a standalone APFS copy-on-write checkout (git clone --local fallback); DEST must not exist. Prints DEST.
+rex-orchestrator claims [--json]
+    List live write claims (one launch per checkout), pruning dead pids and missing Rex blocks.
+rex-orchestrator send [--force] BLOCK TEXT...   Type a prompt (newlines become spaces) and press Return.
+rex-orchestrator send [--force] BLOCK -f FILE   Same, reading the prompt from FILE.
+    A prompt that starts with "/" runs a slash command. One whose first non-blank character is "!" is refused (the
+    agents run it as a shell command without asking). For claude, so is one that starts with a digit (its session
+    survey would take it as a rating), and for an uncaged claude /permissions, /allowed-tools, /config, /settings,
+    /add-dir, /hooks, /plugin, /mcp or a prefix of one. The Return goes only once the input box shows the text. An
+    uncaged claude pane whose permission mode changed since launch is stopped.
+    Exit: 0 sent, 1 rex error, 2 usage or refused (also a stopped pane), 4 not ready for input (working, a dialog, or
+    the text typed but not shown: then it is typed but not submitted), 12 the agent exited.
+rex-orchestrator wait [--force] BLOCK [--timeout DUR] [--ignore-background] [--bg-max DUR] [--approve-in DIR]
+    Wait until the agent finishes the turn started by the last send/keys; prints the state. A turn that ends with more
+    background work than at the send is held until that work finishes (at most --bg-max, default 300s), as counted in
+    the agent's own status rows; --ignore-background ends it at once. codex reports working until its background
+    terminals exit. --timeout defaults to 600s. A Claude Code prompt still up 10s after send/keys with no new report
+    exits 10.
+    --approve-in answers "Yes" once to a claude or agy file write/edit prompt for a plain file inside DIR, when the
+    dialog on screen asks about that file with its one-time "1. Yes" selected. Links, hard links, dot files and dot
+    folders, CLAUDE.md/AGENTS.md/GEMINI.md, a name with a non-ASCII character and every other prompt still exit 10;
+    DIR can't be /, /Users, $HOME, ~/Library or ~/Repos. One approver per pane. A caged block's prompts go to the
+    user: there it waits like a plain wait. An uncaged claude whose permission mode changes stops the pane (prints
+    "stopped", exit 10); right after an approval it also sets disabled.claude.
+    Exit: 0 done/idle, 1 Rex connection lost, 10 blocked or stopped (needs the user), 11 error, 12 the agent exited,
+    124 timeout.
+rex-orchestrator status BLOCK               One-line JSON: state, kind, msg, title, alive, cwd (and account, for a caged
+                                            claude).
+rex-orchestrator screen BLOCK [LINES]       The visible screen, last LINES lines (default 60).
+rex-orchestrator keys [--force] BLOCK KEY...   Press keys (e.g. enter, down, escape, ctrl+c).
+    At a dialog on an uncaged pane (a question excepted) only escape, ctrl+c, up and down pass, and enter or a digit
+    alone in its call when the option it picks is a one-time Yes, No or Continue (never "always", "don't ask again",
+    a session-wide grant or a folder trust). shift+tab is refused for claude. A stopped pane takes escape and ctrl+c.
+    Exit: 0 pressed, 1 rex error, 2 usage or refused, 12 the agent exited.
+rex-orchestrator ls                         Live agent panes in this Rex session, one per line: BLOCK, a tab, then the
+                                            status JSON with label and mine (launched from your pane) added.
+rex-orchestrator close [--force] BLOCK      Close the pane (ends its agent) and remove its state and cage home, also for a
+                                            pane already closed in Rex given by its full ID. When rex can't close the pane
+                                            the state stays (exit 1): run close again.
+
+DUR is N, Ns, Nm or Nh. BLOCK is any form rex takes (full ID, short ID, label). The state is the agent's own (root)
+status record. Any agent running in a Rex pane can be the orchestrator: launch, send, keys, close and wait
+--approve-in need REX_BLOCK (set in every Rex pane). When REX_SESSION is empty, the session is resolved from
+REX_BLOCK; an explicit REX_SESSION selects the session. If your shell strips Rex's environment, prefix the call
+with REX_BLOCK=... (and optionally REX_SESSION=...). send, keys, close and wait --approve-in act only on panes launched from your pane,
+unless --force (only for a pane the user named).
+Kill switches: a file STATE_DIR/disabled stops every launch, and every send and key but escape and ctrl+c;
+STATE_DIR/disabled.AGENT stops AGENT's uncaged launches, approvals and typing into its uncaged panes (exit 2).
+Anyone may set one; only the user removes one.
+Environment:
+  REX_ORCHESTRATOR_STATE_DIR      STATE_DIR (default ${XDG_STATE_HOME:-~/.local/state}/rex-orchestrator; mode 700, a link or a
+                            directory that isn't yours is refused)
+  REX_ORCHESTRATOR_CAGE_SECRETS   CAGE_SECRETS (default ${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator/cage-secrets)
+  REX_ORCHESTRATOR_CAGE           launch's cage default: auto (default), on or off
+  REX_ORCHESTRATOR_CAGE_PROFILE, REX_ORCHESTRATOR_CAGE_TPL   cage.sb and cage/ beside the real script (following symlinks)
+  REX_ORCHESTRATOR_CAGE_AGY_HOME   agy home (default CAGE_SECRETS/agy-home)
+  REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD   shell command returning agy's token JSON; unset keeps the cage home's login
+  REX_ORCHESTRATOR_REX_BIN_DIR    the folder holding the rex CLI, if it isn't on PATH
+  REX_ORCHESTRATOR_CONFIG_DIR     the folder of ORCH_FILE, "orchestrators" (default
+                                  ${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator)

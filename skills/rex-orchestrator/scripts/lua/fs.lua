@@ -40,6 +40,9 @@ return function(rex)
   function F.mkdir(path) return sh('mkdir -p -- "$1"',path) end
   function F.mkdir_new(path) return sh('mkdir -- "$1"',path) end
   function F.test(predicate,path) return sh('test "$1" "$2"',predicate,path) end
+  function F.git()
+    return F.test("-x","/opt/homebrew/bin/git") and "/opt/homebrew/bin/git" or "/usr/bin/git"
+  end
   function F.chmod(mode,path) return sh('chmod -- "$1" "$2"',mode,path) end
   function F.private_temp(base,name)
     local ok,out=sh('[ -O "$1" ] && mktemp -d "$1/$2.XXXXXX"',base,name)
