@@ -1,12 +1,18 @@
--- The Bash launcher and Lua commands share the registry directory and flock inode.
+-- Keep Bash's registry format and flock inode across launcher versions.
 return function(C, M)
   local G={}
   local directory=C.dir .. "/registry"
 
-  local function locked(work)
+  function G.acquire()
     if not C.fs.mkdir(directory) then return nil,"cannot create write claims directory" end
     local release=C.fs.lock(C.dir .. "/registry.lock",true)
     if not release then return nil,"cannot lock write claims" end
+    return release
+  end
+
+  local function locked(work)
+    local release,err=G.acquire()
+    if not release then return nil,err end
     local ok,value,why=pcall(work)
     release()
     if not ok then error(value,0) end
@@ -75,6 +81,62 @@ return function(C, M)
       return nil,"cannot remove claim for " .. block
     end)
     if not removed then C.die(why,1) end
+  end
+
+  function G.identity(dir,given)
+    local function git(...)
+      local r=C.rex.exec({C.git,"-C",dir,...})
+      return r and r.ok and r.stdout:gsub("\n+$","") or nil
+    end
+    local top=git("rev-parse","--show-toplevel")
+    if not top then
+      return {dir=given,canonical_dir=dir,toplevel="",common_dir="",branch="",key={dir}}
+    end
+    top=C.fs.canonical(top)
+    local common=git("rev-parse","--git-common-dir")
+    if common and not M.starts(common,"/") then common=dir .. "/" .. common end
+    common=common and C.fs.canonical(common)
+    if not top or not common then return nil end
+    local branch=git("symbolic-ref","--short","HEAD") or ""
+    return {dir=given,canonical_dir=dir,toplevel=top,common_dir=common,branch=branch,key={top,common,branch}}
+  end
+
+  function G.check(identity)
+    local rows,why=live_claims()
+    if not rows then return nil,why,1 end
+    local function contains(a,b)
+      return a==b or M.starts(b,a:gsub("/$","") .. "/")
+    end
+    for _,row in ipairs(rows) do
+      local old=row.claim
+      if type(old.canonical_dir)~="string" or type(old.toplevel)~="string" or
+        type(old.common_dir)~="string" or type(old.branch)~="string" then
+        return nil,"invalid identity for claim " .. old.block,1
+      end
+      local same
+      if old.toplevel~="" and identity.toplevel~="" then
+        same=old.toplevel==identity.toplevel or
+          (old.common_dir==identity.common_dir and old.branch~="" and old.branch==identity.branch)
+      else
+        same=contains(old.canonical_dir,identity.canonical_dir) or contains(identity.canonical_dir,old.canonical_dir)
+      end
+      if same then
+        return nil,"launch: DIR already has a live write claim (label " .. (old.label or "") .. ", block " ..
+          old.block .. ", session " .. old.session .. "); use rex-orchestrator clone for a separate checkout",2
+      end
+    end
+    return true
+  end
+
+  function G.add(identity,kind,label,pid)
+    if type(pid)~="number" or pid<=0 or pid%1~=0 then
+      return nil,"launch: cannot record agent pid for " .. C.block
+    end
+    identity.block,identity.session,identity.kind=C.block,C.session,kind
+    identity.pid,identity.label,identity.created=pid,label,os.date("!%Y-%m-%dT%H:%M:%SZ")
+    local path=directory .. "/" .. C.block:gsub("[^A-Za-z0-9_-]","_") .. ".json"
+    if not C.put(path,C.rex.json.encode(identity)) then return nil,"cannot write claim for " .. C.block end
+    return true
   end
 
   return G

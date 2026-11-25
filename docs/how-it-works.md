@@ -1,16 +1,17 @@
 # How it works
 
 `rex-orchestrator` has a Bash entry point that resolves install symlinks and runs `status`, `ls`, `screen`, `wait`,
-`send`, `keys`, `close` and `claims` through `rex do`. Bash still handles `launch` and `clone`. Both implementations
-use the same ownership and claim files. Cage cleanup runs in a shared shell helper.
+`send`, `keys`, `close`, `claims`, `launch` and `clone` through `rex do`. `clone` can also run through the Bash
+compatibility path when Rex is offline. Both implementations use the same ownership and claim files. Lua generates
+cage wrappers from shell fragments. The wrappers run the cage, and a shared shell helper removes cage files.
 
 ## The pieces
 
 ```text
  orchestrator pane                             child pane
- ┌────────────────────────────┐   rex split    ┌──────────────────────┐
+ ┌────────────────────────────┐ Rex layout API ┌──────────────────────┐
  │ any agent + shell          │ ─────────────▶ │ claude / codex / …   │
- │ rex-orchestrator launch …  │   rex send     │                      │
+ │ rex-orchestrator launch …  │ terminal write │                      │
  │ rex-orchestrator send …    │ ─────────────▶ │  input box           │
  │ rex-orchestrator wait …    │                │                      │
  └─────────────┬──────────────┘                └──────────┬───────────┘
@@ -18,8 +19,10 @@ use the same ownership and claim files. Cage cleanup runs in a shared shell help
                └──────────────────▶ Rex server ◀──────────┘
 ```
 
-1. **launch** runs `rex split` (or opens a tab, with `--tab`) with the agent command, records the new block ID, its label,
+1. **launch** calls Rex's layout API to split a pane or open a tab with `--tab`. It records the new block ID, its label,
    its parent (your `REX_BLOCK`) and the agent kind in the state directory, then polls until the child is ready.
+   The claim lock spans placement and claim creation. Launch keeps a temporary recovery record until it returns the
+   block ID so it can close an interrupted launch and release the claim.
 2. **Readiness** is decided from the child's *own* status record plus its screen: the screen is read only to find dialogs
    (trust, hooks review, login) and the input footer, never to infer that a turn finished.
 3. **send** reads status and screen, writes the text through Rex's terminal API, checks the composer, then sends
@@ -68,8 +71,7 @@ in any form of its ID. This is what lets several orchestrators share one Rex ses
 ## Without the tool
 
 The underlying `rex` calls are:
-`REX_SESSION` below is the real session ID; when it is empty, the tool obtains it once from `rex whoami --json`
-using `REX_BLOCK`, which Rex sets in each pane.
+`REX_SESSION` below is the real session ID. The tool can resolve it from `REX_BLOCK`, which Rex sets in each pane.
 
 ```sh
 rex split -s "$REX_SESSION" -b "$REX_BLOCK" --split=right -c "$DIR" --label task --keep-open --focus=false --json -- claude

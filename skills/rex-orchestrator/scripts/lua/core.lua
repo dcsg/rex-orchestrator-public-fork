@@ -24,6 +24,14 @@ function M.env(k)
   local v=os.getenv(k)
   return v and v~="" and v or nil
 end
+function M.basename(path)
+  return path:gsub("/+$",""):match("([^/]+)$") or "/"
+end
+function M.dirname(path)
+  if path:match("^/+$") then return "/" end
+  local parent=path:gsub("/+$",""):match("^(.*)/[^/]+$")
+  return parent=="" and "/" or parent or "."
+end
 function M.lines(s)
   local a = {}; s=s or ""; local text=s:gsub("\n$", ""); text=text .. "\n"
   for l in text:gmatch("(.-)\n") do a[#a+1]=l end
@@ -319,6 +327,23 @@ function M.new(rex, fs, output)
     end
     return nil
   end
+  function C.close_pane(b)
+    for attempt=1,2 do
+      local attached,err=C.attach()
+      local closed
+      if attached then closed,err=rex.call("block.close",{session_id=C.session,block_id=b}) end
+      local reason=tostring(err)
+      if closed or reason=="not_found" or reason:find("code=not_found",1,true) or
+        reason:find("session_not_found",1,true) then return true end
+      if attempt==1 then rex.sleep(0.3) end
+    end
+    return C.gone(b)
+  end
+  function C.remove_cage(path)
+    local result=rex.exec({"/bin/bash",C.script_dir .. "/cage-cleanup.sh",C.dir,path})
+    if result and result.stderr~="" then C.raw(result.stderr:gsub("\n$","")) end
+    return result and result.ok
+  end
   function C.mark(rec)
     local screen=C.screen(C.block)
     if not screen then return false end
@@ -366,9 +391,10 @@ function M.new(rex, fs, output)
   function C.killed(kind)
     return fs.exists(C.dir .. "/disabled" .. (kind and kind~="" and "." .. kind or ""))~=false
   end
-  function C.kill(why)
-    if not fs.append(C.dir .. "/disabled.claude",os.date("!%Y-%m-%dT%H:%M:%SZ") .. " " .. why .. "\n") then C.note("could not write " .. C.dir .. "/disabled.claude") end
-    C.raw("\27[31mrex-orchestrator: stopped: " .. why .. "; " .. C.dir .. "/disabled.claude is set: report it, never remove it yourself\27[0m")
+  function C.kill(why,kind)
+    local path=C.dir .. "/disabled." .. (kind or "claude")
+    if not fs.append(path,os.date("!%Y-%m-%dT%H:%M:%SZ") .. " " .. why .. "\n") then C.note("could not write " .. path) end
+    C.raw("\27[31mrex-orchestrator: stopped: " .. why .. "; " .. path .. " is set: report it, never remove it yourself\27[0m")
   end
   return C
 end

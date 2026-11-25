@@ -29,8 +29,8 @@ None of these start a real agent or spend tokens. `tests/harness/run.sh` must pa
 time, so on slow shared CI runners a few timeout scenarios can miss their windows, and CI reports it as informative only. Before changing dialog handling for an agent, try it by hand in Rex and
 capture the screen as a fixture (`rex capture -s "$REX_SESSION" -b BLOCK --trim --unwrap`).
 
-During the Lua migration the Bash harness targets `rex-orchestrator-bash.sh` to exercise the launch path and the
-compatibility baseline. The Lua suites exercise the migrated public commands. `tests/lua/live.sh` isolates its socket, state,
+During the Lua migration the Bash harness targets `rex-orchestrator-bash.sh` as the compatibility baseline.
+The Lua suites exercise the migrated public commands, including launch, trust, and cage creation. `tests/lua/live.sh` isolates its socket, state,
 HOME and configuration under `/tmp`, disables autostart on every client call, and cleans up only its own server.
 Set `REX_TEST_REX` to an absolute CLI path if it is not on the test PATH. For the side-by-side benchmark, set
 `REX_LUA_BENCHMARK=/tmp/rex-lua-benchmark.tsv`; it also needs Homebrew Bash and LuaJIT.
@@ -41,11 +41,11 @@ Set `REX_TEST_REX` to an absolute CLI path if it is not on the test PATH. For th
 skills/rex-orchestrator/
   SKILL.md                      instructions an orchestrating agent reads
   scripts/rex-orchestrator.sh   the CLI entry point
-  scripts/lua/                  pane reads and mutations, event-driven wait, claim listing and cleanup
-  scripts/rex-orchestrator-bash.sh  launch, clone, help and the shell compatibility baseline
+  scripts/lua/                  pane reads, mutations and launch, event-driven wait, and claims
+  scripts/rex-orchestrator-bash.sh  help, offline clone and the shell compatibility baseline
   scripts/cage-cleanup.sh       shared shell cleanup and transcript harvest entry point
   scripts/cage.sb               sandbox-exec profile
-  scripts/cage/                 config templates for caged agents
+  scripts/cage/                 config templates and shell runtimes for caged agents
   scripts/harvest.py            copies a caged child's transcripts on close
 tests/harness/                  fake `rex` (bin/rex), fake agents, screen fixtures, scenario runners
 tests/cage/                     zero-token cage tests and C probes

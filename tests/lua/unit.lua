@@ -416,5 +416,99 @@ r=test(o)("close",{child})
 eq(r.code,0); eq(o.closed,child); eq(r.files[claim_path],nil); eq(r.files["/state/block_child.hold"],nil)
 o={files={["/state/block_missing.own"]=own}}
 eq(test(o)("close",{"block:missing"}).code,0); eq(o.closed,nil)
+
+local LaunchDialog=dofile(dir .. "launch_dialog.lua")
+os.getenv=function(k) return k=="HOME" and "/logical/home" or nil end
+local trust_files={}
+local dialog=LaunchDialog({fs={
+  canonical=function(path) return path=="/logical/home" and "/physical/home" or path end,
+  read=function(path) return trust_files[path] end
+}},M,Input(M))
+local physical,logical="/physical/home/tasks/current","/logical/home/tasks/current"
+local function names(region,width)
+  return dialog.dir_named(region,width or 0,physical,logical)
+end
+eq(names(physical),true); eq(names("Workspace: " .. logical),true)
+eq(names("~/tasks/current"),true); eq(names("/physical/home/tasks/cur\n  rent"),true)
+eq(names("/physical/home/…/current"),true); eq(names("/physical/home/…/wrong"),false)
+eq(names(physical .. "-other"),false); eq(names("/physical/home/tasks"),false)
+eq(names("/physical/home/tasks",20),true); eq(names("/physical/home/tasks",21),false)
+eq(names("/physical/home/tasks/cur\n\nrent"),false)
+local function trust(kind,name)
+  local region=table.concat(M.region(fixture("launch/" .. name)),"\n")
+  return not not dialog.trust_shown(kind,dialog.flat(region)),not not dialog.trust_selected(kind,dialog.flat(region),region)
+end
+local shown,selected=trust("claude","claude-trust-80x9-down")
+eq(shown,true); eq(selected,true)
+shown,selected=trust("claude","claude-trust-26x40")
+eq(shown,true); eq(selected,false)
+shown,selected=trust("claude","claude-trust-26x40-down")
+eq(shown,true); eq(selected,true)
+shown,selected=trust("muse","muse-trust-inline")
+eq(shown,true); eq(selected,true)
+shown,selected=trust("agy","agy-trust-25x30")
+eq(shown,true); eq(selected,true)
+shown,selected=trust("grok","grok-trust")
+eq(shown,true); eq(selected,true)
+shown,selected=trust("codex","codex-trust-19x30")
+eq(shown,true); eq(selected,true)
+eq(not not dialog.hooks(fixture("launch/codex-hooks-80x5")),true)
+eq(dialog.trust_selected("grok","","Yes, proceed    y\nNo, quit    n now"),false)
+eq(not not dialog.trust_shown("agy","",{state="blocked",msg="Trust this folder?"}),true)
+local function ready(kind,name,state)
+  local screen=fixture("launch/" .. name)
+  return dialog.ready(kind,screen,table.concat(M.region(screen),"\n"),state and {state=state})
+end
+eq(ready("claude","claude-ready","idle"),true)
+eq(ready("claude","claude-ready","working"),false)
+eq(ready("agy","agy-ready","done"),true)
+eq(ready("muse","muse-trust","idle"),false)
+eq(ready("codex","codex-ready-19x30","working"),true)
+eq(ready("codex","codex-ready-80x6",nil),false)
+eq(ready("codex","codex-trust-80x6","working"),false)
+local docs={fs={
+    read=function(path) return trust_files[path] end
+  },rex={exec=function() return {ok=true,stdout="/work/repo\n"} end}}
+trust_files["/logical/home/.codex/config.toml"]=[[
+[projects."/work/repo"]
+trust_level = "trusted"
+[projects."/work"]
+trust_level = "trusted"
+[projects."/work/repo/sibling"]
+trust_level = "trusted"]]
+local above=LaunchDialog(docs,M,Input(M)).trusted_above({kind="codex",dir="/work/repo/current",logical="/work/repo/current"})
+eq(above["/work"],true); eq(above["/work/repo"],nil); eq(above["/work/repo/sibling"],nil)
+
+local Clone=dofile(dir .. "clone.lua")
+local function clone_test(race)
+  local exists,removed=false,0
+  local commands={}
+  local run=Clone({git="/usr/bin/git",fs={
+    exists=function() return exists end,
+    canonical=function() return "/repo" end,
+    test=function() return true end,
+    mkdir_new=function()
+      if exists then return false end
+      exists=true; return true
+    end,
+    remove_tree=function()
+      removed=removed+1; exists=race; return true
+    end
+  },rex={
+    exec=function(args)
+      commands[#commands+1]=table.concat(args," ")
+      return {ok=args[1]~="/bin/cp",stdout="",stderr=""}
+    end
+  },die=function(message,code) error({message=message,code=code or 2},0) end,
+    note=function() end,raw=function() end,out=function(out) commands.out=out end})
+  local ok,err=pcall(run,{"/repo","/dest","-b","new"})
+  return commands,removed,ok,err
+end
+local commands,removed,ok,err=clone_test(false)
+eq(ok,true); eq(removed,1); eq(commands[3],"/usr/bin/git clone --local -- /repo /dest")
+eq(commands[4],"/usr/bin/git -C /dest switch -c new"); eq(commands.out,"/dest")
+commands,removed,ok,err=clone_test(true)
+eq(ok,false); eq(removed,1); eq(#commands,2); eq(err.code,2)
+
 os.time,os.getenv=original_time,original_getenv
 print("Lua unit: " .. pass .. " passed")

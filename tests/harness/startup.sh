@@ -86,7 +86,7 @@ assets=$(dirname "$SCRIPT")
 mkdir -p "$work/install space/bin"
 ln -s "$SCRIPT" "$work/install space/bin/absolute"
 ln -s "$assets" "$work/install space/assets"
-ln -s ../assets/rex-orchestrator.sh "$work/install space/bin/relative"
+ln -s "../assets/${SCRIPT##*/}" "$work/install space/bin/relative"
 ln -s absolute "$work/install space/bin/chain"
 for mode in absolute relative chain overrides; do
   setup "symlink-$mode"

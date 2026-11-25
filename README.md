@@ -108,14 +108,15 @@ Full reference with flags and exit codes: [docs/commands.md](docs/commands.md).
 ## How it works
 
 ```text
-orchestrator ──rex split──▶ child pane ──OSC 7501──▶ Rex server ──status events──▶ rex-orchestrator wait
-             ──rex send───▶ (typed only at an idle input box)
-             ──rex capture▶ screen (dialogs are parsed only to confirm, never to decide state)
+orchestrator ──Rex layout API──▶ child pane ──OSC 7501──▶ Rex server ──status events──▶ rex-orchestrator wait
+             ──terminal write─▶ idle input box
+             ──terminal format▶ screen (dialog and input checks)
 ```
 
 State lives in `${XDG_STATE_HOME:-~/.local/state}/rex-orchestrator` (mode 700). Details: [docs/how-it-works.md](docs/how-it-works.md).
-`status`, `ls`, `screen`, `wait`, `send`, `keys`, `close` and `claims` run in Lua. `wait` reacts to status and lifecycle
-events. Bash `launch` uses the same ownership and claim files, and cage cleanup stays in the shell.
+`launch`, `status`, `ls`, `screen`, `wait`, `send`, `keys`, `close`, and `claims` run in Lua. `wait` reacts to status and
+lifecycle events. Lua generates the cage wrappers. They run the sandbox and handle cleanup in the shell.
+`clone` runs in Lua when Rex is available and works offline through the shell entry point.
 
 ## Safety model
 

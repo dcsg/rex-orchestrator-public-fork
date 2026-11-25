@@ -13,6 +13,9 @@ mkdir -p "$T/home" "$T/config" "$T/data" "$T/cache" "$T/work" "$T/bin"
 export HOME="$T/home" XDG_CONFIG_HOME="$T/config" XDG_DATA_HOME="$T/data" XDG_CACHE_HOME="$T/cache"
 export REX_SERVER="unix://$T/rex.sock" REX_BLOCK='' REX_SESSION='' REX_CONFIG="$T/init.lua"
 export REX_ORCHESTRATOR_STATE_DIR="$T/orchestrator-state"
+unset CLAUDECODE CLAUDE_CONFIG_DIR CODEX_HOME REX_ORCHESTRATOR_CONFIG_DIR
+unset REX_ORCHESTRATOR_CAGE_PROFILE REX_ORCHESTRATOR_CAGE_TPL REX_ORCHESTRATOR_CAGE_SECRETS
+unset REX_ORCHESTRATOR_CAGE_AGY_HOME REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD
 # The entry script and the Bash baseline both use this shim to disable autostart.
 printf '#!/bin/bash\nexec %q --autostart=false "$@"\n' "$REAL_REX" > "$T/bin/rex"
 chmod +x "$T/bin/rex"
@@ -207,6 +210,7 @@ sleep 0.4; rex_test session kill "$REX_SESSION"
 code=0; wait "$wait_pid" || code=$?
 check 'destroyed session exit' "$code:$(cat "$T/wait.out")" '12:exited'
 . "$ROOT/tests/lua/mutations.inc.sh"
+. "$ROOT/tests/lua/launch.inc.sh"
 rex_test session new lua-disconnect --shell none --keep-open --json -- /bin/bash "$ROOT/tests/lua/standin.sh" "$T/work" > "$T/session.json"
 REX_SESSION=$(jq -r .session_id "$T/session.json")
 B=$(jq -r '.initial_windows[0].block_ids[0]' "$T/session.json")

@@ -36,7 +36,19 @@ return function(rex)
   function F.remove(path) os.remove(path) end
   function F.unlink(path) return sh('rm -f -- "$1"',path) end
   function F.remove_state(path) return sh('rm -rf -- "$1" "$1".*',path) end
+  function F.remove_tree(path) return sh('rm -rf -- "$1"',path) end
   function F.mkdir(path) return sh('mkdir -p -- "$1"',path) end
+  function F.mkdir_new(path) return sh('mkdir -- "$1"',path) end
+  function F.test(predicate,path) return sh('test "$1" "$2"',predicate,path) end
+  function F.chmod(mode,path) return sh('chmod -- "$1" "$2"',mode,path) end
+  function F.private_temp(base,name)
+    local ok,out=sh('[ -O "$1" ] && mktemp -d "$1/$2.XXXXXX"',base,name)
+    return ok and out:gsub("\n$","") or nil
+  end
+  function F.executable(name)
+    local ok,out=sh('type -P -- "$1"',name)
+    return ok and out:gsub("\n+$","") or nil
+  end
   function F.claim_paths(directory)
     local ok,out=sh('for path in "$1"/*.json; do [ ! -f "$path" ] || printf "%s\\0" "$path" || exit 1; done',directory)
     if not ok then return nil end
@@ -50,6 +62,32 @@ return function(rex)
   function F.canonical(path)
     local ok, out = sh('cd -- "$1" 2>/dev/null && pwd -P', path)
     return ok and out:gsub("\n$", "") or nil
+  end
+  function F.logical(path)
+    local ok,out=sh('cd -L -- "$1" 2>/dev/null && pwd -L',path)
+    return ok and out:gsub("\n$","") or nil
+  end
+  function F.accounts(secrets)
+    local _,out=sh([=[
+      for f in "$1"/claude-*.env; do
+        a=${f##*/}; a=${a#claude-}; a=${a%.env}
+        case "$a" in ''|*[!a-z0-9]*) continue ;; esac
+        [ ! -f "$f" ] || [ ! -r "$f" ] || printf '%s\n' "$a"
+      done
+    ]=],secrets)
+    local accounts={}
+    for account in out:gmatch("[^\n]+") do accounts[#accounts+1]=account end
+    return accounts
+  end
+  function F.reserve_command(directory,path,text)
+    local result=rex.exec({"/bin/bash","-p","-c",[=[
+      umask 077
+      [ ! -L "$1" ] && /bin/mkdir -p "$1" && [ -O "$1" ] && /bin/chmod 700 "$1" || exit 1
+      set -C
+      { /bin/cat || { /bin/rm -f "$2"; exit 1; }; } > "$2"
+    ]=],"rex-orchestrator",directory,path},
+      {stdin=text,env={BASH_ENV=false,ENV=false,REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=false}})
+    return result and result.ok
   end
   function F.real(path)
     local ok, out = sh([=[

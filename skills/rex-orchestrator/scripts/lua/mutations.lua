@@ -195,30 +195,18 @@ return function(C, M, I, registry)
     if not C.send_keys(args) then C.die("keys: rex could not press the keys in " .. C.block,1) end
   end
 
-  local function close_pane()
-    if C.target_missing then return true end
-    for attempt=1,2 do
-      local attached,err=C.attach()
-      local closed
-      if attached then closed,err=R.call("block.close",{session_id=C.session,block_id=C.block}) end
-      if closed or tostring(err):find("not_found",1,true) then return true end
-      if attempt==1 then R.sleep(0.3) end
-    end
-    return C.gone(C.block)
-  end
-
   function commands.close(args)
     target("close",args,true)
-    if not close_pane() then C.die("rex could not close " .. C.block .. "; its state is kept: run close again",1) end
+    if not C.target_missing and not C.close_pane(C.block) then
+      C.die("rex could not close " .. C.block .. "; its state is kept: run close again",1)
+    end
     registry.remove(C.block)
     local leaf=C.line(C.block,"cage",1)
     if leaf~="" and not M.starts(leaf,".") and not leaf:find("/",1,true) then
       local base=C.fs.canonical(C.dir .. "/cage")
       if base then
         local path=base .. "/" .. leaf
-        local result=R.exec({"/bin/bash",C.script_dir .. "/cage-cleanup.sh",C.dir,path})
-        if result and result.stderr~="" then C.raw(result.stderr:gsub("\n$","")) end
-        if not result or not result.ok then C.note("could not remove the cage home " .. path) end
+        if not C.remove_cage(path) then C.note("could not remove the cage home " .. path) end
       end
     end
     if not C.fs.remove_state(C.sf(C.block)) then C.die("could not remove the state of " .. C.block,1) end
