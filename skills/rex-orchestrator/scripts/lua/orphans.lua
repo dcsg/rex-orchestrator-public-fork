@@ -261,8 +261,12 @@ function O.new(C,M,close_block)
     local now=os.time()
     for _,r in ipairs(children) do
       local expired=C.line(r.block,"orphan",1)=="expired"
-      if r.block==C.me or r.block==r.owner then
-        -- The caller itself: never an orphan here.
+      if r.block==r.owner then
+        -- A broken record: never an orphan.
+      elseif r.block==C.me then
+        -- The caller is a child: this call never closes it, but its orchestrator's watcher must run, whether that
+        -- pane is open or gone, even if the caller is the only one calling.
+        if r.policy~="keep" and not expired then watch[r.owner]=true end
       elseif blocks[r.owner] then
         if r.policy~="keep" and not expired then watch[r.owner]=true end
       elseif r.policy=="keep" or disabled then result.status[r.block]="kept"

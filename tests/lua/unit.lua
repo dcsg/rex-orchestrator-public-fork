@@ -912,6 +912,11 @@ do
   eq(#f.daemons,0,"a fresh heartbeat means a watcher runs")
   f=sweep_fixture{me="block:o"}
   f.W.scan(); eq(#f.daemons,1,"the caller's own calls restart its watcher")
+  f=sweep_fixture{me="block:c",blocks={"block:c"}}
+  r=f.W.scan(); eq(#f.daemons,1,"a child calling alone restarts its gone orchestrator's watcher")
+  eq(r.status["block:c"],nil,"and is not reported to itself"); eq(#f.closed,0)
+  f=sweep_fixture{me="block:c"}
+  f.W.scan(); eq(#f.daemons,1,"and its live orchestrator's watcher")
   -- A call only looks: no close, no recheck, no mark; the watcher of a gone pane is started.
   f=sweep_fixture{blocks={"block:c"},grace="0"}
   r=f.W.scan()
