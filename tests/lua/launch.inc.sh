@@ -84,7 +84,9 @@ printf 'codex # fixture allowlist\n' > "$XDG_CONFIG_HOME/rex-orchestrator/orches
 launch_case 2 undesignated --agent "$T/launch-agents/claude"
 grep -q 'only codex may orchestrate' "$T/launch.err"
 rm "$XDG_CONFIG_HOME/rex-orchestrator/orchestrators"
-launch_case 0 scoped --agent "$T/launch-agents/claude-scoped" --allow-edits --allow 'Bash(npm test:*)'
+# Reached through a link, so the logical DIR differs from the physical one and both get rules (T itself is physical).
+mkdir -p "$T/launch-work/scoped"; ln -s "$T/launch-work/scoped" "$T/scoped-link"
+launch_case 0 scoped --agent "$T/launch-agents/claude-scoped" --allow-edits --allow 'Bash(npm test:*)' --dir "$T/scoped-link"
 check 'launch includes the approved command and both scoped paths' \
   "$(jq -r '.permissions.allow | length' "$T/launch-work/scoped/scoped-rules")" 5
 check 'launch preserves the explicit scoped command' \
@@ -126,6 +128,9 @@ grep -q 'exited during startup' "$T/launch.err"
 launch_close
 launch_case 124 never --agent "$T/launch-agents/claude-never" --timeout 0
 launch_close
+if test_nested_sandbox; then
+  test_skip_nested 'a caged codex launch'
+else
 mkdir "$T/launch-work/caged O'Brien [work]"
 launch_case 0 caged --dir "$T/launch-work/caged O'Brien [work]" --cage --agent "$T/launch-agents/codex" \
   --tab 'Caged fixture' --trust
@@ -136,11 +141,15 @@ check 'caged codex trusts the exact task directory' "$(grep -A1 -F "$(cd "$T/lau
 check 'caged launch saves harvest metadata' "$(jq -r .block "$cage/run-meta.json")" "$child"
 launch_close
 check 'close removed the generated cage' "$([ ! -e "$cage" ] && echo removed)" removed
+fi
 launch_case 2 cage-overlap --dir "$HOME" --cage --agent "$T/launch-agents/codex"
 grep -q 'refusing a caged codex' "$T/launch.err"
 check 'failed cage setup removes the unused cage' "$(find "$REX_ORCHESTRATOR_STATE_DIR/cage" -mindepth 1 -print)" ''
 
 export REX_ORCHESTRATOR_CAGE_AGY_HOME="$T/agy-login"
+if test_nested_sandbox; then
+  test_skip_nested 'a caged agy launch'
+else
 mkdir -p "$REX_ORCHESTRATOR_CAGE_AGY_HOME/.gemini/antigravity-cli"
 printf '{"model":"test-only"}\n' > "$REX_ORCHESTRATOR_CAGE_AGY_HOME/.gemini/antigravity-cli/settings.json"
 REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD="printf '%s\\n' '{\"refresh_token\":\"stand-in-only\"}'" \
@@ -153,6 +162,7 @@ check 'generated agy deletes the private command after provisioning' \
   "$(find "$REX_ORCHESTRATOR_STATE_DIR/cage-commands" -mindepth 1 -print)" ''
 launch_close
 check 'close removed the generated agy cage and fixture token' "$([ ! -e "$cage" ] && echo removed)" removed
+fi
 for linked in gemini antigravity-cli; do
   login="$T/agy-link-$linked"
   outside="$T/agy-outside-$linked"
@@ -215,7 +225,7 @@ missing="$T/recovery"
 rex_test 'do' -e '
   assert(rex.call("session.attach",{session_id=rex.args.s}))
   local term=rex.layout.block{flavor="com.superlogical.terminal.shell",label=rex.args.tag,
-    options={command={"/bin/cat"},shell="none",exit={on_completion=false}}}
+    options={command={"/bin/cat"},shell="none",login=false,exit={on_completion=false}}}
   local pane=assert(rex.session.new_split{session_id=rex.args.s,anchor_id=rex.args.b,
     direction="horizontal",side="after",ratio=0.5,layout=term,focus=false})
   print(pane.block_ids[1])' "s=$REX_SESSION" "b=$REX_BLOCK" tag=unreported-launch > "$T/recovery-block"
@@ -227,6 +237,9 @@ jq -nc --arg script "${CLI%/*}" --arg journal "$missing" \
 check 'recovery finds an unreported pane by its temporary label' \
   "$(sed -n 's/.*ready; closed \(block:[^ ]*\)$/\1/p' "$T/recovery.err")" "$(cat "$T/recovery-block")"
 
+if test_nested_sandbox; then
+  test_skip_nested 'recovery of a caged launch whose close Rex refuses'
+else
 launch_case 0 recovery-close-refused --agent "$T/launch-agents/codex" --cage --tab recovery-close-refused
 sf="$REX_ORCHESTRATOR_STATE_DIR/${child//[^A-Za-z0-9_-]/_}"
 cage="$(cd "$REX_ORCHESTRATOR_STATE_DIR/cage/$(sed -n '1p' "$sf.cage")" && pwd -P)"
@@ -246,6 +259,7 @@ check 'recovery keeps the claim if Rex refuses close' \
 check 'recovery keeps ownership and cage state if Rex refuses close' \
   "$([ -s "$sf.own" ] && [ -s "$sf.cage" ] && [ -d "$cage" ] && echo retained)" retained
 launch_close
+fi
 
 repo="$T/clone-source"
 git init -q -b main "$repo"

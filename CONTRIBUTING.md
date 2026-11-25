@@ -30,10 +30,12 @@ None of these start a real agent or spend tokens. Before changing dialog handlin
 capture the screen as a fixture (`rex capture -s "$REX_SESSION" -b BLOCK --trim --unwrap`).
 
 The Lua suites exercise the public commands, including launch, trust, and cage creation. `tests/lua/live.sh` isolates
-its socket, state, home and configuration under `/tmp`, disables autostart, and cleans up only its own server. Set
+its socket, state, home and configuration in a fresh folder, disables autostart, and cleans up only its own server.
+The suites make their folders under `TMPDIR` (or `/tmp` when it is unset or too deep for a socket path), so they also
+run inside the cage: see [Running the suites in a cage](docs/cage.md#running-the-suites-in-a-cage). Set
 `REX_TEST_REX` to an absolute CLI path for a Rex executable outside the usual bundle locations. Run shell tests directly
 or with `bash -p` to suppress startup hooks before the script runs. The entry points restart with only `HOME`, `USER`,
-`TERM`, and `REX_TEST_*` or `REX_LUA_*` inputs from the caller. Set `REX_TEST_REQUIRE_ENV=1` to make environmental
+`TERM`, `TMPDIR`, and `REX_TEST_*` or `REX_LUA_*` inputs from the caller. Set `REX_TEST_REQUIRE_ENV=1` to make environmental
 skips fail as they do in CI. To compare with the historical Bash implementation, extract revision `a8913d6` with
 `git archive` into a scratch directory. Point `REX_TEST_LEGACY_SH` at that checkout's script to run the legacy fake-Rex
 harness, or set `REX_LUA_BASELINE` to compare real Rex responses. Set

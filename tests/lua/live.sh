@@ -10,7 +10,7 @@ if ! REAL_REX=$(test_find_rex); then
   exit 0
 fi
 if ! test_has_pty; then test_skip 'Lua live suite cannot allocate a pty in this environment'; exit 0; fi
-T=$(mktemp -d /tmp/rex-lua-live.XXXXXX)
+T=$(test_tmpdir rxl)
 server_pid=''
 cleanup() { [ -z "$server_pid" ] || { kill "$server_pid" 2>/dev/null || :; wait "$server_pid" 2>/dev/null || :; }; rm -rf "$T"; }
 trap cleanup EXIT

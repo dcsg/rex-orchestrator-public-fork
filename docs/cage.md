@@ -292,6 +292,31 @@ the deny holds whatever the other rules become. `launch` refuses a DIR that is, 
 cage home is a fresh `mktemp` folder that nothing outside the cage binds a socket in. If you point `REX_SERVER` at
 another socket for your own server, keep it out of the cage homes (`STATE_DIR/cage/`).
 
+## Running the suites in a cage
+
+This repo's own suites run inside a cage, so a caged worker can test its changes, live Rex included:
+
+```sh
+luajit tests/lua/unit.lua .
+tests/lua/entry.sh
+tests/lua/standalone.sh
+REX_TEST_REX="$REXBIN" tests/lua/live.sh     # REXBIN as above
+```
+
+- **Temp folders come from `TMPDIR`.** Each suite makes its folder with `tests/isolate.inc.sh`'s `test_tmpdir`, under
+  `TMPDIR` (which the cage points into the cage home), and the clean environment the suites restart in keeps `TMPDIR`.
+  A `TMPDIR` deeper than 80 bytes (physical path) would put `live.sh`'s sockets past the 104-byte limit, so the suites
+  use `/tmp` instead, which a cage can't write: they then fail at once. A codex cage home under the default state folder
+  is well within it (about 75 bytes for a 13-letter user name).
+- **`live.sh` runs its own private server**, as above, with `--autostart=false` everywhere and its `HOME` in that folder.
+- **Launches that start a caged agent are skipped.** macOS doesn't let a sandboxed process apply another sandbox
+  (`sandbox-exec: sandbox_apply: Operation not permitted`), so `live.sh` skips its three cases that start a caged agent
+  (a caged codex, a caged agy, and the recovery of a caged launch) when it is already in one, and says so. `REX_TEST_REQUIRE_ENV=1` doesn't turn that skip into a failure: no
+  setup makes it run. For the same reason `tests/cage/zt.sh` and `tests/cage/agy-token.sh`, which apply the profile
+  themselves, run only outside a cage.
+- `launch` starts each agent directly (`shell = "none"`, `login = false`): through `/usr/bin/login`, which is setuid, the
+  pane couldn't start in a cage at all (`exec /usr/bin/login: Operation not permitted`).
+
 ## Harmless messages
 
 codex's `⚠ 1 warning` at start (its worktree tools can't reach their local server) and a `git` `xcrun` cache "Operation not

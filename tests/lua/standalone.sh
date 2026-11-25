@@ -5,8 +5,7 @@ set -euo pipefail
 . "${BASH_SOURCE[0]%/*}/../isolate.inc.sh"
 ROOT=$(cd "$(dirname "$0")/../.." && pwd -P)
 scripts="$ROOT/skills/rex-orchestrator/scripts"
-fixture=$(mktemp -d /tmp/rex-standalone.XXXXXX)
-fixture=$(cd "$fixture" && pwd -P)
+fixture=$(test_tmpdir rxs)
 trap 'rm -rf "$fixture"' EXIT
 mkdir "$fixture/home" "$fixture/bin"
 checker=$(command -v jq)

@@ -4,7 +4,7 @@ set -euo pipefail
 # shellcheck source=tests/isolate.inc.sh
 . "${BASH_SOURCE[0]%/*}/../isolate.inc.sh"
 ROOT=$(cd "$(dirname "$0")/../.." && pwd -P)
-T=$(mktemp -d /tmp/rex-lua-entry.XXXXXX)
+T=$(test_tmpdir rxe)
 trap 'rm -rf "$T"' EXIT
 export REX_ORCHESTRATOR_STATE_DIR="$T/state"
 mkdir -p "$T/bin" "$T/install space"

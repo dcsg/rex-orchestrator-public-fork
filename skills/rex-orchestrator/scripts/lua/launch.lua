@@ -202,7 +202,7 @@ return function(C,M,D,I,K,G)
 
   local function place(opts,command,tag)
     local layout=R.layout.block{flavor="com.superlogical.terminal.shell",label=tag,
-      options={command=command,cwd=opts.dir,shell="none",exit={on_completion=false}}}
+      options={command=command,cwd=opts.dir,shell="none",login=false,exit={on_completion=false}}}
     local spec={session_id=C.session,layout=layout,focus=opts.focus}
     if opts.tab then
       spec.window_label=tag

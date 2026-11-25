@@ -20,6 +20,12 @@ project uses [Semantic Versioning](https://semver.org/).
   runtime dependencies.
 
 ### Fixed
+- `launch` starts the agent directly (`login = false` beside `shell = "none"`), as `rex split --shell none` does. Rex
+  otherwise ran it through `/usr/bin/login`: a "Last login" line, a `-`-prefixed name, and a setuid program that a
+  sandboxed process can't start, so no pane could be launched from inside a cage.
+- The test suites make their folders under `TMPDIR` (kept by the clean environment they restart in), falling back to
+  `/tmp` when it is unset or too deep for a socket path, so they run inside a cage. `live.sh` skips its three
+  cases that start a caged agent there, since macOS doesn't nest sandboxes.
 - Validate `launch --ratio` during argument parsing so an invalid split percentage exits 2 before placement.
 - Check the global launch kill switch before parsing launch options. Validate `--account` spelling and cage eligibility
   before looking up the agent executable.
