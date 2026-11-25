@@ -147,8 +147,8 @@ function O.new(C,M,close_block)
   end
 
   -- Look at every child in this session (or ONLY's), close the orphans whose time has come and report the rest.
-  -- Returns remaining (children still to watch), left (children left open), status (block -> grace|waiting|kept|
-  -- expired), and for ONLY whether its pane is gone and when a watcher may stop.
+  -- Returns remaining (children still to watch: not left open, not launched with keep), left (children left open),
+  -- status (block -> grace|waiting|kept|expired), and for ONLY whether its pane is gone and when a watcher may stop.
   function W.sweep(only)
     local result={remaining=0,status={},owners={}}
     if C.dir=="" or not C.session then return result end
@@ -203,7 +203,9 @@ function O.new(C,M,close_block)
       elseif action=="skip" and presence~="gone" then status=false end
       if status~=nil then
         if status then result.status[r.block]=status end
-        if status~="expired" then
+        if r.policy=="keep" then
+          -- Never watched: nothing will close it, so nothing needs to look at it again.
+        elseif status~="expired" then
           result.remaining=result.remaining+1
           result.owners[r.owner]=true
         else result.left=(result.left or 0)+1 end
@@ -213,7 +215,8 @@ function O.new(C,M,close_block)
         result.deadline=math.max(result.deadline or 0,os.time()-gone_for+r.grace+r.max_wait+60)
       end
     end
-    if not only then
+    -- Under the kill switch nothing closes: this call's look is enough, no watcher is started for it.
+    if not only and not disabled then
       for owner in pairs(result.owners) do W.ensure(owner,1) end
     end
     return result

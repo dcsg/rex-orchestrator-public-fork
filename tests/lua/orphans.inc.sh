@@ -143,6 +143,8 @@ rm -f "$REX_ORCHESTRATOR_STATE_DIR/watch/${O3//[^A-Za-z0-9_-]/_}.alive"
 rex_test block close -s "$REX_SESSION" "$O3"
 check 'ls from another pane shows the waiting orphan' "$(orphan_ls "$O2" swept-working)" waiting
 orphan_await_watchers "$O3" 1
+check 'a restarted watcher appends to the log' \
+  "$(grep -c 'watching the children' "$REX_ORCHESTRATOR_STATE_DIR/watch/${O3//[^A-Za-z0-9_-]/_}.log")" 2
 orphan_type "$D" 'done'
 orphan_await_closed "$D"
 
@@ -189,6 +191,8 @@ check 'an opted-out launch starts no watcher' "$(orphan_watchers "$O4" | wc -l |
 check 'an opted-out launch records its policy' "$(sed -n '9p' "$(orphan_sf "$E").own")" keep
 rex_test block close -s "$REX_SESSION" "$O4"
 check 'ls shows an opted-out orphan as kept' "$(orphan_ls "$O2" kept-child)" kept
+sleep 0.5
+check 'a sweep starts no watcher for a child launched with keep' "$(orphan_watchers "$O4" | wc -l | tr -d ' ')" 0
 check 'an opted-out orphan stays open' "$(orphan_open "$E" && [ -s "$(orphan_sf "$E").own" ] && echo open)" open
 REX_BLOCK=$O2 cli close --force "$E"
 code=0; REX_ORCHESTRATOR_ORPHANS=sometimes REX_BLOCK=$O2 cli launch --no-cage --agent "$T/launch-agents/claude-steer" \

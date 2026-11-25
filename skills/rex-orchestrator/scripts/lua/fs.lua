@@ -125,7 +125,7 @@ return function(rex)
   end
   -- Start ARGV as a daemon that holds LOCK for its whole life, or do nothing when another process holds it.
   -- TRIES attempts 0.1s apart (a watcher that is just exiting releases it). The daemon has its own session, no
-  -- terminal and SIGHUP ignored, so it outlives the shell and the pane that started it; its output goes to LOG.
+  -- terminal and SIGHUP ignored, so it outlives the shell and the pane that started it; its output is appended to LOG.
   function F.daemon(lock,log,tries,argv)
     local args={"/usr/bin/perl","-e",[=[
       use Fcntl qw(:flock F_GETFD F_SETFD FD_CLOEXEC);
@@ -146,7 +146,7 @@ return function(rex)
       $SIG{HUP}="IGNORE";
       fcntl($f,F_SETFD,fcntl($f,F_GETFD,0) & ~FD_CLOEXEC) or exit 3;
       open(STDIN,"<","/dev/null") or exit 3;
-      open(STDOUT,">",$log) or exit 3;
+      open(STDOUT,">>",$log) or exit 3;
       open(STDERR,">&",\*STDOUT) or exit 3;
       exec {$ARGV[0]} @ARGV;
       exit 4;
