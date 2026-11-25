@@ -14,6 +14,7 @@
 ;     -D TTY=<the child's own pty, /dev/ttysNNN, or an unused CAGE_TMP path for none> \
 ;     -D CAGE_SECRETS=<the cage credentials folder, read- and write-denied> \
 ;     [-D HOOKSPATH=<a repo core.hooksPath resolving inside DIR, to write-lock>] \
+;     [-D AGENT_BIN_DIR=<the agent's own release folder under an agent home, to re-open for read and exec, or CAGE_TMP>] \
 ;     -f cage.sb <real agent binary> <args...>
 ; DIR, DIR_RE, CAGE_TMP, CAGE_ROOT, TTY, HOME, AGENT_AUTH, AGENT_CFG_RO, LOCK_RE and CAGE_SECRETS are required: a missing one makes
 ; the profile fail to load (rc 65), i.e. fail closed. DIR_RE is DIR with ( ) [ ] { } . ^ $ * + ? | \
@@ -21,6 +22,7 @@
 ; (lua/launch_cage.lua computes it and refuses a DIR with a control character, invalid UTF-8 or a bidi control, which a regex can't express).
 ; HOOKSPATH is OPTIONAL: without it only the extra lock on a custom in-DIR core.hooksPath is skipped; .git/hooks, .husky and .githooks stay locked. An empty -D HOOKSPATH=
 ; fails to load; a relative one silently matches nothing.
+; AGENT_BIN_DIR is OPTIONAL: without it nothing extra is opened. An empty -D AGENT_BIN_DIR= fails to load.
 ;
 ; Every -D path must be PHYSICAL (pwd -P): seatbelt matches resolved paths, so a path through a
 ; symlink (/var -> /private/var, /tmp) or with "//" never matches. For DIR/CAGE_TMP/HOOKSPATH that
@@ -33,7 +35,9 @@
 ;
 ; The ONLY writes allowed outside DIR are under CAGE_TMP (the agent's own isolated config,
 ; state, home and temp) and the terminal devices, each justified inline. Nothing else is
-; writable. The only reads opened outside the default set are the single AGENT_AUTH file.
+; writable. The only reads opened outside the default set are the single AGENT_AUTH file and, for a standalone codex,
+; its one release folder (AGENT_BIN_DIR), the only place under an agent home a child may exec from (its own cage
+; home aside).
 
 (allow default)
 
@@ -170,6 +174,14 @@
 ; RISK: whichever agent this is for can read its own OAuth/refresh token and reach the net
 ; on 443, so it could use or exfiltrate it. Replace with a cage-only login to remove this.
 (allow file-read* (literal (param "AGENT_AUTH")))
+; Re-open the ONE folder the agent executable itself lives in, when that is under an agent home denied above: a
+; standalone codex runs from CODEX_HOME/packages/standalone/releases/<version>/ (its binaries, rg, resources). The
+; launcher passes that release folder's physical path, worked out from the executable it starts, for this launch only;
+; otherwise CAGE_TMP (already readable). Read here and exec in the exec section: writes there stay denied (the
+; agent-home write deny above), and nothing else under the home opens: auth.json, config, sessions, history, logs and
+; every other release stay unreadable and unexecutable.
+(when (param "AGENT_BIN_DIR")
+  (allow file-read* (subpath (param "AGENT_BIN_DIR"))))
 ; The child's own cage home, read back open after every deny above (it sits under CAGE_ROOT, and under an agent-home
 ; prefix when REX_ORCHESTRATOR_STATE_DIR points there). Siblings stay denied: they are other CAGE_ROOT entries.
 (allow file-read* (subpath (param "CAGE_TMP")))
@@ -183,6 +195,18 @@
 ;      and only ENTITLED Apple binaries (launchctl/osascript/sudo/ssh) are amfi-Killed:9 on copy
 ;      -- a generic signed binary and a self-compiled ad-hoc one BOTH run. Containment comes from
 ;      the file / network / mach / iokit denies below, never from code signing. ----
+; Agent homes: a read deny alone doesn't stop the kernel from starting a Mach-O stored there (a codex release other
+; than the launched one, a helper next to auth.json), so exec is denied by the same prefixes. AGENT_BIN_DIR, the
+; launched agent's own release folder, is re-opened; so is the child's own cage home, which can sit under such a prefix
+; when STATE_DIR does.
+(deny process-exec
+  (prefix (string-append (param "HOME") "/.claude"))
+  (prefix (string-append (param "HOME") "/.codex"))
+  (prefix (string-append (param "HOME") "/.grok"))
+  (prefix (string-append (param "HOME") "/.gemini")))
+(when (param "AGENT_BIN_DIR")
+  (allow process-exec (subpath (param "AGENT_BIN_DIR"))))
+(allow process-exec (subpath (param "CAGE_TMP")))
 (deny process-exec
   (literal "/usr/bin/sudo") (literal "/bin/launchctl") (literal "/usr/bin/osascript") (literal "/usr/bin/open")
   (literal "/usr/bin/ssh") (literal "/usr/bin/scp") (literal "/usr/bin/sftp")

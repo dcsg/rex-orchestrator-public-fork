@@ -5,7 +5,7 @@ cage_build() {
   built=$(REX_ORCHESTRATOR_CAGE_PROFILE="$CAGE_PROFILE" REX_ORCHESTRATOR_CAGE_TPL="$CAGE_TPL" \
     REX_ORCHESTRATOR_CAGE_SECRETS="$CAGE_SECRETS" REX_ORCHESTRATOR_CAGE_AGY_HOME="$CAGE_AGY_HOME" \
     luajit "$(dirname "${BASH_SOURCE[0]}")/build.lua" "$ASSETS" "$SCRIPT_DIR" "$STATE_DIR" \
-    "$1" "$2" "$3" "${account:-}" "${guard_leaf:-}") || return $?
+    "$1" "$2" "$3" "${account:-}" "${guard_leaf:-}" "${cage_agent:-}") || return $?
   # shellcheck disable=SC2034 # Consumed by the calling suite.
   cage_tmp=$built cage_wrapper="$built/bin/$1"
 }

@@ -9,6 +9,8 @@ project uses [Semantic Versioning](https://semver.org/).
 - `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` provisions a caged agy login from a shell command outside the sandbox.
   The token is private (mode 600), absent from the agent's environment, and deleted on exit or HUP/INT/TERM;
   failed or empty commands stop the wrapper with exit 71 before agy starts. Unset preserves copied logins.
+- `REX_ORCHESTRATOR_CAGE_CODEX_BIN`, `REX_ORCHESTRATOR_CAGE_CLAUDE_BIN` and `REX_ORCHESTRATOR_CAGE_GROK_BIN` name the
+  executable a caged agent runs.
 
 ### Changed
 - Rex commands run in Lua via `rex do`. LuaJIT is required for local operations, and `jq` and `python3` are no longer
@@ -26,6 +28,11 @@ project uses [Semantic Versioning](https://semver.org/).
   Keep private command files denied after profile read exceptions, including custom state under `~/.config/git`.
 - Resolve the session from `REX_BLOCK` when `REX_SESSION` is empty, supporting Rex server 0.1.0-preview.23.
   An explicit `REX_SESSION` selects the session.
+- Run a caged codex from a standalone install (`~/.codex/packages/standalone/releases/<version>/`): the cage runs it by
+  its physical path and re-opens only that release folder, read and execute only, for that launch. A caged codex,
+  claude or grok launched by name skips shell-script shims on `PATH` instead of running them in the cage. The cage
+  now denies execution under agent homes as well as reads, and `launch` refuses an agent executable it can't start
+  there with exit 2.
 - Find cage assets beside the real CLI script through absolute and relative install symlinks and symlink chains,
   while keeping environment overrides first.
 

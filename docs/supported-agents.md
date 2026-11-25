@@ -27,6 +27,10 @@ Every command works with any agent that reports Rex program status. `launch` pic
   `Rex.app`/`Rex Beta.app` (or `REX_ORCHESTRATOR_REX_BIN_DIR`), and each call needs `REX_BLOCK=…` in front, from the
   session-start text Rex's Codex hook prints. When `REX_SESSION` is empty, the CLI resolves the session from
   `REX_BLOCK`. An explicit `REX_SESSION` selects the session.
+- Caged, `launch` runs codex's own executable, never a shell-script shim found on `PATH` first (one that fetches MCP
+  tokens, say): it skips the shim and says so, or exits 2 when only shims match. `REX_ORCHESTRATOR_CAGE_CODEX_BIN` names
+  the executable. A standalone install (`~/.local/bin/codex` linking into `~/.codex/packages/standalone/`) runs caged
+  from its release folder, the only part of `~/.codex` the cage opens. See [cage.md](cage.md#which-executable-a-caged-agent-runs).
 
 ## Grok (`grok`)
 
@@ -35,6 +39,8 @@ Every command works with any agent that reports Rex program status. `launch` pic
   reports nothing until `done`. `wait` holds while its footer shows a running turn, but `status`, `ls` and `send` still see
   the old `done`: `wait` before you `send` again.
 - Uncaged, it runs in always-approve.
+- Caged, the same executable rules as codex apply (`REX_ORCHESTRATOR_CAGE_GROK_BIN`). An install under `~/.grok`, such as
+  `~/.local/bin/grok` linking to `~/.grok/bin/grok`, can't start in the cage: `launch` exits 2 and says so.
 
 ## Gemini (`agy` CLI)
 

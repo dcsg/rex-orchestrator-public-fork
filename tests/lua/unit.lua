@@ -622,6 +622,10 @@ eq(reply.code,0); eq(seen.chosen,"one"); eq(seen.account,"/credentials/claude-on
 eq(seen.window.window_label,"-sample.launch-launch-id"); eq(seen.claim,true); eq(seen.released,true)
 eq(seen.output,child); eq(state["/state/block_child.own"][1],orch)
 eq(not not state["/tmp/launch-id/state"][1]:find('"block":"block:child"',1,true),true)
+-- A caged launch records the executable its cage runs, not the PATH match the cage skipped.
+reply,seen,state=run_launch({"--agent","codex","--tab","target"},{
+  cage={home="/state/cage/codex.test",wrapper="/state/cage/codex.test/bin/codex",meta={},bin="/release/bin/codex"}})
+eq(reply.code,0); eq(state["/state/block_child.own"][7],"/release/bin/codex")
 eq(run_launch({"--cage"}).code,2)
 eq(run_launch({}, {cage_code=2}).code,2)
 eq(run_launch({}, {cage={home="/state/cage/x"},overlap="/work"}).code,2)

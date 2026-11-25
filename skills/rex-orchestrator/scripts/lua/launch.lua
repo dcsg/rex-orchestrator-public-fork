@@ -126,6 +126,8 @@ return function(C,M,D,I,K,G)
 
   local function executable(opts)
     local bin=F.executable(opts.agent)
+    -- A caged agent can come from its cage override alone; the cage build checks it.
+    if not bin and opts.cage~="off" and not opts.agent:find("/",1,true) then bin=K.override(opts.name) end
     if not bin then C.die("launch: no " .. opts.agent .. " on your PATH (give --agent a full path)") end
     if not M.starts(bin,"/") then bin=(env("PWD") or F.logical(".")) .. "/" .. bin end
     if opts.account~="" then
@@ -353,6 +355,7 @@ return function(C,M,D,I,K,G)
       local code
       cage,code=K.build(opts.name,bin,opts,function(path) journal.cage=path; persist() end)
       if cage then
+        bin=cage.bin or bin
         local overlap=K.overlap(opts.dir)
         if overlap then
           C.die("launch: refusing a caged " .. opts.name .. " in " .. opts.dir .. ": it is, holds or sits in " ..

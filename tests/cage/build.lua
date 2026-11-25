@@ -1,5 +1,5 @@
 -- Local rex.exec shim for zero-token cage fixtures. No Rex session or socket is used.
-local assets,script_dir,state,name,bin,dir,account,forced_leaf=unpack(arg)
+local assets,script_dir,state,name,bin,dir,account,forced_leaf,agent=unpack(arg)
 local M=dofile(assets .. "/lua/core.lua")
 local function quote(s) return "'" .. s:gsub("'","'\\''") .. "'" end
 local function capture(argv,options)
@@ -46,6 +46,7 @@ end
 local C={rex=rex,fs=F,dir=state,script_dir=script_dir,git=F.git(),
   note=function(text) io.stderr:write(text,"\n") end,put=F.put}
 local K=dofile(assets .. "/lua/launch_cage.lua")(C,M)
-local cage,code=K.build(name,bin,{dir=dir,account=account,label=name},function() end)
+-- AGENT is what launch got as --agent: a bare name resolves on PATH, a path (the default, BIN) is used as given.
+local cage,code=K.build(name,bin,{dir=dir,account=account,label=name,agent=agent~="" and agent or bin},function() end)
 if not cage then os.exit(code) end
 print(cage.home)

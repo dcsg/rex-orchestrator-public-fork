@@ -52,6 +52,21 @@ return function(rex)
     local ok,out=sh('type -P -- "$1"',name)
     return ok and out:gsub("\n+$","") or nil
   end
+  -- Every executable NAME on PATH, in PATH order, each listed once.
+  function F.executables(name)
+    local ok,out=sh('type -a -P -- "$1"',name)
+    local paths,seen={},{}
+    if not ok then return paths end
+    for path in out:gmatch("[^\n]+") do
+      if not seen[path] then seen[path]=true; paths[#paths+1]=path end
+    end
+    return paths
+  end
+  -- The physical path of a file, every symlink resolved, the last component too.
+  function F.realpath(path)
+    local ok,out=sh('[ -f "$1" ] && /bin/realpath -- "$1"',path)
+    return ok and out:gsub("\n$","") or nil
+  end
   function F.claim_paths(directory)
     local ok,out=sh('for path in "$1"/*.json; do [ ! -f "$path" ] || printf "%s\\0" "$path" || exit 1; done',directory)
     if not ok then return nil end

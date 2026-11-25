@@ -3,7 +3,8 @@
 # Each cage is built by the Lua builder used by `launch`, with a probe in the
 # agent's place, and every check runs through the generated wrapper itself: its env -i, the -D set it computes and the
 # flags it gives the agent. A fixture HOME stands in for the real one, so nothing of the user's is read. It checks:
-#   - the profile loads, and fails closed when a required param (DIR_RE, DIR) is missing or HOOKSPATH is empty;
+#   - the profile loads, and fails closed when a required param (DIR_RE, DIR) is missing or HOOKSPATH or AGENT_BIN_DIR
+#     is empty;
 #   - the child's environment holds only its cage's own variables (codex, grok, and claude and agy with dummy cage
 #     credentials): no REX_*, SSH_AUTH_SOCK or tokens of the caller's;
 #   - a caged claude runs with CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1;
@@ -27,6 +28,12 @@
 #     /usr/bin/open or launchctl;
 #   - close's rmcage removes a cage home the child sealed (folders without rwx, uchg/uappnd flags, ACLs, nested), and
 #     leaves a file a link in it points to alone;
+#   - a standalone codex under HOME/.codex/packages/standalone/releases/<version>/, reached through a link on PATH,
+#     runs in the cage from its physical path with only its release folder readable: auth.json (with CODEX_HOME
+#     elsewhere), config, sessions, history, logs and a sibling release stay unreadable and unexecutable, the release
+#     folder unwritable; a shell-script shim first on PATH is skipped and never run, a PATH of shims only is refused
+#     naming the override, REX_ORCHESTRATOR_CAGE_CODEX_BIN picks the executable, and an agent executable elsewhere
+#     under an agent home is refused;
 #   - a seeding step of the wrapper that fails stops it before the agent starts (its set -e);
 #   - if clang is present, a Mach-O compiled in-cage reaches exactly the 7 allowlisted mach services and can't open
 #     an IOKit user client.
@@ -152,6 +159,7 @@ chk "fail closed: missing LOCK_RE" 65 "$(/usr/bin/sandbox-exec "${D[@]:0:12}" "$
 chk "fail closed: missing CAGE_ROOT" 65 "$(/usr/bin/sandbox-exec "${D[@]:0:14}" "${D[@]:16}" -f "$PROFILE" /usr/bin/true >/dev/null 2>&1; echo $?)"
 chk "fail closed: missing TTY" 65 "$(/usr/bin/sandbox-exec "${D[@]:0:16}" "${D[@]:18}" -f "$PROFILE" /usr/bin/true >/dev/null 2>&1; echo $?)"
 chk "fail closed: missing CAGE_SECRETS" 65 "$(/usr/bin/sandbox-exec "${D[@]:0:18}" -f "$PROFILE" /usr/bin/true >/dev/null 2>&1; echo $?)"
+chk "fail closed: empty AGENT_BIN_DIR" nonzero "$(/usr/bin/sandbox-exec "${D[@]}" -D AGENT_BIN_DIR= -f "$PROFILE" /usr/bin/true >/dev/null 2>&1 && echo zero || echo nonzero)"
 chk "fail closed: empty HOOKSPATH" nonzero "$(/usr/bin/sandbox-exec "${D[@]}" -D HOOKSPATH= -f "$PROFILE" /usr/bin/true >/dev/null 2>&1 && echo zero || echo nonzero)"
 
 echo "== environment: only the cage's own variables =="
@@ -435,6 +443,93 @@ chk "agy: HOME is the cage's copy of its home" "$CT/home" "$(cg -c 'printf %s "$
 want w ALLOW "$CT/home/.gemini/x"
 # shellcheck disable=SC2034  # read by later cage_build calls
 CAGE_AGY_HOME="$WORK/no-agy-home"
+
+echo "== a standalone codex release under the agent home =="
+# The layout codex's standalone installer makes: releases/<version>/ holding bin/codex and its helpers, a current link
+# to the release in use, and ~/.local/bin/codex linking through it. The stand-in is a Perl script, not a shell one: the
+# cage runs no shell script found on PATH under an agent's name. Like PROBE, it drops the recipe's flags and runs sh.
+SA="$FH/.codex/packages/standalone"; REL="$SA/releases/9.9.9-zt"; OLD="$SA/releases/9.9.8-zt"
+mkdir -p "$REL/bin" "$REL/codex-path" "$OLD/bin" "$FH/.local/bin" "$FH/.codex/sessions" "$FH/.codex/log" "$FH/.codex/bin"
+# shellcheck disable=SC2016 # Perl source, written as is.
+printf '%s\n' '#!/usr/bin/perl' 'shift @ARGV while @ARGV && $ARGV[0] =~ /^--/;' 'exec "/bin/sh", @ARGV or exit 127;' \
+  >"$REL/bin/codex"
+chmod 755 "$REL/bin/codex"; cp "$REL/bin/codex" "$OLD/bin/codex"; cp "$REL/bin/codex" "$FH/.codex/bin/codex"
+printf 'helper\n' >"$REL/codex-path/rg"
+# A Mach-O in each release too: the kernel refuses to exec one the cage can't read, before any interpreter runs.
+cp /usr/bin/true "$REL/bin/helper"; cp /usr/bin/true "$OLD/bin/helper"; cp /usr/bin/true "$FH/.codex/bin/helper"
+for p in config.toml history.jsonl sessions/s.jsonl log/codex.log; do printf 'fixture\n' >"$FH/.codex/$p"; done
+ln -s "$REL" "$SA/current"; ln -s "$SA/current/bin/codex" "$FH/.local/bin/codex"
+# A user's shim: a Bash script first on PATH that would look for the real codex and exec it. It leaves a mark if run.
+SHIM_MARK="$WORK/shim-ran"; mkdir -p "$WORK/shims" "$WORK/tools"
+printf '%s\n' '#!/bin/bash' "# a user's codex shim" ": >$(q "$SHIM_MARK")" \
+  "echo \"codex: the real codex isn't on PATH\" >&2; exit 127" >"$WORK/shims/codex"
+chmod 755 "$WORK/shims/codex"; ln -s "$(command -v luajit)" "$WORK/tools/luajit"
+# sa_build PATH [VAR=VALUE...]: build a codex cage for PD as launch does for a bare --agent codex, with only PATH (and
+# the variables) changed; sets W, CT and CWD on success and SA_RC to the build's exit code, its notes in build.log.
+sa_build() {
+  local path=$1; shift
+  SA_RC=0
+  # shellcheck disable=SC2016 # The child shell expands its own arguments.
+  env PATH="$path" "$@" cage_agent=codex "$BASH" -p -c '. "$1"; shift; cage_build "$@" && printf "%s\n" "$cage_tmp"' sa \
+    "$HERE/build.inc.sh" codex codex "$PD" >"$WORK/sa.out" 2>"$WORK/build.log" || SA_RC=$?
+  [ "$SA_RC" -eq 0 ] || return "$SA_RC"
+  CT=$(cat "$WORK/sa.out") W="$CT/bin/codex" CWD=$PD
+}
+# shellcheck disable=SC2034 # Read by cage_build in sa_build's child shell.
+export CAGE_PROFILE CAGE_TPL CAGE_SECRETS CAGE_AGY_HOME ASSETS SCRIPT_DIR STATE_DIR account
+LINKED="$FH/.local/bin:$WORK/tools:/usr/bin:/bin"
+if sa_build "$WORK/shims:$LINKED"; then
+  chk "standalone: the cage runs the release's physical path" "REAL='$REL/bin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
+  chk "standalone: AGENT_BIN_DIR is that release folder" "BINDIR='$REL'" "$(grep -m1 -o "BINDIR='[^']*'" "$W")"
+  chk "standalone: launch says it skipped the shim" yes \
+    "$(grep -qF "skipped $WORK/shims/codex: a shell script" "$WORK/build.log" && echo yes || echo no)"
+  chk "standalone: the release codex starts in the cage" RAN "$(cg -c 'echo RAN')"
+  want r READ "$REL/bin/codex" "$REL/codex-path/rg" "$REL"
+  want r DENY "$FH/.codex/config.toml" "$FH/.codex/history.jsonl" "$FH/.codex/sessions/s.jsonl" \
+    "$FH/.codex/log/codex.log" "$OLD/bin/codex" "$OLD" "$SA/releases" "$SA" "$FH/.codex/bin/codex"
+  want w DENY "$REL/bin/codex" "$REL/planted" "$OLD/planted" "$FH/.codex/planted"
+  chk "standalone: a Mach-O in the release runs" RAN "$(cg -c "$(q "$REL/bin/helper") && echo RAN || echo DENY")"
+  chk "standalone: a Mach-O in a sibling release does not" DENY "$(cg -c "$(q "$OLD/bin/helper") 2>/dev/null && echo RAN || echo DENY")"
+  chk "standalone: a Mach-O elsewhere in HOME/.codex does not" DENY \
+    "$(cg -c "$(q "$FH/.codex/bin/helper") 2>/dev/null && echo RAN || echo DENY")"
+  chk "standalone: a sibling release does not run" DENY "$(cg -c "$(q "$OLD/bin/codex") -c 'echo RAN' 2>/dev/null || echo DENY")"
+  chk "standalone: the link through current does not run" DENY \
+    "$(cg -c "$(q "$FH/.local/bin/codex") -c 'echo RAN' 2>/dev/null || echo DENY")"
+else bad "standalone: cage_build failed with a shim first on PATH (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
+# With CODEX_HOME elsewhere AGENT_AUTH is that home's auth.json, so only the release folder could open
+# HOME/.codex/auth.json: it must stay unreadable, and, made executable, must not run.
+CXH="$WORK/codex-alt-home"; mkdir -p "$CXH"; printf 'fixture\n' >"$CXH/auth.json"
+printf '#!/bin/sh\necho RAN\n' >"$FH/.codex/auth.json"; chmod 755 "$FH/.codex/auth.json"
+if sa_build "$LINKED" CODEX_HOME="$CXH"; then
+  chk "standalone, CODEX_HOME elsewhere: AGENT_AUTH is that home's" "AUTH='$CXH/auth.json'" "$(grep -m1 -o "AUTH='[^']*'" "$W")"
+  want r DENY "$FH/.codex/auth.json"
+  chk "standalone: HOME/.codex/auth.json does not run" DENY "$(cg -c "$(q "$FH/.codex/auth.json") 2>/dev/null || echo DENY")"
+  chk "standalone, CODEX_HOME elsewhere: the release codex starts" RAN "$(cg -c 'echo RAN')"
+else bad "standalone: cage_build failed with CODEX_HOME elsewhere (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
+printf 'fixture\n' >"$FH/.codex/auth.json"; chmod 644 "$FH/.codex/auth.json"
+sa_build "$WORK/shims:$WORK/tools:/usr/bin:/bin" || :
+chk "shims only on PATH: launch refuses" 2 "$SA_RC"
+chk "shims only on PATH: the refusal names the override" yes \
+  "$(grep -qF 'set REX_ORCHESTRATOR_CAGE_CODEX_BIN to the real codex executable' "$WORK/build.log" && echo yes || echo no)"
+if sa_build "$WORK/shims:$WORK/tools:/usr/bin:/bin" REX_ORCHESTRATOR_CAGE_CODEX_BIN="$FH/.local/bin/codex"; then
+  chk "REX_ORCHESTRATOR_CAGE_CODEX_BIN picks the executable" "BINDIR='$REL'" "$(grep -m1 -o "BINDIR='[^']*'" "$W")"
+  chk "REX_ORCHESTRATOR_CAGE_CODEX_BIN: codex starts" RAN "$(cg -c 'echo RAN')"
+else bad "REX_ORCHESTRATOR_CAGE_CODEX_BIN: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
+sa_build "$LINKED" REX_ORCHESTRATOR_CAGE_CODEX_BIN=.local/bin/codex || :
+chk "a relative REX_ORCHESTRATOR_CAGE_CODEX_BIN is refused" 2 "$SA_RC"
+chk "the shim never ran" absent "$([ -e "$SHIM_MARK" ] && echo ran || echo absent)"
+# Given as a path, --agent is used as given: the link works, an executable elsewhere under an agent home is refused.
+if cage_build codex "$FH/.local/bin/codex" "$PD" >"$WORK/build.log" 2>&1; then
+  W=$cage_wrapper CT=$cage_tmp CWD=$PD
+  chk "--agent HOME/.local/bin/codex: the release starts" RAN "$(cg -c 'echo RAN')"
+else bad "--agent HOME/.local/bin/codex: cage_build failed ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
+rc=0; cage_build codex "$FH/.codex/bin/codex" "$PD" >/dev/null 2>"$WORK/build.log" || rc=$?
+chk "--agent HOME/.codex/bin/codex, outside a release: refused" 2 "$rc"
+cp "$REL/bin/codex" "$FH/.grok/grok"; chmod 755 "$FH/.grok/grok"
+rc=0; cage_build grok "$FH/.grok/grok" "$PD" >/dev/null 2>"$WORK/build.log" || rc=$?
+chk "a grok executable under ~/.grok: refused" 2 "$rc"
+chk "the refusal says the cage can't read it" yes \
+  "$(grep -qF "under $FH/.grok, which the cage can't read" "$WORK/build.log" && echo yes || echo no)"
 
 echo "== what runs or is sourced outside the cage stays write-locked, even in a DIR that holds it =="
 # The claude wrapper sources claude-<name>.env outside the cage, and the skill folder holds the launcher, its profile,

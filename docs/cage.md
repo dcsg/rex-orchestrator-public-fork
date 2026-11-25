@@ -21,6 +21,33 @@ It is a filesystem, network-port and privilege boundary for agents you don't ful
 **Fail closed:** when an agent that should be caged can't be (missing profile, template or login, a DIR path the profile
 can't express), `launch` exits 2 and never runs it uncaged instead.
 
+### Which executable a caged agent runs
+
+The cage starts the agent's own executable directly, with a clean environment and a fixed `PATH`. For codex, claude and
+grok launched by name (`--agent codex`):
+
+- `REX_ORCHESTRATOR_CAGE_<AGENT>_BIN` (`REX_ORCHESTRATOR_CAGE_CODEX_BIN`, `…_CLAUDE_BIN`, `…_GROK_BIN`), when set, is
+  the executable. It must be an absolute path to an executable file. It applies to caged launches only.
+- Otherwise `launch` takes the first one on your `PATH` that is not a shell script. A file whose `#!` line names `sh`,
+  `bash`, `zsh`, `dash` or `ksh` (directly or through `env`) is a wrapper or shim, such as one that fetches MCP tokens
+  and then runs the real agent. Inside the cage its environment is gone, its `PATH` lookup usually finds nothing, and
+  the cage config has no MCP servers to give tokens to, so `launch` skips it and says which file it skipped and which
+  one it runs. It never runs the shim. When every match on `PATH` is a shell script, `launch` exits 2 and names the
+  variable to set. If such a script is the agent's own launcher (some package managers install one), set the variable
+  to it. Uncaged launches still run the first match, shim included.
+- `--agent` given as a path is used as given.
+
+The cage denies reads and execution under every agent home (`~/.claude*`, `~/.codex*`, `~/.grok*`, `~/.gemini*`), so an
+agent installed there can't start. The one exception is codex's standalone install, which keeps each version in
+`CODEX_HOME/packages/standalone/releases/<version>/` (or `~/.codex/…`) and links `~/.local/bin/codex` to it through
+`packages/standalone/current`. `launch` resolves the executable's physical path and, when it lies inside such a release
+folder, runs it by that path and re-opens exactly that one folder, read and execute only, for this launch
+(`-D AGENT_BIN_DIR`). Nothing else under the codex home opens: `auth.json` (unless it is the login the codex recipe
+re-opens anyway), `config.toml`, sessions, history, logs and other releases stay unreadable and unexecutable, and the
+release folder itself stays unwritable. Any other executable under an agent home (grok's `~/.grok/bin/grok`, for
+example) makes `launch` exit 2 with a message: install the agent elsewhere or point the variable above at a copy outside
+the agent home.
+
 ### Setting up claude and Gemini (agy)
 
 ```sh
@@ -131,10 +158,13 @@ home stops the wrapper with exit **70**.
 - **Auto-run files inside DIR** that would execute unsandboxed later: `.git/hooks/`, `.git/config`, `.envrc`, `.mcp.json`,
   `.claude/`, `.codex/`, `.gemini/`, `.grok/`, `.cursor/`, `.zed/`, `.vscode/`, `.idea/`, `.husky/`, `.githooks/`,
   `.agents/`, and a repo's own `core.hooksPath`. (So `git init`/`git config` fail in the cage: create the repo first.)
+- **Execution** under every agent home (`~/.claude*`, `~/.codex*`, `~/.grok*`, `~/.gemini*`), except the launched codex
+  release folder and the child's own cage home.
 - **Reads** of secret stores and agent homes: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.config` (except `git`),
   `~/Library/Keychains`, shell histories, Messages, Mail, every `~/.claude*`, `~/.codex*`, `~/.grok*`, `~/.gemini*`, other
   agents' folders in `~/Library/Application Support`, other cage homes, other Claude sessions' temp files, and every repo
-  under `~/Repos` except DIR's.
+  under `~/Repos` except DIR's. The exceptions are the agent's one login file (codex, grok) and a launched codex
+  release folder.
 - **Network** on any port but 443, 80 and 53, loopback included; every unix socket but DNS's (so no Rex, no ssh-agent).
 - **Mach services** outside a 7-name allowlist (TLS, DNS, user lookup): no LaunchServices, AppleEvents, clipboard,
   WindowServer, TCC; no `iokit-open`; no signals outside the cage; no `sudo`, `launchctl`, `osascript`, `open`, `ssh`,

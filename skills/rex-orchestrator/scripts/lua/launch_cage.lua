@@ -102,6 +102,90 @@ return function(C,M)
     return r
   end
 
+  -- The cage runs codex, claude and grok as their own executables. A shell script found on PATH under the agent's
+  -- name is a wrapper or shim (one that injects tokens and execs the real agent, say), not the agent: the cage
+  -- skips it, because its env -i and fixed PATH would break it, and what it adds is what the cage strips.
+  local direct={codex=true,claude=true,grok=true}
+  local shells={sh=true,bash=true,zsh=true,dash=true,ksh=true}
+  local function shell_script(path)
+    local f=io.open(path,"rb")
+    if not f then return false end
+    local head=f:read(256) or ""
+    f:close()
+    local line=head:match("^#![ \t]*([^\n]*)")
+    if not line then return false end
+    local words={}
+    for word in line:gmatch("%S+") do words[#words+1]=word end
+    local interpreter=words[1] and M.basename(words[1]) or ""
+    if interpreter=="env" then
+      for i=2,#words do
+        if not M.starts(words[i],"-") and not words[i]:find("=",1,true) then interpreter=M.basename(words[i]); break end
+      end
+    end
+    return shells[interpreter]==true
+  end
+  function K.override(name)
+    return direct[name] and env("REX_ORCHESTRATOR_CAGE_" .. name:upper() .. "_BIN") or nil
+  end
+
+  -- The executable a caged agent runs: --agent's path as given; for a bare name, REX_ORCHESTRATOR_CAGE_<AGENT>_BIN,
+  -- else the first one on PATH that isn't a shell script.
+  local function caged_binary(r,name,opts)
+    if not direct[r.runtime] or (opts.agent or r.bin):find("/",1,true) then return r.bin end
+    local variable="REX_ORCHESTRATOR_CAGE_" .. name:upper() .. "_BIN"
+    local override=K.override(name)
+    if override then
+      if not M.starts(override,"/") then return nil,"cage: " .. variable .. " must be an absolute path" end
+      if not F.test("-f",override) or not F.test("-x",override) then
+        return nil,"cage: " .. variable .. " (" .. override .. ") is not an executable file"
+      end
+      return override
+    end
+    local skipped={}
+    for _,path in ipairs(F.executables(opts.agent)) do
+      if not M.starts(path,"/") then path=(env("PWD") or F.logical(".")) .. "/" .. path end
+      if not shell_script(path) then
+        if #skipped>0 then
+          C.note("cage: skipped " .. table.concat(skipped,", ") .. ": a shell script, not " .. name ..
+            " itself (a wrapper or shim the cage would break); running " .. path .. " (" .. variable .. " picks another)")
+        end
+        return path
+      end
+      skipped[#skipped+1]=path
+    end
+    return nil,"cage: every " .. name .. " on PATH is a shell script (" .. table.concat(skipped,", ") ..
+      "), a wrapper or shim the cage would break; set " .. variable .. " to the real " .. name .. " executable" ..
+      " (or to that script, if it is " .. name .. "'s own launcher and runs without your environment)"
+  end
+
+  -- The cage denies reads and execution under every agent home by prefix, so an executable there can't start. The one
+  -- exception is a standalone codex release, CODEX_HOME/packages/standalone/releases/<version>/: that folder, and
+  -- nothing else under the home, is re-opened for reading and execution (AGENT_BIN_DIR) for this launch, and the agent
+  -- runs by its physical path, since the current link and any link inside the home can't be followed in the cage.
+  local function agent_bin_dir(r,name)
+    local real=F.realpath(r.bin)
+    if not real then return nil,"cage: cannot resolve " .. name .. "'s executable " .. r.bin end
+    local h=F.canonical(home) or home
+    for _,leaf in ipairs({".claude",".codex",".grok",".gemini"}) do
+      if M.starts(real,h .. "/" .. leaf) then
+        if r.runtime=="codex" and not M.dir_control(real) then
+          for _,codex_home in ipairs({env("CODEX_HOME") or "",h .. "/.codex"}) do
+            local physical=codex_home~="" and F.canonical(codex_home)
+            local base=physical and physical .. "/packages/standalone/releases/"
+            local version=base and M.starts(real,base) and real:sub(#base+1):match("^([^/]+)/.")
+            if version and version~="." and version~=".." then return real,base .. version end
+          end
+        end
+        return nil,"cage: " .. name .. "'s executable " .. real .. " is under " .. h .. "/" .. leaf ..
+          ", which the cage can't read" .. (r.runtime=="codex" and
+          " (of a codex home it opens only a standalone release, packages/standalone/releases/<version>/)" or "") ..
+          "; install " .. name .. " elsewhere" .. (direct[r.runtime] and
+          " or point REX_ORCHESTRATOR_CAGE_" .. name:upper() .. "_BIN at a copy outside it" or "")
+      end
+    end
+    return r.bin
+  end
+
   local function agy_settings(login)
     local source=F.read(login .. "/.gemini/antigravity-cli/settings.json")
     local config=source and R.json.decode(source)
@@ -122,7 +206,7 @@ return function(C,M)
       {"AUTH",r.auth or ct},{"CFGRO",ct .. "/" .. r.config},{"HOOKS",hooks or ct .. "/.nohooks"},
       {"LRE",lock_regex()},{"SEC",physical_secrets},{"PROF",profile},{"TPL",templates},
       {"CRED",r.account and secrets .. "/claude-" .. r.account .. ".env" or ""},
-      {"RH_AGY",r.login},{"AGYSET",agy_settings(r.login)},{"LOCAL_LUA",C.script_dir .. "/local-lua.sh"}
+      {"BINDIR",r.bindir or ct},{"RH_AGY",r.login},{"AGYSET",agy_settings(r.login)},{"LOCAL_LUA",C.script_dir .. "/local-lua.sh"}
     }
     local assignments={}
     for _,p in ipairs(bindings) do assignments[#assignments+1]=p[1] .. "=" .. quote(p[2]) end
@@ -149,6 +233,11 @@ return function(C,M)
       if not F.test("-r",path) then return fail("cage: missing template " .. path) end
     end
     if not F.test("-r",profile) then return fail("cage: profile not found: " .. profile .. " (set REX_ORCHESTRATOR_CAGE_PROFILE)") end
+    local why
+    r.bin,why=caged_binary(r,name,opts)
+    if not r.bin then return fail(why) end
+    r.bin,r.bindir=agent_bin_dir(r,name)
+    if not r.bin then return fail(r.bindir) end
     local dir=opts.dir
     if M.dir_control(dir) then
       return fail("cage: " .. name .. "'s DIR path contains terminal controls, invalid UTF-8, or bidirectional overrides or isolates")
@@ -201,7 +290,7 @@ return function(C,M)
     local meta={kind=name,account=r.account or "unknown",label=opts.label,DIR=dir,
       start_time=os.date("!%Y-%m-%dT%H:%M:%SZ"),block="unknown"}
     if not C.put(ct .. "/run-meta.json",R.json.encode(meta)) then C.note("could not write cage run metadata") end
-    return {home=ct,wrapper=wrapper,account=r.account,why=r.why,meta=meta}
+    return {home=ct,wrapper=wrapper,account=r.account,why=r.why,meta=meta,bin=r.bin}
   end
   return K
 end
