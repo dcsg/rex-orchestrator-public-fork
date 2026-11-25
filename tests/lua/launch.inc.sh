@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by live.sh with a throwaway Rex socket, home and state.
 launch_fixture() {
   local app=$1 mode=$2 path="$T/launch-agents/$3"
@@ -211,7 +212,7 @@ done
 
 # Simulate Rex making a pane before the launcher receives and stores its ID.
 missing="$T/recovery"
-rex_test do -e '
+rex_test 'do' -e '
   assert(rex.call("session.attach",{session_id=rex.args.s}))
   local term=rex.layout.block{flavor="com.superlogical.terminal.shell",label=rex.args.tag,
     options={command={"/bin/cat"},shell="none",exit={on_completion=false}}}
@@ -221,7 +222,7 @@ rex_test do -e '
 jq -nc --arg session "$REX_SESSION" --arg owner "$REX_BLOCK" \
   '{session:$session, owner:$owner,tag:"unreported-launch"}' > "$missing"
 jq -nc --arg script "${CLI%/*}" --arg journal "$missing" \
-  '{recover:true,script_dir:$script,journal:$journal}' | rex_test do "${CLI%/*}/lua/main.lua" --args - --fail-fast \
+  '{recover:true,script_dir:$script,journal:$journal}' | rex_test 'do' "${CLI%/*}/lua/main.lua" --args - --fail-fast \
   > "$T/recovery.out" 2> "$T/recovery.err"
 check 'recovery finds an unreported pane by its temporary label' \
   "$(sed -n 's/.*ready; closed \(block:[^ ]*\)$/\1/p' "$T/recovery.err")" "$(cat "$T/recovery-block")"
@@ -232,7 +233,7 @@ cage="$(cd "$REX_ORCHESTRATOR_STATE_DIR/cage/$(sed -n '1p' "$sf.cage")" && pwd -
 jq -nc --arg session "$REX_SESSION" --arg owner "$REX_BLOCK" --arg block "$child" --arg cage "$cage" \
   '{session:$session, owner:$owner,block:$block,cage:$cage}' > "$missing"
 jq -nc --arg script "${CLI%/*}" --arg journal "$missing" \
-  '{recover:true,script_dir:$script,journal:$journal}' | rex_test do -e '
+  '{recover:true,script_dir:$script,journal:$journal}' | rex_test 'do' -e '
     local api=rex
     rex=setmetatable({call=function(method,args)
       if method=="block.close" then return nil,"injected close refusal" end

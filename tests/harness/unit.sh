@@ -54,6 +54,7 @@ check "ere_escape: space kept, no escape" "cage" "$(ere_escape '/a/b c-d')" '/a/
 
 # sq (cage): single-quote a value for the wrapper's assignment line, which bash reads back unchanged. printf %q on
 # bash 3.2 left a "~" after ":" bare, so the line expanded it (a DIR or hooks folder "x:~/y" moved to x:$HOME/y).
+# shellcheck disable=SC1003,SC2016 # Literal test values: none of them is meant to expand.
 for v in "it's" "a''b" 'x:~/y' '/p/d:~' '$(id) `id` & * ? [a] \ \\' "two
 lines"; do
   eval "got=$(sq "$v")"; check "sq: round trip [$v]" "cage" "$got" "$v"
@@ -112,7 +113,7 @@ for c in claude-bash-prompt:yes claude-bash-prompt-wrapped:yes claude-question:y
   codex-trust-19x4:yes::T4 codex-trust-19x4:yes:typed:T4 codex-hooks-15x4:yes::T4 codex-hooks-15x4:yes:typed:T4; do
   IFS=: read -r FX want typed ids <<<"$c"
   if ! declare -F dialog_on_screen >/dev/null; then got="no function dialog_on_screen"
-  elif dialog_on_screen "$(cat "$here/fixtures/dialog/$FX.txt")" $typed; then got=yes; else got=no; fi
+  elif dialog_on_screen "$(cat "$here/fixtures/dialog/$FX.txt")" ${typed:+"$typed"}; then got=yes; else got=no; fi
   check "dialog_on_screen: $FX${typed:+ (after typing)}" "${ids:-F02 T-harness-5}" "$got" "$want"
 done
 
@@ -260,6 +261,7 @@ check "account_label: another dir is its name" orch "$(account_label codex /x/te
 ORCH_FILE="$R/orchestrators"
 oc() { (
   CALLER="$1"
+  # shellcheck disable=SC2329 # Overrides the extracted caller_id that orchestrator_check calls.
   caller_id() { [ -n "$CALLER" ] && printf '%s' "$CALLER"; }
   orchestrator_check
 ) >/dev/null 2>&1 && echo ok || echo refused; }

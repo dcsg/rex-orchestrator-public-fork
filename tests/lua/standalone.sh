@@ -122,6 +122,7 @@ for entry in 'claude:claude-config/projects/sub/session.jsonl' 'codex:codex-home
   rel=${entry#*:}
   cage="$REX_ORCHESTRATOR_STATE_DIR/cage/$kind.fixture"
   mkdir -p "$cage/${rel%/*}"
+  # shellcheck disable=SC2016 # jq expands $kind.
   "$checker" -nc --arg kind "$kind" '{kind:$kind,label:"fixture label",block:"block:fixture",account:"one"}' > "$cage/run-meta.json"
   printf 'transcript\n' > "$cage/$rel"
   ln -s "$fixture/external" "$cage/${rel%/*}/symlink.${rel##*.}"

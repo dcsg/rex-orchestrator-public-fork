@@ -1,9 +1,10 @@
-# shellcheck shell=bash disable=SC1090
+# shellcheck shell=bash
 mkdir -p "$CT/claude-config" "$CT/zdot"
 [ -f "$CT/claude-config/.claude.json" ] || cp "$TPL/claude.json" "$CT/claude-config/.claude.json"
 [ -f "$CT/claude-config/settings.json" ] || cp "$TPL/claude-settings.json" "$CT/claude-config/settings.json"
 # CLAUDE_CODE_OAUTH_TOKEN for the child only, from its account's file (outside the cage), loaded silently: a malformed
 # line would print itself, the token, on the child's screen.
+# shellcheck disable=SC1090 # CRED is the chosen per-account credential file, known only at launch.
 . "$CRED" >/dev/null 2>&1 && [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] ||
   { echo "rex-orchestrator cage: $CRED sets no CLAUDE_CODE_OAUTH_TOKEN (its content is not shown)" >&2; exit 1; }
 exec /usr/bin/env -i HOME="$RH" USER="${USER:-}" LOGNAME="${LOGNAME:-}" SHELL=/bin/zsh ZDOTDIR="$CT/zdot" \

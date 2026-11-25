@@ -134,7 +134,7 @@ env_is() {
   exp=$(printf '%s\n' "$@" | sort | tr '\n' ' ')
   chk "$a: the child's environment holds only the cage's variables" "$exp" "$got"
 }
-BASEV="HOME USER LOGNAME SHELL PATH TERM TERM_PROGRAM TERM_PROGRAM_VERSION COLORTERM LANG TMPDIR"
+BASEV=(HOME USER LOGNAME SHELL PATH TERM TERM_PROGRAM TERM_PROGRAM_VERSION COLORTERM LANG TMPDIR)
 
 PD="$WORK/proj"; mkdir -p "$PD/.git/hooks"; : >"$PD/.git/config"
 mk codex "$PD" || { cat "$WORK/build.log"; echo "zt: cage_build failed for a plain DIR (codex)"; exit 2; }
@@ -143,6 +143,7 @@ eval "$(grep -m1 '^REAL=' "$W")"   # the wrapper's own values: DIR DRE CT RH AUT
 
 echo "== profile loads / fails closed =="
 chk "profile loads through the wrapper" OK "$(cg -c 'echo OK')"
+# shellcheck disable=SC2153 # DIR comes from the eval of the wrapper's assignments above.
 D=(-D DIR="$DIR" -D DIR_RE="$DRE" -D CAGE_TMP="$CT" -D HOME="$RH" -D AGENT_AUTH="$AUTH" -D AGENT_CFG_RO="$CFGRO"
   -D LOCK_RE="${LRE:-}" -D CAGE_ROOT="${CT%/*}" -D TTY="$CT/.notty" -D CAGE_SECRETS="$SEC")
 chk "fail closed: missing DIR_RE" 65 "$(/usr/bin/sandbox-exec "${D[@]:0:2}" "${D[@]:4}" -f "$PROFILE" /usr/bin/true >/dev/null 2>&1; echo $?)"
@@ -154,8 +155,10 @@ chk "fail closed: missing CAGE_SECRETS" 65 "$(/usr/bin/sandbox-exec "${D[@]:0:18
 chk "fail closed: empty HOOKSPATH" nonzero "$(/usr/bin/sandbox-exec "${D[@]}" -D HOOKSPATH= -f "$PROFILE" /usr/bin/true >/dev/null 2>&1 && echo zero || echo nonzero)"
 
 echo "== environment: only the cage's own variables =="
-env_is codex $BASEV CODEX_HOME
+env_is codex "${BASEV[@]}" CODEX_HOME
+# shellcheck disable=SC2016  # the child's shell expands it
 chk "codex: CODEX_HOME is the cage's" "$CT/codex-home" "$(cg -c 'printf %s "$CODEX_HOME"')"
+# shellcheck disable=SC2016  # the child's shell expands it
 chk "codex: HOME is the real (fixture) home" "$RH" "$(cg -c 'printf %s "$HOME"')"
 
 echo "== writes: only DIR and the cage temp =="
@@ -287,6 +290,7 @@ locks_hold() {
   chk "$1: ordinary writes allowed" "${#p[@]}" "$(cg "$WORK/bin/w" "${p[@]}" | grep -c '^ALLOW ')"
 }
 locks_hold "plain DIR" "$PD"
+# shellcheck disable=SC1003 # The lone '\' is a literal backslash directory-name character.
 for c in '(' ')' '[' ']' '{' '}' '+' '?' '*' '|' '^' '$' '\' '.' ' ' ':~/'; do
   md="$WORK/m/pay${c}x"; mkdir -p "$md"; locks_hold "DIR holding '$c'" "$(cd "$md" && pwd -P)"
 done
@@ -299,7 +303,7 @@ echo "== a repo's core.hooksPath inside DIR is locked =="
 # in SUBDIR below it); a hook planted where git will look for it must be denied.
 hooks() {
   local top="$FH/hk-$1" dir hp
-  mkdir -p "$top/${3:-}"; git -C "$top" init -q && git -C "$top" config core.hooksPath "$2" || { bad "hooks $1: git failed"; return; }
+  mkdir -p "$top/${3:-}"; { git -C "$top" init -q && git -C "$top" config core.hooksPath "$2"; } || { bad "hooks $1: git failed"; return; }
   dir=$(cd "$top/${3:-}" && pwd -P)
   mk codex "$dir" || { bad "hooks $1: cage_build failed"; return; }
   hp=$(git -C "$top" config --type=path --get core.hooksPath); case "$hp" in /*) ;; *) hp="$top/$hp" ;; esac
@@ -323,8 +327,8 @@ else test_skip 'core.hooksPath checks require git'; fi
 echo "== a per-task clone can commit inside the cage =="
 CS="$WORK/clone-source"; CD="$WORK/clone-task"
 mkdir -p "$CS"
-git -C "$CS" init -q && printf 'source\n' >"$CS/original.txt" &&
-  git -C "$CS" add original.txt && git -C "$CS" -c core.hooksPath=/dev/null commit -qm source || bad "clone source fixture"
+{ git -C "$CS" init -q && printf 'source\n' >"$CS/original.txt" &&
+  git -C "$CS" add original.txt && git -C "$CS" -c core.hooksPath=/dev/null commit -qm source; } || bad "clone source fixture"
 source_head=$(git -C "$CS" rev-parse HEAD)
 clone_out=$(REX_ORCHESTRATOR_REX_BIN_DIR="$WORK/bin" REX_ORCHESTRATOR_STATE_DIR="$STATE_DIR" "$BASH" "$SCRIPT" clone "$CS" "$CD" -b cage-task 2>"$WORK/clone.log")
 chk "clone prints DEST" "$CD" "$clone_out"
@@ -359,7 +363,7 @@ end = time.time() + 60
 while time.time() < end:
     for x in select.select([s, u], [], [], 1)[0]: x.accept()[0].close()' "$WORK/zt.sock" >"$WORK/port" 2>"$WORK/listener.err" & LISTENER=$!; disown
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    [ ! -s "$WORK/port" ] && kill -0 "$LISTENER" 2>/dev/null || break
+    if [ -s "$WORK/port" ] || ! kill -0 "$LISTENER" 2>/dev/null; then break; fi
     sleep 0.2
   done
   port=$(cat "$WORK/port")
@@ -380,7 +384,8 @@ chk "exec /bin/launchctl" DENY "$(cg -c '/bin/launchctl version >/dev/null 2>&1;
 
 echo "== grok, claude, agy recipes =="
 mk grok "$PD" || bad "grok: cage_build failed"
-env_is grok $BASEV GROK_HOME GROK_AUTH_PATH GROK_DISABLE_AUTOUPDATER GROK_AUTH_EARLY_INVALIDATION_SECS
+env_is grok "${BASEV[@]}" GROK_HOME GROK_AUTH_PATH GROK_DISABLE_AUTOUPDATER GROK_AUTH_EARLY_INVALIDATION_SECS
+# shellcheck disable=SC2016  # the child's shell expands it
 chk "grok: HOME is the cage's" "$CT/home" "$(cg -c 'printf %s "$HOME"')"
 want r READ "$RH/.grok/auth.json"
 want r DENY "$RH/.grok/other" "$RH/.codex/auth.json" "$RH/.ssh/id_x"
@@ -388,8 +393,9 @@ want w ALLOW "$CT/home/.grok/session.json" "$DIR/grok.txt"
 want w DENY "$CT/bin/grok" "$RH/.grok/auth.json"
 # claude with no --account: the alphabetically first account, one.
 mk claude "$PD" || bad "claude (dummy cage credentials): cage_build failed"
-env_is claude $BASEV ZDOTDIR CLAUDE_CONFIG_DIR CLAUDE_CODE_TMPDIR DISABLE_AUTOUPDATER ENABLE_CLAUDEAI_MCP_SERVERS \
+env_is claude "${BASEV[@]}" ZDOTDIR CLAUDE_CONFIG_DIR CLAUDE_CODE_TMPDIR DISABLE_AUTOUPDATER ENABLE_CLAUDEAI_MCP_SERVERS \
   CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY CLAUDE_CODE_SUBPROCESS_ENV_SCRUB
+# shellcheck disable=SC2016  # the child's shell expands it
 chk "claude: the session survey is off" 1 "$(cg -c 'printf %s "$CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY"')"
 # shellcheck disable=SC2016  # the child's shell expands it
 chk "claude: subprocess env scrub is on (its tools do not inherit the OAuth token)" 1 "$(cg -c 'printf %s "$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"')"
@@ -423,7 +429,8 @@ done
 account=""
 CAGE_AGY_HOME="$WORK/agy-home"   # the script's global (REX_ORCHESTRATOR_CAGE_AGY_HOME's value), read by cage_build
 mk agy "$PD" || bad "agy (dummy agy home): cage_build failed"
-env_is agy $BASEV
+env_is agy "${BASEV[@]}"
+# shellcheck disable=SC2016  # the child's shell expands it
 chk "agy: HOME is the cage's copy of its home" "$CT/home" "$(cg -c 'printf %s "$HOME"')"
 want w ALLOW "$CT/home/.gemini/x"
 # shellcheck disable=SC2034  # read by later cage_build calls
@@ -477,15 +484,15 @@ if command -v clang >/dev/null 2>&1; then
   cp "$HERE/machprobe.c" "$CT/machprobe.c"
   # clang writes temp objects to TMPDIR, the cage temp's tmpdir here, as for a caged codex.
   if cg -c "clang -o $(q "$CT/machprobe") $(q "$CT/machprobe.c") >/dev/null 2>&1 && echo built" | grep -q built; then
-    allow="com.apple.system.opendirectoryd.libinfo com.apple.system.opendirectoryd.membership com.apple.SystemConfiguration.configd
+    allow=(com.apple.system.opendirectoryd.libinfo com.apple.system.opendirectoryd.membership com.apple.SystemConfiguration.configd
       com.apple.SystemConfiguration.DNSConfiguration com.apple.SystemConfiguration.NetworkInformation com.apple.trustd.agent
-      com.apple.SecurityServer"
-    deny="com.apple.coreservices.launchservicesd com.apple.CoreServices.coreservicesd com.apple.coreservices.appleevents
-      com.apple.lsd.mapdb com.apple.pasteboard.1 com.apple.windowserver.active com.apple.tccd com.apple.authd"
-    # shellcheck disable=SC2086
-    out=$(cg -c "$(q "$CT/machprobe") $(echo $allow $deny)")
-    for n in $allow; do chk "mach allow $n" REACHABLE "$(printf '%s\n' "$out" | awk -v s="$n" '$NF==s{print ($1=="REACHABLE")?"REACHABLE":"DENIED"}')"; done
-    for n in $deny;  do chk "mach deny $n"  DENIED    "$(printf '%s\n' "$out" | awk -v s="$n" '$NF==s{print ($1=="REACHABLE")?"REACHABLE":"DENIED"}')"; done
+      com.apple.SecurityServer)
+    deny=(com.apple.coreservices.launchservicesd com.apple.CoreServices.coreservicesd com.apple.coreservices.appleevents
+      com.apple.lsd.mapdb com.apple.pasteboard.1 com.apple.windowserver.active com.apple.tccd com.apple.authd)
+    names=("${allow[@]}" "${deny[@]}")
+    out=$(cg -c "$(q "$CT/machprobe") ${names[*]}")
+    for n in "${allow[@]}"; do chk "mach allow $n" REACHABLE "$(printf '%s\n' "$out" | awk -v s="$n" '$NF==s{print ($1=="REACHABLE")?"REACHABLE":"DENIED"}')"; done
+    for n in "${deny[@]}";  do chk "mach deny $n"  DENIED    "$(printf '%s\n' "$out" | awk -v s="$n" '$NF==s{print ($1=="REACHABLE")?"REACHABLE":"DENIED"}')"; done
   else
     bad "mach: in-cage clang compile failed"
   fi

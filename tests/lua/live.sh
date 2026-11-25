@@ -212,6 +212,7 @@ check 'mode change after approval stops pane' "$code:$(cat "$T/wait.out")" '10:s
 check 'mode change after approval sets kill switch' "$([ -f "$REX_ORCHESTRATOR_STATE_DIR/disabled.claude" ] && echo yes)" yes
 if [ -n "${REX_LUA_BENCHMARK:-}" ]; then
   [ -n "$OLD" ] || { echo 'REX_LUA_BENCHMARK requires REX_LUA_BASELINE' >&2; exit 2; }
+  # shellcheck source=tests/lua/benchmark.inc.sh
   . "$ROOT/tests/lua/benchmark.inc.sh"
 fi
 # Close events end an active wait, even without a last status report.
@@ -234,7 +235,9 @@ wait_pid=$!
 sleep 0.4; rex_test session kill "$REX_SESSION"
 code=0; wait "$wait_pid" || code=$?
 check 'destroyed session exit' "$code:$(cat "$T/wait.out")" '12:exited'
+# shellcheck source=tests/lua/mutations.inc.sh
 . "$ROOT/tests/lua/mutations.inc.sh"
+# shellcheck source=tests/lua/launch.inc.sh
 . "$ROOT/tests/lua/launch.inc.sh"
 rex_test session new lua-disconnect --shell none --keep-open --json -- /bin/bash "$ROOT/tests/lua/standin.sh" "$T/work" > "$T/session.json"
 REX_SESSION=$(jq -r .session_id "$T/session.json")
@@ -252,5 +255,6 @@ check 'server disconnect fails promptly' "$code:$(cat "$T/wait.out")" '1:'
 grep -q 'rex did not answer' "$T/wait.err"
 expect_error 'server down' "$REX_SESSION" '' 1 'rex did not answer for block' status "$B"
 expect_error 'server down with implicit session' '' "$B" 2 'REX_SESSION is empty and no session could be resolved' wait "$B"
+# shellcheck source=tests/lua/mutation-disconnect.inc.sh
 . "$ROOT/tests/lua/mutation-disconnect.inc.sh"
 printf 'Lua live: %d passed\n' "$pass"
