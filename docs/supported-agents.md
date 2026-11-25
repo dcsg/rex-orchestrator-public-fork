@@ -30,7 +30,8 @@ Every command works with any agent that reports Rex program status. `launch` pic
 - Caged, `launch` runs codex's own executable, never a shell-script shim found on `PATH` first (one that fetches MCP
   tokens, say): it skips the shim and says so, or exits 2 when only shims match. `REX_ORCHESTRATOR_CAGE_CODEX_BIN` names
   the executable. A standalone install (`~/.local/bin/codex` linking into `~/.codex/packages/standalone/`) runs caged
-  from its release folder, the only part of `~/.codex` the cage opens. See [cage.md](cage.md#which-executable-a-caged-agent-runs).
+  from its release folder, the only part of `~/.codex` the cage opens. That holds for `~/.codex*` only: the cage
+  doesn't deny a `CODEX_HOME` outside it at all. See [cage.md](cage.md#which-executable-a-caged-agent-runs).
 
 ## Grok (`grok`)
 

@@ -574,7 +574,7 @@ local function run_launch(args,opts,recovery)
   F.logical=F.canonical
   function F.read_file() return opts.allowlist end
   function F.read(path) return opts.files and opts.files[path] end
-  function F.executable(cmd) return "/agents/" .. cmd end
+  function F.executable(cmd) if not opts.missing then return "/agents/" .. cmd end end
   function F.test(_,path) observed.account=path; return opts.credential end
   function F.remove_state(path) observed.removed_state=path; return true end
   function R.json.encode(t) return json(t) end
@@ -593,6 +593,7 @@ local function run_launch(args,opts,recovery)
     return opts.cage
   end
   function cage.overlap() return opts.overlap end
+  function cage.override() return opts.override end
   local registry={identity=function() return {} end,check=function() return true end}
   function registry.acquire() return function() observed.released=true end end
   function registry.add() observed.claim=true; return true end
@@ -626,6 +627,14 @@ eq(not not state["/tmp/launch-id/state"][1]:find('"block":"block:child"',1,true)
 reply,seen,state=run_launch({"--agent","codex","--tab","target"},{
   cage={home="/state/cage/codex.test",wrapper="/state/cage/codex.test/bin/codex",meta={},bin="/release/bin/codex"}})
 eq(reply.code,0); eq(state["/state/block_child.own"][7],"/release/bin/codex")
+-- REX_ORCHESTRATOR_CAGE_<AGENT>_BIN stands in for a missing PATH match only when the child is caged.
+reply,seen=run_launch({"--agent","claude","--tab","target"},{missing=true,override="/opt/claude"})
+eq(reply.code,2); eq(not not reply.text:find("applies to caged launches only",1,true),true); eq(seen.window,nil)
+reply=run_launch({"--agent","claude","--tab","target"},{missing=true})
+eq(reply.code,2)
+reply,seen,state=run_launch({"--agent","claude","--tab","target"},{missing=true,override="/opt/claude",
+  cage={home="/state/cage/claude.test",wrapper="/state/cage/claude.test/bin/claude",meta={},bin="/opt/claude"}})
+eq(reply.code,0); eq(state["/state/block_child.own"][7],"/opt/claude")
 eq(run_launch({"--cage"}).code,2)
 eq(run_launch({}, {cage_code=2}).code,2)
 eq(run_launch({}, {cage={home="/state/cage/x"},overlap="/work"}).code,2)

@@ -27,7 +27,9 @@ The cage starts the agent's own executable directly, with a clean environment an
 grok launched by name (`--agent codex`):
 
 - `REX_ORCHESTRATOR_CAGE_<AGENT>_BIN` (`REX_ORCHESTRATOR_CAGE_CODEX_BIN`, `…_CLAUDE_BIN`, `…_GROK_BIN`), when set, is
-  the executable. It must be an absolute path to an executable file. It applies to caged launches only.
+  the executable. It must be an absolute path to an executable file. It applies to caged launches only: when nothing
+  on `PATH` matches and the cage doesn't apply after all (claude with no cage credential under `auto`), `launch` exits
+  2 instead of running the variable's file uncaged.
 - Otherwise `launch` takes the first one on your `PATH` that is not a shell script. A file whose `#!` line names `sh`,
   `bash`, `zsh`, `dash` or `ksh` (directly or through `env`) is a wrapper or shim, such as one that fetches MCP tokens
   and then runs the real agent. Inside the cage its environment is gone, its `PATH` lookup usually finds nothing, and
@@ -46,7 +48,20 @@ folder, runs it by that path and re-opens exactly that one folder, read and exec
 re-opens anyway), `config.toml`, sessions, history, logs and other releases stay unreadable and unexecutable, and the
 release folder itself stays unwritable. Any other executable under an agent home (grok's `~/.grok/bin/grok`, for
 example) makes `launch` exit 2 with a message: install the agent elsewhere or point the variable above at a copy outside
-the agent home.
+the agent home. An executable outside the agent homes that is reached through a link inside one (a
+`~/.codex/bin/codex` link on the way to `/opt/x/codex`, say) also can't be followed in the cage, so `launch` runs it by
+its physical path and says so.
+
+This protects only the codex homes the profile denies, `~/.codex*`. With `CODEX_HOME` outside them (say
+`~/codex-home`), the profile has no deny for it in the first place: the child can read (not write) that home's
+`config.toml`, sessions, history and logs, as it could before this release folder rule existed. Keep `CODEX_HOME`
+under `~/.codex*` if that matters.
+
+Known limits of the shim check: it reads only the `#!` line. A script with no `#!` line (run by the shell anyway), a
+`#!` line where `env` has an option that takes a value (`env -u NAME sh`, `env -P DIR sh`) or the shell joined to
+`-S` (`env -Ssh`), and a shim written in another language (fish, Node, Python) are not recognized as shims. Such a
+file runs in the cage as it did before this check existed, still with no access to anything the cage denies. Set
+`REX_ORCHESTRATOR_CAGE_<AGENT>_BIN` to skip it.
 
 ### Setting up claude and Gemini (agy)
 
@@ -88,8 +103,13 @@ environment startup hooks before doing any uncaged work. A planted `DIR/fnox.tom
 implicitly used. Use absolute executable/config paths in the lookup when needed; do not source files from agent-writable DIR.
 
 What the home checks guarantee, and what they don't. The wrapper resolves the provisioned home's parent once, to a
-physical path, and every later step (the overlap recheck, the symlink check, the copy) uses that path. A folder swap
-after that point is caught: the copy's `cd` lands somewhere else and startup stops. A folder above the home that is
+physical path, and every later step (the overlap recheck, the symlink check, the copy) uses that path. After that
+point, a swap that changes where that path physically leads (a symlink put in place of the home or a folder above it)
+is caught: the copy's `cd` lands somewhere else and startup stops. A swap that keeps the physical path is not: if a
+real folder of the same name is moved into the home's place after the checks, the copy's `cd` compares the path as a
+string and passes, the wrapper copies that folder, and the only check that applies to it is the symlink check on the
+private copy. The overlap and source symlink checks were made on the folder that was there before. A folder above the
+home that is
 renamed and replaced (for example by a symlink) *before* that point is followed: the wrapper checks and copies the
 folder it now leads to, consistently, the same as if `REX_ORCHESTRATOR_CAGE_AGY_HOME` named that folder. Every check
 still applies to it, so it can't overlap DIR or contain a symlink. What is not guaranteed is that it is the folder you

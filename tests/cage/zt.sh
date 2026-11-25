@@ -32,8 +32,8 @@
 #     runs in the cage from its physical path with only its release folder readable: auth.json (with CODEX_HOME
 #     elsewhere), config, sessions, history, logs and a sibling release stay unreadable and unexecutable, the release
 #     folder unwritable; a shell-script shim first on PATH is skipped and never run, a PATH of shims only is refused
-#     naming the override, REX_ORCHESTRATOR_CAGE_CODEX_BIN picks the executable, and an agent executable elsewhere
-#     under an agent home is refused;
+#     naming the override, REX_ORCHESTRATOR_CAGE_CODEX_BIN picks the executable, an agent executable elsewhere
+#     under an agent home is refused, and one outside them reached through a link inside one runs by its physical path;
 #   - a seeding step of the wrapper that fails stops it before the agent starts (its set -e);
 #   - if clang is present, a Mach-O compiled in-cage reaches exactly the 7 allowlisted mach services and can't open
 #     an IOKit user client.
@@ -525,6 +525,21 @@ if cage_build codex "$FH/.local/bin/codex" "$PD" >"$WORK/build.log" 2>&1; then
 else bad "--agent HOME/.local/bin/codex: cage_build failed ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
 rc=0; cage_build codex "$FH/.codex/bin/codex" "$PD" >/dev/null 2>"$WORK/build.log" || rc=$?
 chk "--agent HOME/.codex/bin/codex, outside a release: refused" 2 "$rc"
+# An executable outside the agent homes reached through a link inside one (as a file, then as a folder): the cage
+# can't follow that link, so it runs the physical path and says so.
+mkdir -p "$WORK/opt"; cp "$REL/bin/codex" "$WORK/opt/codex"
+ln -s "$WORK/opt/codex" "$FH/.codex/bin/codex-link"; ln -s "$FH/.codex/bin/codex-link" "$FH/.local/bin/codex-chain"
+ln -s "$WORK/opt" "$FH/.codex/optlink"; ln -s "$FH/.codex/optlink/codex" "$FH/.local/bin/codex-dirchain"
+for p in codex-chain codex-dirchain; do
+  if cage_build codex "$FH/.local/bin/$p" "$PD" >/dev/null 2>"$WORK/build.log"; then
+    W=$cage_wrapper CT=$cage_tmp CWD=$PD
+    chk "$p through a link in HOME/.codex: the cage runs the physical path" "REAL='$WORK/opt/codex'" \
+      "$(grep -m1 -o "^REAL='[^']*'" "$W")"
+    chk "$p: nothing under HOME/.codex is opened" "BINDIR='$CT'" "$(grep -m1 -o "BINDIR='[^']*'" "$W")"
+    chk "$p: launch says why" yes "$(grep -qF "which the cage can't follow; running $WORK/opt/codex" "$WORK/build.log" && echo yes || echo no)"
+    chk "$p: it starts in the cage" RAN "$(cg -c 'echo RAN')"
+  else bad "$p: cage_build failed ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
+done
 cp "$REL/bin/codex" "$FH/.grok/grok"; chmod 755 "$FH/.grok/grok"
 rc=0; cage_build grok "$FH/.grok/grok" "$PD" >/dev/null 2>"$WORK/build.log" || rc=$?
 chk "a grok executable under ~/.grok: refused" 2 "$rc"

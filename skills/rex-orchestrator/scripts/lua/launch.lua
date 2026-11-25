@@ -126,8 +126,13 @@ return function(C,M,D,I,K,G)
 
   local function executable(opts)
     local bin=F.executable(opts.agent)
-    -- A caged agent can come from its cage override alone; the cage build checks it.
-    if not bin and opts.cage~="off" and not opts.agent:find("/",1,true) then bin=K.override(opts.name) end
+    -- A caged agent can come from its cage override alone; the cage build checks it. The caller must not run it
+    -- uncaged: the override is for caged launches only.
+    local caged_only=false
+    if not bin and opts.cage~="off" and not opts.agent:find("/",1,true) then
+      bin=K.override(opts.name)
+      caged_only=bin~=nil
+    end
     if not bin then C.die("launch: no " .. opts.agent .. " on your PATH (give --agent a full path)") end
     if not M.starts(bin,"/") then bin=(env("PWD") or F.logical(".")) .. "/" .. bin end
     if opts.account~="" then
@@ -136,7 +141,7 @@ return function(C,M,D,I,K,G)
         C.die("launch: --account " .. opts.account .. ": no readable " .. path .. "; " .. account_hint)
       end
     end
-    return bin
+    return bin,caged_only
   end
 
   local function spawn_args(opts,bin,cage)
@@ -345,7 +350,7 @@ return function(C,M,D,I,K,G)
       table.insert(opts.args,1,R.json.encode({permissions={allow=opts.rules}}))
       table.insert(opts.args,1,"--settings")
     end
-    local bin=executable(opts)
+    local bin,caged_only=executable(opts)
     local journal={session=C.session,owner=C.me}
     local function persist()
       if not C.journal or not C.put(C.journal,R.json.encode(journal)) then C.die("launch: cannot save recovery state",1) end
@@ -371,6 +376,9 @@ return function(C,M,D,I,K,G)
       elseif opts.cage=="on" then
         C.die("cage: no cage recipe for " .. opts.name .. " (claude needs a " .. K.secrets ..
           "/claude-<name>.env, agy a cage home: see docs/cage.md); pass --no-cage to run it uncaged")
+      elseif caged_only then
+        C.die("launch: no " .. opts.agent .. " on your PATH to run uncaged (no cage recipe for it here), and " ..
+          "REX_ORCHESTRATOR_CAGE_" .. opts.name:upper() .. "_BIN applies to caged launches only; give --agent a full path")
       else C.note("running " .. opts.name .. " uncaged: no cage recipe for it (pass --no-cage to silence)") end
     end
     local command=spawn_args(opts,bin,cage)

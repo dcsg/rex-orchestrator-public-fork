@@ -10,7 +10,7 @@ project uses [Semantic Versioning](https://semver.org/).
   The token is private (mode 600), absent from the agent's environment, and deleted on exit or HUP/INT/TERM;
   failed or empty commands stop the wrapper with exit 71 before agy starts. Unset preserves copied logins.
 - `REX_ORCHESTRATOR_CAGE_CODEX_BIN`, `REX_ORCHESTRATOR_CAGE_CLAUDE_BIN` and `REX_ORCHESTRATOR_CAGE_GROK_BIN` name the
-  executable a caged agent runs.
+  executable a caged agent runs. They never apply to an uncaged launch.
 
 ### Changed
 - Rex commands run in Lua via `rex do`. LuaJIT is required for local operations, and `jq` and `python3` are no longer
@@ -32,7 +32,7 @@ project uses [Semantic Versioning](https://semver.org/).
   its physical path and re-opens only that release folder, read and execute only, for that launch. A caged codex,
   claude or grok launched by name skips shell-script shims on `PATH` instead of running them in the cage. The cage
   now denies execution under agent homes as well as reads, and `launch` refuses an agent executable it can't start
-  there with exit 2.
+  there with exit 2. An executable reached through a link inside an agent home runs by its physical path.
 - Find cage assets beside the real CLI script through absolute and relative install symlinks and symlink chains,
   while keeping environment overrides first.
 

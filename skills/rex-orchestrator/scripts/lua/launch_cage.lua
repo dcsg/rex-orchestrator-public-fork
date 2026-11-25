@@ -183,6 +183,19 @@ return function(C,M)
           " or point REX_ORCHESTRATOR_CAGE_" .. name:upper() .. "_BIN at a copy outside it" or "")
       end
     end
+    -- The executable itself is outside the agent homes, but the cage can't follow a link that sits inside one on the
+    -- way there (~/.local/bin/codex -> ~/.codex/bin/codex -> /opt/x/codex): run it by its physical path instead.
+    local links=F.link_locations(r.bin)
+    if not links then return nil,"cage: cannot resolve " .. name .. "'s executable " .. r.bin end
+    for _,link in ipairs(links) do
+      for _,leaf in ipairs({".claude",".codex",".grok",".gemini"}) do
+        if M.starts(link,h .. "/" .. leaf) then
+          C.note("cage: " .. r.bin .. " reaches " .. real .. " through the link " .. link ..
+            ", which the cage can't follow; running " .. real)
+          return real
+        end
+      end
+    end
     return r.bin
   end
 

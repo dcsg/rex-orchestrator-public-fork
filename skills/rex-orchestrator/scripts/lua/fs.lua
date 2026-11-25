@@ -67,6 +67,41 @@ return function(rex)
     local ok,out=sh('[ -f "$1" ] && /bin/realpath -- "$1"',path)
     return ok and out:gsub("\n$","") or nil
   end
+  -- Where each symlink met while resolving PATH sits (its own physical location, not its target), in order, link by
+  -- link and component by component, as the kernel walks it. nil if the path doesn't resolve.
+  function F.link_locations(path)
+    local ok,out=sh([=[
+      p=$1 cur= n=0
+      case $p in /*) ;; *) p=$PWD/$p ;; esac
+      rest=$p
+      while :; do
+        while [ "${rest#/}" != "$rest" ]; do rest=${rest#/}; done
+        [ -n "$rest" ] || break
+        comp=${rest%%/*}
+        if [ "$comp" = "$rest" ]; then rest=; else rest=${rest#*/}; fi
+        case $comp in
+          .) continue ;;
+          ..) cur=${cur%/*}; continue ;;
+        esac
+        next=$cur/$comp
+        if [ -L "$next" ]; then
+          n=$((n + 1)); [ "$n" -le 64 ] || exit 1
+          printf '%s\0' "$next"
+          target=$(readlink -- "$next" && printf .) || exit 1
+          target=${target%.}; target=${target%?}
+          case $target in /*) cur= ;; esac
+          rest=$target${rest:+/$rest}
+        else
+          [ -e "$next" ] || exit 1
+          cur=$next
+        fi
+      done
+    ]=],path)
+    if not ok then return nil end
+    local links={}
+    for link in out:gmatch("([^%z]+)%z") do links[#links+1]=link end
+    return links
+  end
   function F.claim_paths(directory)
     local ok,out=sh('for path in "$1"/*.json; do [ ! -f "$path" ] || printf "%s\\0" "$path" || exit 1; done',directory)
     if not ok then return nil end
