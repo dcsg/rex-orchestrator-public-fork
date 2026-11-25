@@ -125,8 +125,6 @@
 ;; below it. Its own CAGE_TMP is re-opened after the denies, below.
 (deny file-read-data (subpath (param "CAGE_ROOT")))
 (allow file-read-data (subpath (param "DIR")))
-; Uncaged agy login commands wait in a private sibling of CAGE_ROOT, never in an agent-readable wrapper.
-(deny file-read* file-write* (subpath (string-append (param "CAGE_ROOT") "-commands")))
 (deny file-read*
   ; Secret stores.
   (subpath (param "CAGE_SECRETS"))                                 ; the cage credentials themselves
@@ -175,6 +173,8 @@
 ; The child's own cage home, read back open after every deny above (it sits under CAGE_ROOT, and under an agent-home
 ; prefix when REX_ORCHESTRATOR_STATE_DIR points there). Siblings stay denied: they are other CAGE_ROOT entries.
 (allow file-read* (subpath (param "CAGE_TMP")))
+; Keep private commands denied after read reopenings: STATE_DIR can live under ~/.config/git.
+(deny file-read* file-write* (subpath (string-append (param "CAGE_ROOT") "-commands")))
 ; Claude Code sessions keep scratch files under /private/tmp/claude-<uid>: hide their contents, keep own.
 (deny file-read-data (regex #"^/private/tmp/claude-[0-9]+(/|$)"))
 (allow file-read-data (subpath (param "DIR")) (subpath (param "CAGE_TMP")))

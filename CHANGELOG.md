@@ -14,6 +14,7 @@ project uses [Semantic Versioning](https://semver.org/).
 - Isolate agy's uncaged token lookup from project configs and environment, hide its command text from caged children,
   and validate the returned refresh-token JSON silently. Stop and reap the child before signal cleanup, with a
   five-second grace period and forced termination if needed; cover additional signals and the fork startup race.
+  Keep private command files denied after profile read exceptions, including custom state under `~/.config/git`.
 - Resolve the session once from `REX_BLOCK` when `REX_SESSION` is empty, supporting Rex server 0.1.0-preview.23.
   Explicit `REX_SESSION` values remain unchanged; failed resolution reports both environment variables.
 - Find cage assets beside the real CLI script through absolute and relative install symlinks and symlink chains,

@@ -175,6 +175,15 @@ build; run private 0 "$reserved_cmd"
 check 'agent cannot read or modify another pending command' "$rc" 0
 rmcage "$reserved_ct" >"$work/close.log" 2>&1
 check 'close removes command of an unstarted wrapper' "$([ ! -e "$reserved_cmd" ] && echo yes || echo no)" yes
+normal_state=$STATE_DIR
+STATE_DIR="$HOME/.config/git/custom-state"
+build; git_command_ct=$ct git_command_file=$cmd_file
+check 'pending command exists beneath git-config state override' "$([ -f "$git_command_file" ] && echo yes || echo no)" yes
+build; run private 0 "$git_command_file"
+check 'git-config read exception cannot reopen private commands' "$rc" 0
+rmcage "$git_command_ct" >"$work/git-state-close.log" 2>&1
+check 'close removes private command beneath git-config state override' "$([ ! -e "$git_command_file" ] && echo yes || echo no)" yes
+STATE_DIR=$normal_state
 REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD="$(command_for background) $(sq "$work/provider-pid")"
 build; run normal 0
 check 'lookup with a background provider succeeds' "$rc" 0
