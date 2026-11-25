@@ -220,10 +220,10 @@ function M.terminal_text(text)
   chunks[#chunks+1]=text:sub(start)
   return table.concat(chunks)
 end
--- terminal_text for text of several lines: each line escaped, the line breaks kept.
-function M.terminal_lines(text)
+-- terminal_text for text of several lines: each line escaped and started with INDENT, the line breaks kept.
+function M.terminal_lines(text,indent)
   local lines={}
-  for line in (text .. "\n"):gmatch("(.-)\n") do lines[#lines+1]=M.terminal_text(line) end
+  for line in (text .. "\n"):gmatch("(.-)\n") do lines[#lines+1]=(indent or "") .. M.terminal_text(line) end
   return table.concat(lines,"\n")
 end
 function M.dir_control(path)
@@ -238,9 +238,12 @@ function M.new(rex, fs, output)
   local C={rex=rex, fs=fs, session=nil, me="", force=false}
   C.out=(output and output.out) or function(s) io.stdout:write(s .. "\n"); io.stdout:flush() end
   -- Every diagnostic reaches the terminal escaped: notes and refusals carry paths, commands, labels, block ids and
-  -- Rex's own errors, any of which can hold terminal controls. A note is one line; raw text keeps its line breaks.
+  -- Rex's own errors, any of which can hold terminal controls or line breaks. A note and a raw line are one line each
+  -- (a line break shows as \x0A), so nothing they carry can start a line that passes for another diagnostic. Text
+  -- meant to span lines (a screen, a tool's stderr) goes through C.lines: every line indented by two spaces.
   local write=(output and output.raw) or function(s) io.stderr:write(s .. "\n"); io.stderr:flush() end
-  C.raw=function(s) write(M.terminal_lines(s)) end
+  C.raw=function(s) write(M.terminal_text(s)) end
+  function C.lines(s) write(M.terminal_lines(s,"  ")) end
   C.note=(output and output.note) or function(s) write("rex-orchestrator: " .. M.terminal_text(s)) end
   C.finish=(output and output.finish) or function(code) rex.stop(code) end
   function C.die(s,code) C.note(s); C.finish(code or 2) end
@@ -310,7 +313,7 @@ function M.new(rex, fs, output)
         local args={C.rex_bin,"send-key","-s",C.session,"-b",C.block,"--"}
         for _,input in ipairs(keys) do args[#args+1]=input end
         local result=rex.exec(args)
-        if result and result.stderr~="" then C.raw(result.stderr:gsub("\n$","")) end
+        if result and result.stderr~="" then C.lines((result.stderr:gsub("\n$",""))) end
         return result and result.ok
       end
       native[#native+1]=key
@@ -381,7 +384,8 @@ function M.new(rex, fs, output)
   end
   local function explain_target(q,item)
     if type(item)~="table" then return end
-    local quoted=M.json_string(item.query or q)
+    -- Quoted as given: the sink escapes it once (a JSON-quoted form would have its escapes escaped again).
+    local quoted='"' .. (item.query or q) .. '"'
     if item.status=="ambiguous" then
       C.raw("Error: block target " .. quoted .. " is ambiguous" .. (item.reason and ": " .. item.reason or ""))
       for _,candidate in ipairs(item.candidates or {}) do
@@ -459,7 +463,7 @@ function M.new(rex, fs, output)
   end
   function C.remove_cage(path)
     local result=rex.exec({"/bin/bash",C.script_dir .. "/cage-cleanup.sh",C.dir,path})
-    if result and result.stderr~="" then C.raw(result.stderr:gsub("\n$","")) end
+    if result and result.stderr~="" then C.lines((result.stderr:gsub("\n$",""))) end
     return result and result.ok
   end
   function C.mark(rec)

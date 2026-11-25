@@ -215,13 +215,22 @@ do
   local path="/tmp/x\27]0;title\7/\226\128\174y\tz\\w"
   sink.note("no such directory: " .. path)
   sink.die("clone: no such REPO: " .. path)
-  sink.raw("Error: " .. path .. "\nsecond " .. path)
+  sink.raw("Error: " .. path .. "\nrex-orchestrator: forged")
   local want="/tmp/x\\x1B]0;title\\x07/\\u202Ey\\x09z\\\\w"
   eq(written[1],"rex-orchestrator: no such directory: " .. want)
   eq(written[2],"rex-orchestrator: clone: no such REPO: " .. want)
-  eq(written[3],"Error: " .. want .. "\nsecond " .. want)
-  for _,text in ipairs(written) do eq(text:gsub("\n",""):find("[%c\128-\159]"),nil,"raw control in " .. text) end
+  -- A raw line stays one line: an embedded line break can't start a forged diagnostic.
+  eq(written[3],"Error: " .. want .. "\\x0Arex-orchestrator: forged")
   eq(sink.note("two\nlines"),nil); eq(written[4],"rex-orchestrator: two\\x0Alines")
+  -- Text meant to span lines (a screen tail, a tool's stderr) keeps its lines, each one indented.
+  sink.lines("first " .. path .. "\nrex-orchestrator: forged\n")
+  eq(written[5],"  first " .. want .. "\n  rex-orchestrator: forged\n  ")
+  for _,text in ipairs(written) do
+    eq(text:gsub("\n",""):find("[%c\128-\159]"),nil,"raw control in " .. text)
+    for line in (text .. "\n"):gmatch("(.-)\n") do
+      eq(M.starts(line,"rex-orchestrator: forged"),false,"forged line in " .. text)
+    end
+  end
 end
 -- What runs an executable file: nil for a compiled Mach-O, else the interpreter's basename ("sh" without #!).
 for _,case in ipairs({
@@ -629,6 +638,7 @@ local function run_launch(args,opts,recovery)
   function fake.die(text,code) error({text=text,code=code or 2},0) end
   function fake.note(text) observed.note=text end
   function fake.raw() end
+  function fake.lines() end
   function fake.out(text) observed.output=text end
   function fake.finish(code) return fake.die("",code) end
   function fake.put(path,...)

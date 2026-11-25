@@ -110,6 +110,13 @@ escaped_error 'escaped launch directory' "$B" 'launch: no such directory: ' laun
 escaped_error 'escaped approve directory' '' 'wait: no such directory: ' wait "$B" --approve-in "$CTRL"
 escaped_error 'escaped line count' '' "screen: LINES takes a whole number, not '" screen "$B" "$CTRL"
 escaped_error 'escaped clone source' '' 'clone: no such REPO: ' clone "$CTRL" "$T/escaped-clone"
+# A target Rex reports as not found is quoted as given and escaped once: a backslash shows as \\, not \\\\, and a
+# line break in it can't start a line of its own.
+REX_BLOCK='' cli status 'zz\q' > "$T/esc.out" 2> "$T/esc.err" || :
+grep -Fxq 'Error: block target "zz\\q" not found' "$T/esc.err" || { cat -v "$T/esc.err" >&2; echo 'FAIL single escape of a target' >&2; exit 1; }
+pass=$((pass+1))
+REX_BLOCK='' cli status "$(printf 'zz\nrex-orchestrator: forged')" > "$T/esc.out" 2> "$T/esc.err" || :
+check 'a target with a line break forges no line' "$(grep -c '^rex-orchestrator: forged' "$T/esc.err" || :)" 0
 implicit_list=$(REX_SESSION='' REX_BLOCK="$B" cli ls)
 check 'resolve session from REX_BLOCK' "$implicit_list" ''
 mkdir -p "$T/install space/bin"

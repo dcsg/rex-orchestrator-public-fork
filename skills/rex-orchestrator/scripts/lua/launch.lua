@@ -320,18 +320,18 @@ return function(C,M,D,I,K,G)
         dialogs=previous_dialogs+1
         if dialogs>=4 then
           C.note(C.block .. " shows a dialog at startup; left to the user: report it, and never answer it with a persistent option. Screen:")
-          C.raw(tail(region))
+          C.lines(tail(region))
           return 3
         end
       end
       if C.exited(C.block) then
         C.note(opts.name .. " exited during startup; screen:")
-        C.raw(tail(C.screen(C.block)))
+        C.lines(tail(C.screen(C.block)))
         return 12
       end
       if os.time()-start>opts.timeout then
         C.note("not ready after " .. opts.timeout .. "s; screen:")
-        C.raw(tail(screen))
+        C.lines(tail(screen))
         return 124
       end
       poll=poll+1

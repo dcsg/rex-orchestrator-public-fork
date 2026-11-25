@@ -5,7 +5,7 @@ return function(C,M)
     local result=R.exec(args)
     if diagnostics and result then
       for _,text in ipairs({result.stdout,result.stderr}) do
-        if text~="" then C.raw(text:gsub("\n$","")) end
+        if text~="" then C.lines((text:gsub("\n$",""))) end
       end
     end
     return result and result.ok
