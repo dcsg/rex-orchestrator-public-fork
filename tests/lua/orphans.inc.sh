@@ -61,13 +61,15 @@ O2=$(orphan_pane)
 check 'orphan fixture panes' "$([ -n "$O1" ] && [ "$O1" != null ] && [ -n "$O2" ] && echo ok)" ok
 
 # One watcher per orchestrator, however many children it launches, started detached by launch.
-A=$(ORPHAN_TEST_UNRELATED=leak orphan_launch "$O1" done-child)
+mkdir -p "$T/runtime-kept"
+A=$(ORPHAN_TEST_UNRELATED=leak REX_RUNTIME_DIR="$T/runtime-kept" orphan_launch "$O1" done-child)
 B=$(orphan_launch "$O1" working-child)
 orphan_await_watchers "$O1" 1
 watcher_pid=$(orphan_watchers "$O1")
 check 'the watcher runs from /' "$(lsof -a -p "$watcher_pid" -d cwd -Fn | sed -n 's/^n//p')" /
 ps -E -o command= -p "$watcher_pid" > "$T/watcher-env"
 check 'the watcher keeps its settings' "$(grep -c "REX_ORCHESTRATOR_STATE_DIR=$REX_ORCHESTRATOR_STATE_DIR" "$T/watcher-env")" 1
+check 'the watcher keeps what rex reads to find its server' "$(grep -c "REX_RUNTIME_DIR=$T/runtime-kept" "$T/watcher-env")" 1
 check "the watcher gets none of the caller's other environment" "$(grep -c 'ORPHAN_TEST_UNRELATED\|REX_BLOCK=' "$T/watcher-env" || :)" 0
 sleep 3.5 # Outlast the retry window of the second launch's watcher start.
 check 'two launches start one watcher' "$(orphan_watchers "$O1" | wc -l | tr -d ' ')" 1

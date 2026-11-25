@@ -131,7 +131,8 @@ return function(rex)
   -- Start ARGV as a daemon that holds LOCK for its whole life, or do nothing when another process holds it.
   -- TRIES attempts 0.1s apart (a watcher that is just exiting releases it). The daemon has its own session, no
   -- terminal and SIGHUP ignored, so it outlives the shell and the pane that started it; its output is appended to LOG.
-  -- It runs from / with only what rex needs to reach its server and the tool's own settings in its environment.
+  -- It runs from / with only what rex needs to reach its server (REX_SERVER, REX_HOME, REX_RUNTIME_DIR, HOME, XDG_*…)
+  -- and the tool's own settings in its environment.
   function F.daemon(lock,log,tries,argv)
     local args={"/usr/bin/perl","-e",[=[
       use Fcntl qw(:flock F_GETFD F_SETFD FD_CLOEXEC);
@@ -151,9 +152,10 @@ return function(rex)
       POSIX::setsid();
       $SIG{HUP}="IGNORE";
       chdir("/") or exit 3;
-      my %keep=map { $_ => 1 } qw(HOME USER LOGNAME PATH TMPDIR LANG LC_ALL LC_CTYPE REX_SERVER REX_CONFIG
-        XDG_CONFIG_HOME XDG_STATE_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR REX_ORCHESTRATOR_STATE_DIR
-        REX_ORCHESTRATOR_REX_BIN_DIR REX_ORCHESTRATOR_ORPHANS REX_ORCHESTRATOR_ORPHAN_GRACE
+      my %keep=map { $_ => 1 } qw(HOME USER LOGNAME PATH TMPDIR LANG LC_ALL LC_CTYPE
+        REX_SERVER REX_CONFIG REX_HOME REX_RUNTIME_DIR
+        XDG_CONFIG_HOME XDG_STATE_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_RUNTIME_DIR
+        REX_ORCHESTRATOR_STATE_DIR REX_ORCHESTRATOR_REX_BIN_DIR REX_ORCHESTRATOR_ORPHANS REX_ORCHESTRATOR_ORPHAN_GRACE
         REX_ORCHESTRATOR_ORPHAN_MAX_WAIT);
       for my $name (keys %ENV) { delete $ENV{$name} unless $keep{$name} }
       fcntl($f,F_SETFD,fcntl($f,F_GETFD,0) & ~FD_CLOEXEC) or exit 3;
