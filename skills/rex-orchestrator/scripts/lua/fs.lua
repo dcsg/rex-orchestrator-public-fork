@@ -233,7 +233,9 @@ return function(rex)
   end
   -- Keep the same flock inode/protocol as Bash. The helper holds its lock until stdin
   -- closes; Rex also reaps it if the enclosing callback or CLI is interrupted.
-  function F.lock(path,blocking)
+  -- BLOCKING waits up to WAIT seconds (default 30). Returns the release function, or nil and 2 when another process
+  -- held the lock all along, 1 on any other failure.
+  function F.lock(path,blocking,wait)
     local tmp = rex.exec({"/usr/bin/mktemp", path .. ".ready.XXXXXX"})
     if not tmp or not tmp.ok then return nil, 1 end
     local ready = tmp.stdout:gsub("\n$", "")
@@ -249,7 +251,7 @@ return function(rex)
     -- Streaming callbacks wait for the enclosing Lua callback to return. A private
     -- receipt lets us observe acquisition while retaining the helper and its fd.
     local answer
-    for _=1,blocking and 3000 or 1000 do
+    for _=1,blocking and math.max(1,math.floor((wait or 30)/0.01)) or 1000 do
       answer=F.read(ready)
       if answer=="locked\n" or not h:running() then break end
       rex.sleep(0.01)
@@ -258,8 +260,10 @@ return function(rex)
     if answer=="locked\n" then
       return function() h:close_stdin(); h:wait() end
     end
-    if h:running() then h:kill() end
-    local r = h:wait(); return nil, r and r.code == 2 and 2 or 1
+    -- Still running: it is waiting for the lock, which another process holds.
+    local busy=h:running()
+    if busy then h:kill() end
+    local r = h:wait(); return nil, (busy or r and r.code == 2) and 2 or 1
   end
   return F
 end

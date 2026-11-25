@@ -31,6 +31,10 @@ project uses [Semantic Versioning](https://semver.org/).
   runtime dependencies.
 
 ### Fixed
+- `send` and `keys` take a per-block lock, so two calls to the same child can't interleave their text or have one's
+  Return submit the other's prompt; a call waits up to 15s for the one before it, then exits 4 having done nothing.
+  Right before Return, `send` checks again that the pane is still there, its agent the one launched, no prompt or
+  dialog up and the text still in the input box; otherwise it presses nothing and exits 4.
 - The cage read-denies more agent homes: `~/.factory*` (Factory Droid), `~/.aider*`, `~/.windsurf`, `~/.codeium`,
   `~/.continue`, `~/.amp`, `~/.opencode`, `~/.kiro`, `~/.qwen`, `~/.augment`, `~/.cline`, `~/.local/share/amp` and
   `~/.local/share/opencode`. It write-locks mise's config in DIR (`.mise.toml`, `mise.toml`, `mise.*.toml`,

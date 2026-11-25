@@ -54,7 +54,8 @@ the wrapper with 71 (`launch` reports 12 if observed during startup). Unset keep
    ```sh
    bash "$RA" send "$B" 'Fix the failing test. Write a summary to /abs/path/REPORT.md.'
    ```
-   Exit 4 means the child isn't at its input box (still working, or a dialog is up): wait first.
+   Exit 4 means the child isn't at its input box (still working, or a dialog is up) or another `send`/`keys` to it is
+   still running: wait first.
 3. **Wait** for the turn. Run it with a shell timeout at least as long as `--timeout`, or in the background.
    ```sh
    bash "$RA" wait "$B" --timeout 900

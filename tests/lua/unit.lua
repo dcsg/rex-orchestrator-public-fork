@@ -71,8 +71,10 @@ local function test(options)
   function fs.plain(p) return not p:find("hardlink",1,true) end
   function fs.prefix() return true end
   function fs.pid_alive(pid) return pid~="99999999" and not options.dead_owner end
-  function fs.lock()
-    if options.lock_busy then return nil,2 end
+  function fs.lock(path,blocking,wait)
+    options.locks=options.locks or {}
+    options.locks[#options.locks+1]={path=path,blocking=blocking,wait=wait}
+    if options.lock_busy or options.input_busy and path:find("%.input%.lock$") then return nil,2 end
     return function() options.released=true end
   end
   local rex={session={},block={},json={encode=json,decode=function(s) return (options.decoded or {})[s] end}}
@@ -114,11 +116,13 @@ local function test(options)
   end
   function rex.session.list_blocks()
     calls[#calls+1]="list_blocks"
+    if options.on_call then options.on_call("list_blocks",current,options) end
     if options.list_error then return nil end
     return {blocks=options.blocks or {{block_id=child,flavor="terminal",label="task"}}}
   end
   function rex.block.call(_,method,a)
     calls[#calls+1]=method
+    if options.on_call then options.on_call(method,current,options) end
     if options.throw==method then error("test callback error") end
     if options.fail and options.fail[method] then return nil,"offline" end
     if method=="program_status" then return {records=current.records or {current.rec}} end
@@ -489,6 +493,48 @@ for _,text in ipairs({"bad \193\191","bidi \226\128\174"}) do
   r=test(o)("send",{child,text})
   eq(r.code,2); eq(o.typed,nil)
 end
+-- One send or keys at a time per block: each takes the block's input lock (bounded wait) and releases it when done; a
+-- lock another call still holds gives exit 4 with nothing typed or pressed.
+o=owned({rec=d,screen=composer(""),typed_screen=composer("locked prompt")})
+r=test(o)("send",{child,"locked prompt"})
+eq(r.code,0); eq(o.presses,1); eq(o.released,true)
+eq(o.locks[1].path,"/state/block_child.input.lock"); eq(o.locks[1].blocking,true); eq(o.locks[1].wait,15)
+o=owned({rec=d,screen=composer(""),typed_screen=composer("busy prompt"),input_busy=true})
+r=test(o)("send",{child,"busy prompt"})
+eq(r.code,4); eq(o.typed,nil); eq(o.presses,nil)
+eq(not not r.notes:find("another send or keys to " .. child .. " was still running after 15s; nothing was sent",1,true),true)
+o=owned({rec=d,screen=composer(""),input_busy=true})
+r=test(o)("keys",{child,"escape"})
+eq(r.code,4); eq(o.key_events,nil)
+eq(not not r.notes:find("no key was pressed",1,true),true)
+o=owned({rec=d,screen=composer("")})
+r=test(o)("keys",{child,"escape"}); eq(r.code,0); eq(o.released,true); eq(o.locks[1].path,"/state/block_child.input.lock")
+o=owned({rec=d,screen=composer(""),typed_screen=composer("x"),lock_busy=true})
+eq(test(o)("send",{child,"x"}).code,4); eq(o.typed,nil)
+-- Right before Return, send looks again: a prompt that came up, a dialog, a replaced agent or a closed pane since the
+-- text was typed means no Return and exit 4.
+local function recheck(change)
+  local fired=false
+  local opt=owned({rec=d,screen=composer(""),typed_screen=composer("checked prompt")})
+  -- The first block listing after typing is the recheck's own first look.
+  opt.on_call=function(method,cur,op)
+    if op.typed and method=="list_blocks" and not fired then fired=true; change(cur,op) end
+  end
+  return opt,test(opt)("send",{child,"checked prompt"})
+end
+for name,change in pairs({
+  blocked=function(cur) cur.rec={app="claude-code",state="blocked",kind="permission",msg="approve",updated_at="newer"} end,
+  dialog=function(cur) cur.screen=cl end,
+  replaced=function(cur) cur.process={child={pid=77}} end,
+  exited=function(cur) cur.process={last_exit={code=0}} end,
+  gone=function(_,op) op.blocks={} end,
+  cleared=function(cur) cur.screen=composer("") end}) do
+  local opt,res=recheck(change)
+  eq(res.code,4,"recheck " .. name); eq(opt.typed,"checked prompt"); eq(opt.presses,nil,"no Return after " .. name)
+  eq(not not res.notes:find("right before Return; the text is typed but not submitted",1,true),true,"recheck note " .. name)
+end
+local opt,res=recheck(function() end)
+eq(res.code,0); eq(opt.presses,1)
 o=owned({rec=d,screen=composer(""),typed_screen=composer("different")})
 r=test(o)("send",{child,"a prompt not visible"})
 eq(r.code,4); eq(o.typed,"a prompt not visible"); eq(o.presses,nil)

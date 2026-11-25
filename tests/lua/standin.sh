@@ -34,6 +34,10 @@ while IFS= read -r line; do
     '') printf 'enter\n' >> "$work/presses"
         [ ! -e "$work/mode-change" ] || printf '────────────────────────────────────────────────────────────────────────────────\n ⏵⏵ accept edits on\n'
         report 'done' ;;
+    plain)
+      # A screen with no input box drawn, so send's check that the text shows passes without echo.
+      printf '\033[2J\033[Hplain\n'
+      report idle ;;
     hostile)
       # Text a child can put on its screen: bidi controls, UTF-8 C1 controls, DEL, invalid UTF-8, a backslash (screen
       # escapes whatever of it Rex keeps in its capture).

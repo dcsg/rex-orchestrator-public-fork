@@ -67,7 +67,9 @@ rex-orchestrator send [--force] BLOCK -f FILE   Same, reading the prompt from FI
     /add-dir, /hooks, /plugin, /mcp or a prefix of one. The Return goes only once the input box shows the text. An
     uncaged claude pane whose permission mode changed since launch is stopped.
     Exit: 0 sent, 1 rex error, 2 usage or refused (also a stopped pane), 4 not ready for input (working, a dialog, or
-    the text typed but not shown: then it is typed but not submitted), 12 the agent exited.
+    the text typed but not shown: then it is typed but not submitted; or, right before Return, a dialog, prompt,
+    replaced agent or closed pane: then Return is not pressed; or another send or keys to BLOCK still running after
+    15s), 12 the agent exited. One send or keys runs at a time per block; the next waits for it.
 rex-orchestrator wait [--force] BLOCK [--timeout DUR] [--ignore-background] [--bg-max DUR] [--approve-in DIR]
     Wait until the agent finishes the turn started by the last send/keys; prints the state. A turn that ends with more
     background work than at the send is held until that work finishes, as counted in the agent's own status rows;
@@ -92,7 +94,8 @@ rex-orchestrator keys [--force] BLOCK KEY...   Press keys (e.g. enter, down, esc
     At a dialog on an uncaged pane (a question excepted) only escape, ctrl+c, up and down pass, and enter or a digit
     alone in its call when the option it picks is a one-time Yes, No or Continue (never "always", "don't ask again",
     a session-wide grant or a folder trust). shift+tab is refused for claude. A stopped pane takes escape and ctrl+c.
-    Exit: 0 pressed, 1 rex error, 2 usage or refused, 12 the agent exited.
+    Exit: 0 pressed, 1 rex error, 2 usage or refused, 4 another send or keys to BLOCK still running after 15s, 12 the
+    agent exited.
 rex-orchestrator ls                         Live agent panes in this Rex session, one per line: BLOCK, a tab, then the
                                             status JSON with label, mine (launched from your pane) and orphan added.
 rex-orchestrator close [--force] BLOCK      Close the pane (ends its agent) and remove its state and cage home, also for a

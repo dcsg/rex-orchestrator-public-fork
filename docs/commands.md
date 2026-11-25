@@ -77,11 +77,16 @@ one starting with a digit (Claude's survey would take it as a rating); for an un
 child may do for the rest of the session — scope permissions at launch instead).
 
 It types **only at an idle input box**: while the child works or shows a dialog, a Return would pick the highlighted option.
+Right before Return it looks again: if the pane is gone, its agent exited or was replaced, a prompt or dialog came up,
+or the text is no longer in the input box, it doesn't press Return and exits 4 (the text stays typed, not submitted).
+
+One `send` or `keys` runs at a time per block: a second one waits for the first (up to 15s, then exit 4 with nothing
+typed), so two prompts never interleave and one's Return never submits the other's text.
 
 | Exit | Meaning |
 |---|---|
 | 0 | Sent |
-| 4 | Not ready for input (working, a dialog, or the text typed but not shown — then typed, not submitted) |
+| 4 | Not ready for input (working, a dialog, or the text typed but not shown — then typed, not submitted; a change right before Return — then Return is not pressed; or another `send`/`keys` to the block still running after 15s — then nothing typed) |
 | 12 | The agent exited |
 
 ## wait
@@ -117,7 +122,8 @@ rex-orchestrator keys [--force] BLOCK KEY...
 
 Presses keys: `enter`, `escape`, `up`, `down`, `tab`, `ctrl+c`, digits… At a dialog on an uncaged pane, only `escape`,
 `ctrl+c`, `up` and `down` always pass; `enter` or a digit passes only alone in its call and only when the option it picks is a
-one-time Yes, No or Continue. Claude refuses Shift with Tab, BackTab aliases and key sequences. Native keys and
+one-time Yes, No or Continue. Claude refuses Shift with Tab, BackTab aliases and key sequences. Like `send`, it waits for
+another `send` or `keys` to the same block (exit 4 after 15s, no key pressed). Native keys and
 Rex CLI key spellings both run functions bound to those keys in Rex's `init.lua`. See
 [safety.md](safety.md).
 

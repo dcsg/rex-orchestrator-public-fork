@@ -10,6 +10,20 @@ return function(C, M, I, registry, P, close_block)
     C.owned(verb)
   end
 
+  -- One send or keys at a time per block: two sends could otherwise interleave their text, or one's Return submit the
+  -- other's. A call waits up to INPUT_WAIT seconds for the one before it, then gives up with exit 4 having done nothing.
+  local input_wait=15
+  local function input_lock(verb)
+    local release,code=C.fs.lock(C.sf(C.block) .. ".input.lock",true,input_wait)
+    if release then return release end
+    local nothing=verb=="send" and "nothing was sent" or "no key was pressed"
+    if code==2 then
+      C.die(verb .. ": another send or keys to " .. C.block .. " was still running after " .. input_wait .. "s; " ..
+        nothing .. ". Try again",4)
+    end
+    C.die(verb .. ": cannot lock " .. C.block .. " for input; " .. nothing,1)
+  end
+
   local function alive(verb)
     local exited=C.exited(C.block)
     if exited then C.die(verb .. ": the agent in " .. C.block .. " has exited",12) end
@@ -70,10 +84,28 @@ return function(C, M, I, registry, P, close_block)
     end
   end
 
+  -- Right before Return: the block is still in the session, its agent the one launched, no prompt or dialog up and the
+  -- text still in its input box. Anything else (a dialog that came up, a replaced or exited agent, a closed pane) and
+  -- Return would act on something the text wasn't typed for: send stops with exit 4 instead.
+  local function still_at_input(text,app)
+    local gone=C.gone(C.block)
+    if gone~=false then return nil,gone and "is gone" or "can't be checked" end
+    if C.exited(C.block)~=false then return nil,"has no agent (exited or replaced)" end
+    local rec=C.root(C.block)
+    if not rec then return nil,"has no status" end
+    if rec.state=="blocked" then return nil,"is blocked " .. (rec.kind or "unknown") end
+    local screen=C.screen(C.block)
+    if not screen then return nil,"can't be read" end
+    if I.dialog(screen,true) then return nil,"shows a dialog" end
+    if not I.typed_shown(screen,text,app) then return nil,"no longer shows the prompt in its input box" end
+    return true
+  end
+
   function commands.send(args)
     target("send",args)
     kill_switch("send")
     local text=P.prompt(args)
+    local release=input_lock("send")
     alive("send")
     local rec,screen=input_ready(false)
     local why=C.stopped()
@@ -98,6 +130,10 @@ return function(C, M, I, registry, P, close_block)
     local app=rec.effective_app or rec.app
     for attempt=0,6 do
       if not I.dialog(screen,true) and I.typed_shown(screen,text,app) then
+        local ready,why=still_at_input(text,app)
+        if not ready then
+          C.die("send: " .. C.block .. " " .. why .. " right before Return; the text is typed but not submitted. Look with screen",4)
+        end
         local entered,err,pressed=C.enter()
         if not entered and not pressed then R.sleep(0.3); entered,err=C.enter() end
         if not entered then
@@ -105,6 +141,7 @@ return function(C, M, I, registry, P, close_block)
           C.die("send: the prompt is typed but not submitted (Return failed twice); check screen " ..
             C.block .. ", then keys " .. C.block .. " enter",1)
         end
+        release()
         return
       end
       if attempt<6 then
@@ -164,6 +201,7 @@ return function(C, M, I, registry, P, close_block)
 
   function commands.keys(args)
     target("keys",args)
+    local release=input_lock("keys")
     alive("keys")
     local rec=C.root(C.block)
     if not rec then C.die("keys: cannot read the state of " .. C.block .. "; no key was pressed",1) end
@@ -172,6 +210,7 @@ return function(C, M, I, registry, P, close_block)
     end
     if not C.mark_since(rec) then C.die("keys: cannot save the state of " .. C.block .. "; no key was pressed",1) end
     if not C.send_keys(args) then C.die("keys: rex could not press the keys in " .. C.block,1) end
+    release()
   end
 
   function commands.close(args)

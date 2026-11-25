@@ -82,6 +82,39 @@ command_code 'keys observes the global kill switch' 2 keys "$B" tab
 command_code 'global kill switch allows an interrupt key' 0 keys "$B" escape
 rm "$REX_ORCHESTRATOR_STATE_DIR/disabled"
 
+# Two sends at once take turns on the block's input lock: each prompt arrives whole, on a line of its own.
+# The escape pressed above still sits in the pane's line buffer: end that line first.
+type_line ''; type_line plain; await_state idle
+rm -f "$work_phase2/prompts"
+cli send "$B" 'first concurrent prompt' > "$T/send1.out" 2> "$T/send1.err" & send1=$!
+cli send "$B" 'second concurrent prompt' > "$T/send2.out" 2> "$T/send2.err" & send2=$!
+rc1=0; wait "$send1" || rc1=$?
+rc2=0; wait "$send2" || rc2=$?
+[ "$rc1:$rc2" = 0:0 ] || cat "$T/send1.err" "$T/send2.err" >&2
+check 'two concurrent sends both submit' "$rc1:$rc2" 0:0
+for ((n=0;n<100;n++)); do [ "$(grep -c . "$work_phase2/prompts" 2>/dev/null)" = 2 ] && break; sleep 0.03; done
+check 'each concurrent prompt arrives whole, on its own line' "$(sort "$work_phase2/prompts")" \
+  "$(printf '%s\n' 'first concurrent prompt' 'second concurrent prompt')"
+# A send that finds the lock held past its wait gives up with exit 4 and types nothing.
+(
+  /usr/bin/perl -e 'use Fcntl qw(:flock); open(my $f, ">&=", 9) or exit 1; flock($f, LOCK_EX) or exit 1'
+  : > "$T/input-lock-ready"
+  for ((n=0;n<1200;n++)); do [ ! -e "$T/input-lock-release" ] || break; sleep 0.05; done
+) 9>>"$sf.input.lock" &
+input_lock_pid=$!
+for ((n=0;n<100;n++)); do [ ! -e "$T/input-lock-ready" ] || break; sleep 0.05; done
+[ -e "$T/input-lock-ready" ]
+started=$SECONDS
+keys_rc=0; cli keys "$B" escape > "$T/keys-lock.out" 2> "$T/keys-lock.err" & keys_pid=$!
+command_code 'send gives up on a held input lock' 4 send "$B" 'never typed'
+check 'send waited for the held input lock' "$([ $((SECONDS-started)) -ge 14 ] && echo yes)" yes
+grep -q 'another send or keys to .* was still running after 15s; nothing was sent' "$T/lua.err"
+wait "$keys_pid" || keys_rc=$?
+check 'keys gives up on a held input lock' "$keys_rc" 4
+grep -q 'was still running after 15s; no key was pressed' "$T/keys-lock.err"
+: > "$T/input-lock-release"; wait "$input_lock_pid"
+check 'nothing was typed while the lock was held' "$(grep -c 'never typed' "$work_phase2/prompts" || :)" 0
+
 registry="$REX_ORCHESTRATOR_STATE_DIR/registry"
 mkdir -p "$registry"
 claim="$registry/${B//[^A-Za-z0-9_-]/_}.json"
