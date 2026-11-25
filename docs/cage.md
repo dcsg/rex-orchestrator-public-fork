@@ -32,7 +32,9 @@ grok launched by name (`--agent codex`):
   2 instead of running the variable's file uncaged.
 - Otherwise `launch` takes the first one on your `PATH` that is a compiled executable (Mach-O) or a Node script whose
   `node` is compiled too: the `#!` path, or the one `env` finds through `-P`, a `PATH=` it sets (or execvp's default
-  after `-i` or `-u PATH`), or else the cage's fixed `PATH` (`/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`). macOS won't start a script as an interpreter, and
+  after `-i` or `-u PATH`), or else the cage's fixed `PATH` (`/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`). A
+  search list with an empty or relative entry is refused, since `env` would look in the cage's working directory,
+  DIR. As in macOS `env`, options end at the first `NAME=VALUE`, so in `env PATH=/d -P /p node` the program is `-P`. macOS won't start a script as an interpreter, and
   `sandbox-exec` would then run the agent file with `/bin/sh`. Those
   are what the agents install: codex's and claude's native binaries and grok's download are Mach-O, an npm install of
   codex runs `bin/codex.js` through `#!/usr/bin/env node`, and npm's claude package puts its native binary in place

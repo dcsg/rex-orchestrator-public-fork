@@ -208,7 +208,14 @@ do
   eq(chain("#!/usr/bin/env PATH=/some/dir node\n"),"/usr/bin/env@kernel node@/some/dir")
   eq(chain("#!/usr/bin/env A=1 PATH=/d:/e B=2 node\n"),"/usr/bin/env@kernel node@/d:/e")
   eq(chain("#!/usr/bin/env -S PATH=/s node\n"),"/usr/bin/env@kernel node@/s")
-  eq(chain("#!/usr/bin/env PATH=/d -P /p node\n"),"/usr/bin/env@kernel node@/p")
+  eq(chain("#!/usr/bin/env -P /p PATH=/d node\n"),"/usr/bin/env@kernel node@/p")
+  -- Options end at the first assignment, as in macOS env: what follows without "=" is the utility, dashes and all.
+  eq(chain("#!/usr/bin/env PATH=/d -P /p node\n"),"/usr/bin/env@kernel -P@/d")
+  eq(chain("#!/usr/bin/env FOO=1 -P /usr/bin node\n"),"/usr/bin/env@kernel -P@PATH")
+  eq(chain("#!/usr/bin/env A=1 -i node\n"),"/usr/bin/env@kernel -i@PATH")
+  eq(chain("#!/usr/bin/env A=1 -- node\n"),"/usr/bin/env@kernel --@PATH")
+  eq(chain("#!/usr/bin/env -S 'PATH=/d -P /p node'\n"),"/usr/bin/env@kernel -P@/d")
+  eq(chain("#!/usr/bin/env a.b=1 PATH=/d node\n"),"/usr/bin/env@kernel node@/d")
   eq(chain("#!/usr/bin/env -i node\n"),"/usr/bin/env@kernel node@/usr/bin:/bin")
   eq(chain("#!/usr/bin/env -u PATH node\n"),"/usr/bin/env@kernel node@/usr/bin:/bin")
   eq(chain("#!/usr/bin/env --unset=PATH node\n"),"/usr/bin/env@kernel node@/usr/bin:/bin")
@@ -274,7 +281,7 @@ for _,case in ipairs({
   {"#!/usr/bin/env --unset=NAME zsh\n","zsh"},
   {"#!/usr/bin/env -C /tmp dash\n","dash"},
   {"#!/usr/bin/env A=1 B=2 bash\n","bash"},
-  {"#!/usr/bin/env -i PATH=/x -- ksh\n","ksh"},
+  {"#!/usr/bin/env -i PATH=/x -- ksh\n","--"},
   {"#!/usr/bin/env env bash\n","bash"},
   {"#!/usr/bin/env -i /usr/bin/env -u X node\n","node"},
   {"#!/usr/bin/env\n","sh"},

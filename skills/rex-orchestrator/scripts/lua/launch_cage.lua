@@ -134,13 +134,20 @@ return function(C,M)
   end
   -- The cage's fixed PATH (the runtime wrappers' env -i), where env finds a utility named without a slash.
   local cage_path="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-  -- A program the cage will exec: an absolute path, or a name looked up in SEARCH (a colon list).
+  -- A program the cage will exec: an absolute path, or a name looked up in SEARCH (a colon list). A search list with an
+  -- empty or relative entry is refused whole: env would look there, in the cage's working directory (DIR, which the
+  -- agent writes), before or after the entry that holds a compiled node.
   local function program_path(word,search)
     if word:find("/",1,true) then return M.starts(word,"/") and word or nil end
     if search==nil then return nil end
+    local dirs={}
     for dir in ((search or cage_path) .. ":"):gmatch("([^:]*):") do
-      local path=(dir=="" and "." or dir) .. "/" .. word
-      if M.starts(path,"/") and F.test("-f",path) and F.test("-x",path) then return path end
+      if not M.starts(dir,"/") then return nil end
+      dirs[#dirs+1]=dir
+    end
+    for _,dir in ipairs(dirs) do
+      local path=dir .. "/" .. word
+      if F.test("-f",path) and F.test("-x",path) then return path end
     end
   end
   local function agent_file(path)

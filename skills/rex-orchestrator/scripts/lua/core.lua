@@ -54,7 +54,9 @@ local function unquote(word) return (word:gsub("^['\"]",""):gsub("['\"]$","")) e
 local default_path="/usr/bin:/bin"
 local function env_utility(words)
   -- path: the PATH this env leaves for its utility (nil: unchanged), which it also searches unless -P names another.
-  local stack,altpath,path={},nil,nil
+  -- As macOS env does, options end at the first NAME=VALUE (a word holding "="): after it, the first word without
+  -- "=" is the utility, even one starting with "-".
+  local stack,altpath,path,assigned={},nil,nil,false
   for i=#words,1,-1 do stack[#stack+1]=words[i] end
   local function pop() local word=stack[#stack]; stack[#stack]=nil; return word end
   local function rest()
@@ -69,8 +71,11 @@ local function env_utility(words)
   end
   while #stack>0 do
     local word=pop()
-    if word=="--" then return pop(),rest(),altpath,path end
-    if M.starts(word,"--") then
+    if assigned and not word:find("=",1,true) then return word,rest(),altpath,path end
+    if word=="--" and not assigned then return pop(),rest(),altpath,path end
+    if assigned then
+      if M.starts(word,"PATH=") then path=word:sub(6) end
+    elseif M.starts(word,"--") then
       local name,value=word:match("^%-%-([^=]+)=(.*)$")
       local long=name or word:sub(3)
       local kind=env_long[long]
@@ -94,9 +99,10 @@ local function env_utility(words)
           break
         end
       end
-    elseif word:match("^PATH=") then
-      path=word:sub(6)
-    elseif not word:match("^[%a_][%w_]*=") then
+    elseif word:find("=",1,true) then
+      assigned=true
+      if M.starts(word,"PATH=") then path=word:sub(6) end
+    else
       return word,rest(),altpath,path
     end
   end

@@ -511,6 +511,15 @@ printf '#!/usr/bin/env -P %s node\n' "$WORK/scriptnode" >"$WORK/node-p-script/co
 mkdir -p "$WORK/node-path-script" "$WORK/node-path-real"
 printf '#!/usr/bin/env PATH=%s node\n' "$WORK/scriptnode" >"$WORK/node-path-script/codex"
 printf '#!/usr/bin/env PATH=%s node\n' "$WORK/realnode" >"$WORK/node-path-real/codex"
+# A search list with an empty or relative entry makes env look in the working directory (DIR, agent-written), so it is
+# refused even when another entry holds a compiled node. And options end at the first assignment: after PATH=, "-P" is
+# the program env runs.
+for form in "PATH=.:$WORK/realnode node" "PATH=:$WORK/realnode node" "PATH=$WORK/realnode: node" \
+  "-P .:$WORK/realnode node" "-P sub:$WORK/realnode node" "PATH=$WORK/realnode -P $WORK/realnode node"; do
+  d=$WORK/node-form-$(printf '%s' "$form" | cksum | cut -d' ' -f1); mkdir -p "$d"
+  printf '#!/usr/bin/env %s\n' "$form" >"$d/codex"; chmod 755 "$d/codex"
+  NODE_FORMS="${NODE_FORMS:-}$d "
+done
 chmod 755 "$WORK/scriptnode/node" "$WORK/nodebin/codex" "$WORK/nodepath/codex" "$WORK/node-script/codex" \
   "$WORK/node-p-script/codex" "$WORK/node-path-script/codex" "$WORK/node-path-real/codex"
 # sa_build PATH [VAR=VALUE...]: build a codex cage for PD as launch does for a bare --agent codex, with only PATH (and
@@ -555,6 +564,16 @@ for d in node-script node-p-script node-path-script; do
     chk "$d: the agent never runs as sh" no "$(cg -c 'echo RAN' 2>&1 | grep -q RAN_AS_SH && echo yes || echo no)"
   else bad "$d: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
 done
+# A node planted in DIR would run first for the relative entries.
+printf '#!/bin/sh\necho PLANTED_NODE_RAN\n' >"$PD/node"; chmod 755 "$PD/node"
+for d in $NODE_FORMS; do
+  if sa_build "$d:$LINKED"; then
+    chk "skipped: #!$(sed -n '1s/^#!//p' "$d/codex")" "REAL='$REL/bin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
+    chk "$(sed -n '1s/^#!//p' "$d/codex"): no planted node runs" no \
+      "$(cg -c 'echo RAN' 2>&1 | grep -q PLANTED_NODE_RAN && echo yes || echo no)"
+  else bad "$d: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
+done
+rm -f "$PD/node"
 if sa_build "$WORK/nodepath:$LINKED"; then
   chk "a Node script with a compiled #! node is taken" "REAL='$WORK/nodepath/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
 else bad "Node script by path: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
