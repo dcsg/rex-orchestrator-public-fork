@@ -27,6 +27,39 @@ chmod +x "$T/bin/rex"
 ln -s "$ROOT/skills/rex-orchestrator/scripts/rex-orchestrator.sh" "$T/install space/first"
 ln -s first "$T/install space/chain"
 pass=0
+# Bash 5 can crash while restoring function-local or temporary locales in a forked substitution.
+# Scan the production shell sources, allowing an explicit export inside a substitution.
+# shellcheck disable=SC2016 # An awk program, not shell text.
+locale_scan='
+  FNR == 1 { pending = 0 }
+  /^[[:space:]]*(#|$)/ { next }
+  {
+    locale = "(LC_[[:alnum:]_]+|LANG)"
+    assignment = "[[:space:]]*" locale "=[^;)]*[[:space:]]+[^[:space:]);]"
+    substitution = "\\$\\(([^)]*[;&|])?"
+    if ($0 ~ ("(^|[[:space:];&(])local[[:space:]]+([^;&|]*[[:space:]])?" locale "([[:space:]=;)]|$)") ||
+        $0 ~ (substitution assignment) || (pending && $0 ~ ("^" assignment))) {
+      print FILENAME ":" FNR ": " $0
+      bad = 1
+    }
+    pending = ($0 ~ /\$\([[:space:]\\]*$/)
+  }
+  END { exit bad }
+'
+# The scanner must flag each unsafe form and accept the safe ones, or a broken pattern would pass everything.
+# shellcheck disable=SC2016 # Fixture shell text is scanned, never run.
+printf '%s\n' 'f() { local LC_ALL=C x; }' 'g() { local x LANG=C; }' 'h() { local LC_CTYPE; }' \
+  'y=$(LC_ALL=C sort file)' 'z=$(cd /; LANG=C ls)' 'w=$(' '  LC_ALL=C printf x)' >"$T/locale-unsafe.sh"
+# shellcheck disable=SC2016
+printf '%s\n' '# local LC_ALL=C' 'x=$(export LC_ALL=C; sort)' 'LC_ALL=C sort file' \
+  'v=$(printf "%s" "$LANG")' 'local_value=1' >"$T/locale-safe.sh"
+flagged=$(awk "$locale_scan" "$T/locale-unsafe.sh" | wc -l | tr -d ' ') || :
+[ "$flagged" = 6 ] || { printf 'Locale scanner flagged %s of 6 unsafe fixture lines\n' "$flagged" >&2; exit 1; }
+awk "$locale_scan" "$T/locale-safe.sh" >&2 || { printf 'Locale scanner rejected a safe fixture\n' >&2; exit 1; }
+pass=$((pass+1))
+find "$ROOT/install.sh" "$ROOT/skills/rex-orchestrator/scripts" -type f -name '*.sh' -exec awk "$locale_scan" {} + ||
+  { printf 'Unsafe shell locale assignment\n' >&2; exit 1; }
+pass=$((pass+1))
 bashes=(/bin/bash)
 if bash5=$(test_find_bash5); then bashes+=("$bash5"); else test_skip 'Lua entry checks require Bash 5'; fi
 [ -z "${REX_TEST_BASH:-}" ] || bashes=("$REX_TEST_BASH")
