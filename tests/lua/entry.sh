@@ -108,6 +108,31 @@ for bash in "${bashes[@]}"; do
     pass=$((pass+1))
   done
 done
+# The escaper runs on every forwarded diagnostic line, screen tails included: it must not fork per byte. Budget, per
+# Bash: 40 lines of box drawing (as the CLI calls it, one substitution per line) and one 20,000-byte line, each within
+# REX_TEST_ESCAPE_BUDGET seconds (default 0.5). The per-byte version took 11.8 s and 18 s on Bash 3.2.
+budget=${REX_TEST_ESCAPE_BUDGET:-0.5}
+box_line="$(printf '─%.0s' {1..90}) │ › ┌┐└┘"
+long_line=$(printf 'a\342\224\200b\\%.0s' {1..3334}); long_line=$(LC_ALL=C; printf '%s' "${long_line:0:20000}")
+for bash in "${bashes[@]}"; do
+  [ -x "$bash" ] || continue
+  # shellcheck disable=SC2016 # The child shell expands its own arguments.
+  timing=$("$bash" -p -c '
+    . "$1"; now() { /usr/bin/perl -MTime::HiRes=time -e "printf \"%.3f\\n\", time"; }
+    t0=$(now); for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40; do
+      x=$(rex_term_text "$2" keep); done
+    t1=$(now); x=$(rex_term_text "$3" keep); t2=$(now); x=$(rex_term_text "$3"); t3=$(now)
+    printf "%s %s %s\n" "$t0 $t1" "$t1 $t2" "$t2 $t3"' sh "$ROOT/skills/rex-orchestrator/scripts/term-text.sh" \
+    "$box_line" "$long_line")
+  read -r a0 a1 b0 b1 c0 c1 <<<"$timing"
+  for span in "40 box lines:$a0:$a1" "a 20,000-byte line, keep:$b0:$b1" "a 20,000-byte line:$c0:$c1"; do
+    IFS=: read -r what t0 t1 <<<"$span"
+    /usr/bin/perl -e 'exit(($ARGV[1] - $ARGV[0]) <= $ARGV[2] ? 0 : 1)' "$t0" "$t1" "$budget" ||
+      { printf 'escaping %s under %s took %s s, over the %s s budget\n' "$what" "$bash" \
+        "$(/usr/bin/perl -e 'printf "%.3f", $ARGV[1] - $ARGV[0]' "$t0" "$t1")" "$budget" >&2; exit 1; }
+    pass=$((pass+1))
+  done
+done
 # Rex's own error lines reach the terminal through the shell alone: escaped the same way, backslashes kept.
 rc=0
 REX_TEST_NO_WAIT_RESULT=controls REX_ORCHESTRATOR_REX_BIN_DIR="$T/bin" \

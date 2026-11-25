@@ -3,7 +3,9 @@
 # looks the same whichever side prints it. C0 controls, DEL and C1 bytes outside a valid UTF-8 character, and every
 # byte of invalid UTF-8, show as \xNN; the UTF-8 C1 controls (U+0080-U+009F) and the bidi overrides and isolates
 # (U+202A-U+202E, U+2066-U+2069) as \uNNNN; a backslash as \\. With "keep", backslashes stay single: for text Lua
-# already escaped, such as the diagnostics the CLI forwards. Pure Bash 3.2, in the byte locale, inside a subshell.
+# already escaped, such as the diagnostics the CLI forwards.
+# Pure Bash 3.2 in the byte locale, inside one subshell, with no further forks: bytes come from printf -v and output
+# grows by appending, so a long line costs a scan, not a process per byte.
 # shellcheck disable=SC2030 # The byte locale is meant to stay in this subshell.
 rex_term_text() (
   export LC_ALL=C
@@ -11,48 +13,53 @@ rex_term_text() (
   # Printable ASCII alone needs no work; a backslash does unless it is kept.
   case $s in
     *[![:print:]]*) ;;
-    *\\*) [ "$keep" = keep ] && { printf '%s' "$s"; exit 0; } ;;
+    *\\*) if [ "$keep" = keep ]; then printf '%s' "$s"; exit 0; fi ;;
     *) printf '%s' "$s"; exit 0 ;;
   esac
-  n=${#s} i=0
-  while [ "$i" -lt "$n" ]; do
-    printf -v b '%d' "'${s:i:1}"
-    eval "b$i=$((b & 255))"
-    i=$((i + 1))
-  done
-  at() { if [ "$1" -lt "$n" ]; then eval "printf '%s' \"\$b$1\""; else printf '%s' -1; fi; }
-  cont() { [ "$1" -ge 128 ] && [ "$1" -le 191 ]; }
-  out='' i=0
-  while [ "$i" -lt "$n" ]; do
-    a=$(at "$i") width=1 code='' invalid=''
-    if [ "$a" -lt 32 ] || { [ "$a" -ge 127 ] && [ "$a" -le 159 ]; }; then
-      code=$a
-    elif [ "$a" -ge 128 ]; then
-      b=$(at $((i + 1))) c=$(at $((i + 2))) d=$(at $((i + 3))) width=''
-      if cont "$b"; then
-        if [ "$a" -ge 194 ] && [ "$a" -le 223 ]; then width=2
-        elif cont "$c"; then
-          if [ "$a" -ge 224 ] && [ "$a" -le 239 ] && { [ "$a" -ne 224 ] || [ "$b" -ge 160 ]; } &&
-            { [ "$a" -ne 237 ] || [ "$b" -lt 160 ]; }; then width=3
-          elif [ "$a" -ge 240 ] && [ "$a" -le 244 ] && cont "$d" && { [ "$a" -ne 240 ] || [ "$b" -ge 144 ]; } &&
-            { [ "$a" -ne 244 ] || [ "$b" -le 143 ]; }; then width=4
+  # Work through the text 512 bytes at a time, with 3 bytes of lookahead for a UTF-8 sequence that crosses the
+  # boundary: indexing one long string per byte would cost quadratic time, and so would keeping a variable or array
+  # entry per byte in Bash 3.2. Output goes out in pieces of about 4 KB, so appending stays cheap.
+  rest=$s out='' hex=''
+  while [ -n "$rest" ]; do
+    chunk=${rest:0:515} m=${#chunk} k=0 stop=512
+    ((m > 512)) || stop=$m
+    while ((k < stop)); do
+      printf -v a '%d' "'${chunk:k:1}"; a=$((a & 255))
+      width=1 code=-1 invalid=-1
+      if ((a < 32 || (a >= 127 && a <= 159))); then
+        code=$a
+      elif ((a >= 128)); then
+        # Read each lookahead byte only when the lead byte needs it.
+        b=-1 c=-1 d=-1 width=0
+        if ((k + 1 < m)); then printf -v b '%d' "'${chunk:k+1:1}"; b=$((b & 255)); fi
+        if ((a >= 224 && b >= 128 && b <= 191 && k + 2 < m)); then printf -v c '%d' "'${chunk:k+2:1}"; c=$((c & 255)); fi
+        if ((a >= 240 && c >= 128 && c <= 191 && k + 3 < m)); then printf -v d '%d' "'${chunk:k+3:1}"; d=$((d & 255)); fi
+        if ((b >= 128 && b <= 191)); then
+          if ((a >= 194 && a <= 223)); then width=2
+          elif ((c >= 128 && c <= 191)); then
+            if ((a >= 224 && a <= 239 && (a != 224 || b >= 160) && (a != 237 || b < 160))); then width=3
+            elif ((a >= 240 && a <= 244 && d >= 128 && d <= 191 && (a != 240 || b >= 144) && (a != 244 || b <= 143)))
+            then width=4
+            fi
           fi
         fi
+        if ((width == 0)); then width=1 invalid=$a
+        elif ((a == 194 && b <= 159)); then code=$b
+        elif ((width == 3 && a == 226 && b == 128 && c >= 170 && c <= 174)); then code=$((0x202a + c - 170))
+        elif ((width == 3 && a == 226 && b == 129 && c >= 166 && c <= 169)); then code=$((0x2066 + c - 166))
+        fi
       fi
-      if [ -z "$width" ]; then width=1 invalid=$a
-      elif [ "$a" -eq 194 ] && [ "$b" -le 159 ]; then code=$b
-      elif [ "$width" -eq 3 ] && [ "$a" -eq 226 ]; then
-        if [ "$b" -eq 128 ] && [ "$c" -ge 170 ] && [ "$c" -le 174 ]; then code=$((0x202a + c - 170))
-        elif [ "$b" -eq 129 ] && [ "$c" -ge 166 ] && [ "$c" -le 169 ]; then code=$((0x2066 + c - 166)); fi
+      if ((code >= 0 || invalid >= 0)); then
+        if ((width == 1)); then printf -v hex '\\x%02X' $((code >= 0 ? code : invalid))
+        else printf -v hex '\\u%04X' "$code"; fi
+        out=$out$hex
+      elif ((a == 92)) && [ "$keep" != keep ]; then out="$out\\\\"
+      else out=$out${chunk:k:width}
       fi
-    fi
-    if [ -n "$code$invalid" ]; then
-      if [ "$width" -eq 1 ]; then out=$out$(printf '\\x%02X' "${code:-$invalid}")
-      else out=$out$(printf '\\u%04X' "$code"); fi
-    elif [ "$a" -eq 92 ] && [ "$keep" != keep ]; then out="$out\\\\"
-    else out=$out${s:i:width}
-    fi
-    i=$((i + width))
+      k=$((k + width))
+    done
+    rest=${rest:k}
+    if ((${#out} >= 4096)); then printf '%s' "$out"; out=''; fi
   done
   printf '%s' "$out"
 )
