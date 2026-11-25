@@ -231,8 +231,8 @@ function O.new(C,M,close_block)
     local now=os.time()
     for _,r in ipairs(children) do
       local expired=C.line(r.block,"orphan",1)=="expired"
-      if r.block==C.me or r.block==r.owner or r.owner==C.me then
-        -- The caller's own children, or the caller: not orphans, and the caller's launches start its watcher.
+      if r.block==C.me or r.block==r.owner then
+        -- The caller itself: never an orphan here.
       elseif blocks[r.owner] then
         if r.policy~="keep" and not expired then watch[r.owner]=true end
       elseif r.policy=="keep" or disabled then result.status[r.block]="kept"
