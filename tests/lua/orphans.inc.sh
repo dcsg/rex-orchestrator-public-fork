@@ -104,6 +104,21 @@ REX_BLOCK=$O_AGENT cli close "$C"
 check 'the resumed orchestrator closes its child' "$(orphan_closed "$C" && echo closed)" closed
 orphan_await_watchers "$O_AGENT" 0
 
+# Launched from a shell inside the orchestrator's pane, as an agent does: the watcher outlives the pane's hangup.
+O5=$(rex_test run -s "$REX_SESSION" --shell none --keep-open --focus=false --json -- /bin/bash |
+  jq -r '[.. | objects | .block_ids? // empty | .[]] | first')
+mkdir -p "$T/launch-work/orphan-in-pane"
+in_pane=$(printf 'env REX_ORCHESTRATOR_STATE_DIR=%q REX_ORCHESTRATOR_ORPHAN_GRACE=0 REX_SERVER=%q REX_ORCHESTRATOR_REX_BIN_DIR=%q /bin/bash %q launch --no-cage --dir %q --label in-pane --tab in-pane --timeout 8 --agent %q > %q 2>&1' \
+  "$REX_ORCHESTRATOR_STATE_DIR" "$REX_SERVER" "$REX_ORCHESTRATOR_REX_BIN_DIR" "$CLI" "$T/launch-work/orphan-in-pane" \
+  "$T/launch-agents/claude-steer" "$T/orphan-in-pane.out")
+orphan_type "$O5" "$in_pane"
+for ((n=0;n<150;n++)); do grep -q '^block:' "$T/orphan-in-pane.out" 2>/dev/null && break; sleep 0.1; done
+F=$(grep '^block:' "$T/orphan-in-pane.out") || { cat "$T/orphan-in-pane.out" >&2; echo 'launch from a pane failed' >&2; exit 1; }
+orphan_await_watchers "$O5" 1
+rex_test block close -s "$REX_SESSION" "$O5"
+orphan_await_closed "$F"
+check 'a watcher started inside the closed pane closes its orphan' "$(orphan_closed "$F" && echo closed)" closed
+
 # No watcher (a Rex restart kills them): the sweep in the next call, from any pane, closes the orphan.
 O3=$(orphan_pane)
 D=$(orphan_launch "$O3" swept-child)
@@ -113,7 +128,7 @@ orphan_await_watchers "$O3" 0
 rex_test block close -s "$REX_SESSION" "$O3"
 sleep 2
 check 'without a watcher the orphan waits for a sweep' "$(orphan_open "$D" && echo open)" open
-REX_BLOCK=$O2 cli status "$O2" > /dev/null 2> "$T/orphan.err" || :
+REX_BLOCK=$O2 cli status "$O_AGENT" > /dev/null 2> "$T/orphan.err"
 check 'the sweep closes the orphan' "$(orphan_closed "$D" && echo closed)" closed
 grep -Fq "closed $D, an orphan" "$T/orphan.err" || { cat "$T/orphan.err" >&2; echo 'the sweep did not report the close' >&2; exit 1; }
 pass=$((pass+1))
