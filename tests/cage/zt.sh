@@ -26,6 +26,12 @@
 #     one written "~/");
 #   - the child can't signal a process outside the cage, connect to a loopback port or a unix socket, or run
 #     /usr/bin/open or launchctl;
+#   - a child runs its own private Rex server in its cage home (rex server run, a session, a command in a pane, its
+#     output read back, the server stopped), and the pane stays caged; the user's Rex socket (a fixture at the same
+#     place under a fixture HOME) stays unreachable directly, by a relative path, through a symlink, a ../ spelling or a
+#     hard link, and even under a CAGE_TMP that holds it; sockets outside the cage, in DIR or in a sibling cage home
+#     stay unreachable; the cage's REX_SERVER names no server, so a bare rex reaches and autostarts none; the user's Rex
+#     folder is unreadable and unwritable, and the real one is denied by rule;
 #   - close's rmcage removes a cage home the child sealed (folders without rwx, uchg/uappnd flags, ACLs, nested), and
 #     leaves a file a link in it points to alone;
 #   - a standalone codex under HOME/.codex/packages/standalone/releases/<version>/, reached through a link on PATH,
@@ -73,15 +79,20 @@ command -v luajit >/dev/null 2>&1 || { echo "zt: luajit required"; exit 2; }
 #     too. ---
 WORK=$(mktemp -d "$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || echo /tmp)/rex-cage-zt.XXXXXX") || exit 2
 WORK=$(cd "$WORK" && pwd -P)
-SLEEPER="" LISTENER="" SCRATCH_FIXTURE="" SCRATCH_ROOT=""
+SLEEPER="" LISTENER="" SCRATCH_FIXTURE="" SCRATCH_ROOT="" REXZT="" REXZT_LISTENER=""
 unseal() {
   find "$1" -type d -exec chflags nouchg,nouappnd {} \; -exec chmod -N {} \; -exec chmod u+rwx {} \; 2>/dev/null
   chflags -R nouchg,nouappnd "$1" 2>/dev/null; chmod -R -N "$1" 2>/dev/null
 }
-trap 'kill $SLEEPER $LISTENER 2>/dev/null; unseal "$WORK"; rm -rf "$WORK"
+trap 'kill $SLEEPER $LISTENER $REXZT_LISTENER 2>/dev/null; unseal "$WORK"; rm -rf "$WORK"
+  [ -z "$REXZT" ] || { pkill -f -- "$REXZT/" 2>/dev/null; unseal "$REXZT"; rm -rf "$REXZT"; }
   [ -z "$SCRATCH_FIXTURE" ] || rm -rf "$SCRATCH_FIXTURE"
   [ -z "$SCRATCH_ROOT" ] || rmdir "$SCRATCH_ROOT" 2>/dev/null || :' EXIT
 FH="$WORK/home"; STATE_DIR="$WORK/state"; mkdir -p "$FH" "$STATE_DIR"
+# The caller's real home, for one rule check that reads nothing (the profile must deny its Rex folder), and the Rex
+# CLI, for the private server check; both looked up before HOME becomes the fixture.
+REAL_HOME=$(cd "${HOME:-/nonexistent}" 2>/dev/null && pwd -P) || REAL_HOME=""
+REXBIN=$(test_find_rex) || REXBIN=""
 export HOME="$FH" REX_SESSION=session:zt REX_BLOCK=block:zt SSH_AUTH_SOCK="$WORK/agent.sock" ZT_TOKEN=zt-secret-must-not-leak
 # Use fixture secrets and a stand-in skill folder whose parent the cage write-locks.
 # shellcheck disable=SC2034
@@ -99,7 +110,7 @@ for p in .ssh/id_x .aws/credentials .gnupg/x .netrc $CS/claude.env $CS/claude-on
   .claude-server-commander/x .codex/auth.json .codex/other .codex-alt/x .grok/auth.json .grok/other \
   .grokbot/x .gemini/x .cursor/x .copilot/x .hermes/x .pi/x .mastracode/x "Library/Application Support/Claude/x" \
   "Library/Application Support/Codex/x" "Library/Application Support/com.openai.codex/x" \
-  "Library/Application Support/Muse/x" \
+  "Library/Application Support/Muse/x" "Library/Application Support/rex/host-id" \
   notes.txt .gitconfig .config/git/config "Library/Application Support/SomeApp/x" Repos/other/x; do
   mkdir -p "$FH/$(dirname "$p")"; printf 'fixture\n' >"$FH/$p"
 done
@@ -200,7 +211,8 @@ want r DENY "$RH/.codex/other" "$RH/.codex" "$RH/.ssh" "$RH/.ssh/id_x" "$RH/.aws
   "$RH/.claude-server-commander/x" "$RH/.codex-alt/x" "$RH/.grok/auth.json" "$RH/.grokbot/x" \
   "$RH/.gemini/x" "$RH/.cursor/x" "$RH/.copilot/x" "$RH/.hermes/x" "$RH/.pi/x" "$RH/.mastracode/x" \
   "$RH/Library/Application Support/Claude/x" "$RH/Library/Application Support/Codex/x" \
-  "$RH/Library/Application Support/com.openai.codex/x" "$RH/Library/Application Support/Muse/x"
+  "$RH/Library/Application Support/com.openai.codex/x" "$RH/Library/Application Support/Muse/x" \
+  "$RH/Library/Application Support/rex" "$RH/Library/Application Support/rex/host-id"
 CT5="/private/tmp/claude-$(id -u)"
 if [ ! -e "$CT5" ] && [ ! -L "$CT5" ] && (umask 077; mkdir "$CT5" 2>/dev/null); then SCRATCH_ROOT=$CT5; fi
 if [ -d "$CT5" ] && [ ! -L "$CT5" ] && [ -O "$CT5" ] && SCRATCH_FIXTURE=$(mktemp -d "$CT5/rex-cage-zt.XXXXXX"); then
@@ -790,12 +802,140 @@ for p in $CS .ssh .local/bin .agents/skills Library/LaunchAgents .claude .claude
   mkdir -p "$FH/$p/proj"
   if mk codex "$FH/$p/proj"; then want w DENY "$FH/$p/proj/out.txt"; else bad "U10: cage_build failed for a DIR in ~/$p"; fi
 done
+mkdir -p "$FH/Library/Application Support/rex/proj"
+if mk codex "$FH/Library/Application Support/rex/proj"; then want w DENY "$FH/Library/Application Support/rex/proj/out.txt"
+else bad "U10: cage_build failed for a DIR in ~/Library/Application Support/rex"; fi
 mk codex "$FH/.config" || bad "U10: cage_build failed for ~/.config as DIR"
 want w DENY "$FH/$CS/x" "$FH/$CS/claude-one.env"
 want w ALLOW "$FH/.config/y.txt" "$CT/still-writable"
 mk codex "$FH" || bad "U10: cage_build failed for the home as DIR"
-want w DENY "$FH/.local/bin/claude" "$FH/Library/LaunchAgents/x.plist" "$FH/.agents/skills/x" "$FH/.claude-x/y"
+want w DENY "$FH/.local/bin/claude" "$FH/Library/LaunchAgents/x.plist" "$FH/.agents/skills/x" "$FH/.claude-x/y" \
+  "$FH/Library/Application Support/rex/x"
 want w ALLOW "$FH/notes2.txt"
+
+echo "== a private Rex server in the cage; the user's stays unreachable =="
+# Unix socket paths are limited to 104 bytes and WORK is deep, so these checks build their cage under a short /tmp
+# folder: its own fixture HOME (whose Library/Application Support/rex/server.sock stands in for the user's socket),
+# STATE_DIR and DIR. Nothing here reaches the caller's Rex: the private server and every client point at the cage's
+# own socket with --autostart=false, and the real-home check below only lists a folder the profile must deny.
+if ! command -v python3 >/dev/null 2>&1 || ! command -v nc >/dev/null 2>&1; then
+  test_skip 'private Rex checks require python3 and nc'
+elif ! REXZT=$(mktemp -d /tmp/rzt.XXXXXX 2>/dev/null) || ! REXZT=$(cd "$REXZT" && pwd -P); then
+  REXZT=""; test_skip 'private Rex checks need a short private folder under /tmp'
+else
+  ZH="$REXZT/h"; ZRS="$ZH/Library/Application Support/rex"; ZD="$REXZT/proj"
+  mkdir -p "$ZRS" "$ZH/.codex" "$ZD" "$REXZT/out" "$REXZT/state"
+  printf 'fixture\n' >"$ZH/.codex/auth.json"
+  # Uncaged listeners that accept and close each connection: the user's socket stand-in, a socket outside the cage, one
+  # an uncaged process bound in DIR, and one in a sibling cage home (made once the cage exists, below).
+  if HOME=$ZH STATE_DIR=$REXZT/state mk codex "$ZD"; then
+    ZCT=$CT; ZW=$W; mkdir -p "${ZCT%/*}/codex.zt-sibling"
+    python3 -I -c 'import select, socket, sys, time
+socks = []
+for p in sys.argv[1:]:
+    u = socket.socket(socket.AF_UNIX); u.bind(p); u.listen(5); socks.append(u)
+print("LISTENING", flush=True)
+end = time.time() + 120
+while time.time() < end:
+    for x in select.select(socks, [], [], 1)[0]: x.accept()[0].close()' "$ZRS/server.sock" "$REXZT/out/o.sock" "$ZD/d.sock" \
+      "${ZCT%/*}/codex.zt-sibling/s.sock" >"$REXZT/listen.out" 2>"$REXZT/listen.err" & REXZT_LISTENER=$!; disown
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do grep -q LISTENING "$REXZT/listen.out" 2>/dev/null && break; sleep 0.2; done
+    zcg() { (cd "$ZD" && "$ZW" "$@") 2>&1; }
+    # connects PATH: ALLOW when the cage lets nc connect to PATH, else DENY.
+    zconn() { zcg -c "nc -U $(q "$1") </dev/null >/dev/null 2>&1 && echo ALLOW || echo DENY"; }
+    if nc -w 2 -U "$ZRS/server.sock" </dev/null >/dev/null 2>&1 && nc -w 2 -U "$REXZT/out/o.sock" </dev/null >/dev/null 2>&1; then
+      chk "the user's Rex socket (fixture) is unreachable" DENY "$(zconn "$ZRS/server.sock")"
+      chk "the user's Rex socket (fixture) is unreachable by a relative path" DENY \
+        "$(zcg -c "cd $(q "${ZRS%/*}") && nc -U rex/server.sock </dev/null >/dev/null 2>&1 && echo ALLOW || echo DENY")"
+      chk "a unix socket outside the cage stays unreachable" DENY "$(zconn "$REXZT/out/o.sock")"
+      chk "a socket an uncaged process bound in DIR stays unreachable" DENY "$(zconn "$ZD/d.sock")"
+      chk "a sibling cage home's socket stays unreachable" DENY "$(zconn "${ZCT%/*}/codex.zt-sibling/s.sock")"
+      chk "a symlink in the cage home to the user's socket stays unreachable" DENY \
+        "$(zcg -c "ln -s $(q "$ZRS/server.sock") $(q "$ZCT/sl.sock") && nc -U $(q "$ZCT/sl.sock") </dev/null >/dev/null 2>&1 && echo ALLOW || echo DENY")"
+      # Relative to a folder in the cage home: the absolute spelling would pass the 104-byte socket path limit.
+      chk "a ../ spelling through the cage home stays unreachable" DENY "$(zcg -c "cd $(q "$ZCT/tmpdir") &&
+        nc -U '../../../../h/Library/Application Support/rex/server.sock' </dev/null >/dev/null 2>&1 && echo ALLOW || echo DENY")"
+      chk "a hard link of the user's socket into the cage home is refused" DENY \
+        "$(zcg -c "ln $(q "$ZRS/server.sock") $(q "$ZCT/hl.sock") 2>/dev/null && echo ALLOW || echo DENY")"
+      chk "the user's Rex folder is unreadable" DENY "$(zcg -c "ls $(q "$ZRS") >/dev/null 2>&1 && echo ALLOW || echo DENY")"
+      # The explicit deny holds even where an allow covers the folder: a CAGE_TMP set to the folder above it.
+      chk "the explicit deny wins over a CAGE_TMP that holds the Rex folder" DENY "$(cd "$ZD" && /usr/bin/sandbox-exec \
+        -D DIR="$ZD" -D DIR_RE="$ZD" -D CAGE_TMP="${ZRS%/*}" -D HOME="$ZH" -D AGENT_AUTH="$ZCT" -D AGENT_CFG_RO="$ZCT/n" \
+        -D LOCK_RE='^/nonexistent-zt(/|$)' -D CAGE_ROOT="${ZCT%/*}" -D TTY="$ZCT/.notty" -D CAGE_SECRETS="$REXZT/s" \
+        -f "$PROFILE" /bin/sh -c "nc -U $(q "$ZRS/server.sock") </dev/null >/dev/null 2>&1 && echo ALLOW || echo DENY" 2>&1)"
+    else
+      cat "$REXZT/listen.err" >&2; bad 'private Rex: the fixture listeners are not reachable uncaged'
+    fi
+    # shellcheck disable=SC2016  # the child's shell expands it
+    chk "the cage sets REX_SERVER to an address no server can be at" unix:///dev/null/rex-cage-no-server \
+      "$(zcg -c 'printf %s "$REX_SERVER"')"
+    if [ -z "$REXBIN" ]; then
+      test_skip 'private Rex server checks require the Rex CLI'
+    elif ! test_has_pty; then
+      test_skip 'private Rex server checks need a pty'
+    else
+      # A bare rex in the cage: the cage's REX_SERVER names no server and isn't a socket rex autostarts.
+      chk "a bare rex in the cage finds no server and starts none" NOSERVER "$(zcg -c "$(q "$REXBIN") ls 2>&1 |
+        grep -q 'no Rex server is running at /dev/null/rex-cage-no-server' && echo NOSERVER || echo OTHER")"
+      # Without REX_SERVER rex goes for the personal socket under HOME, here the fixture of the user's: the connect is
+      # denied, and so is the autostart's write there.
+      chk "rex without REX_SERVER can't reach or replace the user's server" DENIED "$(zcg -c "env -u REX_SERVER \
+        $(q "$REXBIN") ls 2>&1 | grep -qi 'not permitted\|permission denied' && echo DENIED || echo OTHER")"
+      chk "the user's socket (fixture) is still there" yes "$([ -S "$ZRS/server.sock" ] && echo yes)"
+      # With HOME in the cage home (grok, agy) the personal socket is the cage's own, and autostart would run a server
+      # as a launchd job, outside the cage: launchctl is exec-denied, so it fails.
+      chk "rex autostart can't start a launchd server from the cage" DENIED "$(zcg -c "env -u REX_SERVER \
+        HOME=$(q "$ZCT/home") $(q "$REXBIN") ls 2>&1 | grep -q 'launchctl.*not permitted' && echo DENIED || echo OTHER")"
+      # The private server itself, the way tests/lua/live.sh runs one: HOME, XDG dirs and state in a folder from the
+      # cage's TMPDIR, a socket there, and --autostart=false clients pointed at it with REX_SERVER.
+      cat >"$REXZT/live.sh" <<'LIVE'
+rex() { "$REXBIN" --autostart=false "$@"; }
+T=$(mktemp -d "${TMPDIR%/}/rx.XXXXXX") || { echo NO_TMP; exit 1; }
+mkdir -p "$T/h/.config" "$T/h/.local/share" "$T/h/.cache"; : >"$T/init.lua"
+export HOME="$T/h" XDG_CONFIG_HOME="$T/h/.config" XDG_DATA_HOME="$T/h/.local/share" XDG_CACHE_HOME="$T/h/.cache"
+export REX_SERVER="unix://$T/s" REX_CONFIG="$T/init.lua"
+"$REXBIN" --autostart=false server run --listen "$REX_SERVER" --state-dir "$T/state" --restore=false --config "$T/init.lua" \
+  >"$T/log" 2>&1 &
+sp=$!
+trap 'kill $sp 2>/dev/null; wait $sp 2>/dev/null' EXIT
+n=0; while [ ! -S "$T/s" ] && [ $n -lt 100 ]; do sleep 0.05; n=$((n + 1)); done
+[ -S "$T/s" ] && echo SERVER_UP || { echo NO_SERVER; cat "$T/log"; exit 1; }
+rex session new zt --shell none --keep-open --json -- /bin/sh -c \
+  'echo "zt-pane-$((6 * 7))"; (: >"$1/pane-escaped") 2>/dev/null && echo PANE_ESCAPED || echo PANE_CAGED; exec sleep 60' \
+  sh "$OUTSIDE" >"$T/session.json" 2>"$T/session.err" || { echo NO_SESSION; cat "$T/session.err"; exit 1; }
+echo SESSION_MADE
+s=$(tr -d '\n ' <"$T/session.json" | sed -n 's/.*"session_id":"\([^"]*\)".*/\1/p')
+b=$(grep -o 'block:[0-9a-f-]*' "$T/session.json" | head -n 1)
+n=0
+while [ $n -lt 100 ]; do
+  rex capture -s "$s" -b "$b" --trim >"$T/screen" 2>&1 && grep -q 'PANE_' "$T/screen" && break
+  sleep 0.05; n=$((n + 1))
+done
+grep -qx 'zt-pane-42' "$T/screen" && echo PANE_OUTPUT
+grep -qx 'PANE_CAGED' "$T/screen" && echo PANE_CAGED
+kill $sp; wait $sp 2>/dev/null; trap - EXIT
+rex ls >/dev/null 2>&1 || echo SERVER_STOPPED
+LIVE
+      out=$(zcg -c "REXBIN=$(q "$REXBIN") OUTSIDE=$(q "$REXZT/out") . $(q "$REXZT/live.sh")")
+      for step in SERVER_UP SESSION_MADE PANE_OUTPUT PANE_CAGED SERVER_STOPPED; do
+        chk "private Rex in the cage: $step" yes "$(printf '%s\n' "$out" | grep -qx "$step" && echo yes)"
+      done
+      chk "a pane of the private server can't write outside the cage" no "$([ -e "$REXZT/out/pane-escaped" ] && echo yes || echo no)"
+      printf '%s\n' "$out" | grep -qx SERVER_STOPPED || printf '%s\n' "$out" | sed 's/^/  live: /'
+    fi
+  else
+    cat "$WORK/build.log"; bad "private Rex: cage_build failed"
+  fi
+  kill "$REXZT_LISTENER" 2>/dev/null; REXZT_LISTENER=""
+fi
+# The caller's real Rex folder is denied by rule: listing it fails in a cage whose HOME is the real home. Nothing there is
+# read either way (a listing of names, discarded), and nothing connects to the real socket.
+if [ -n "$REAL_HOME" ] && [ -d "$REAL_HOME/Library/Application Support/rex" ]; then
+  chk "the real Rex folder is denied by rule" DENY "$(cd "$CWD" && /usr/bin/sandbox-exec "${D[@]/#HOME=*/HOME=$REAL_HOME}" \
+    -f "$PROFILE" /bin/sh -c "ls $(q "$REAL_HOME/Library/Application Support/rex") >/dev/null 2>&1 && echo ALLOW || echo DENY" 2>&1)"
+else
+  test_skip "the real-home rule check needs $REAL_HOME/Library/Application Support/rex (Rex installed)"
+fi
 
 echo "== mach-lookup: 7 allowed, dangerous denied; no iokit-open (needs clang) =="
 mk codex "$PD" || bad "mach: cage_build failed"

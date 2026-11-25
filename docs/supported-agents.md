@@ -3,6 +3,10 @@
 Every command works with any agent that reports Rex program status. `launch` picks dialog handling from the command's name
 (`claude-*` and `agy-*` wrappers count as claude and Gemini); `--kind` names it for a command called otherwise.
 
+Caged, no agent can reach your Rex server, so none can orchestrate. Each can run a private Rex server in its cage home
+for tests that need a live one, with `rex server run`, its own `HOME`, `REX_SERVER` pointed at it and
+`--autostart=false`: see [cage.md](cage.md#a-private-rex-server).
+
 ## Claude Code (`claude`)
 
 - Folder trust: "No, exit" is preselected; `--trust` moves to "Yes" and confirms. Below 10 rows Claude shows only the

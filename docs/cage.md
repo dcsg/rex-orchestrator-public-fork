@@ -184,7 +184,9 @@ home stops the wrapper with exit **70**.
 
 ## What a caged child gets
 
-- A clean environment (`env -i`): no `REX_*`, no `SSH_AUTH_SOCK`, no tokens — only terminal and locale variables.
+- A clean environment (`env -i`): no `REX_*` of yours, no `SSH_AUTH_SOCK`, no tokens — only terminal and locale
+  variables, plus `REX_SERVER=unix:///dev/null/rex-cage-no-server`, an address no server can be at (see
+  [A private Rex server](#a-private-rex-server)).
 - A throwaway config home under `STATE_DIR/cage/` built from the templates in `scripts/cage/`, **not your settings**: pass a
   model and other options after `--`. It has none of your MCP servers, connectors, skills, plugins, hooks or memory.
 - codex runs in bypass mode and grok in always-approve, with their own sandboxes off (seatbelt doesn't nest); a caged Gemini (agy)
@@ -198,7 +200,7 @@ home stops the wrapper with exit **70**.
 
 - **Writes** anywhere but DIR, the child's own cage home and terminal devices — also through symlinks, renames and hard
   links. Even inside DIR: the cage secrets, this tool's folder, `~/.ssh`, `~/.local/bin`, `~/.agents`,
-  `~/Library/LaunchAgents`, `/opt/homebrew`, `/Applications` and every agent home.
+  `~/Library/LaunchAgents`, `~/Library/Application Support/rex`, `/opt/homebrew`, `/Applications` and every agent home.
 - **Auto-run files inside DIR** that would execute unsandboxed later: `.git/hooks/`, `.git/config`, `.envrc`, `.mcp.json`,
   `.claude/`, `.codex/`, `.gemini/`, `.grok/`, `.cursor/`, `.zed/`, `.vscode/`, `.idea/`, `.husky/`, `.githooks/`,
   `.agents/`, and a repo's own `core.hooksPath`. (So `git init`/`git config` fail in the cage: create the repo first.)
@@ -206,10 +208,12 @@ home stops the wrapper with exit **70**.
   release folder or grok download and the child's own cage home.
 - **Reads** of secret stores and agent homes: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.config` (except `git`),
   `~/Library/Keychains`, shell histories, Messages, Mail, every `~/.claude*`, `~/.codex*`, `~/.grok*`, `~/.gemini*`, other
-  agents' folders in `~/Library/Application Support`, other cage homes, other Claude sessions' temp files, and every repo
+  agents' folders in `~/Library/Application Support`, your Rex folder (`~/Library/Application Support/rex`: its
+  socket, server records, ssh folder and host list), other cage homes, other Claude sessions' temp files, and every repo
   under `~/Repos` except DIR's. The exceptions are the agent's one login file (codex, grok) and a launched codex
   release folder or grok download.
-- **Network** on any port but 443, 80 and 53, loopback included; every unix socket but DNS's (so no Rex, no ssh-agent).
+- **Network** on any port but 443, 80 and 53, loopback included; every unix socket but DNS's and those in the child's
+  own cage home (so not your Rex server, no ssh-agent, no other cage's sockets).
 - **Mach services** outside a 7-name allowlist (TLS, DNS, user lookup): no LaunchServices, AppleEvents, clipboard,
   WindowServer, TCC; no `iokit-open`; no signals outside the cage; no `sudo`, `launchctl`, `osascript`, `open`, `ssh`,
   `scp`, `sftp`, `crontab`, `at`, `batch`.
@@ -234,9 +238,59 @@ your home, `~/Library` or `~/Repos`: give each task its own folder.
   `npm install`, a build.
 - **TLS services** (`com.apple.SecurityServer`, `trustd.agent`) are reachable; safe only while keychain files stay
   read-denied.
-- **Rex.** A caged agent can't reach Rex, so it can't orchestrate children itself; such a parent needs `--no-cage`.
+- **Your Rex.** A caged agent can't reach your Rex server, so it can't orchestrate children itself; such a parent needs
+  `--no-cage`. It can run a private server of its own for tests (below), which drives nothing of yours.
 - **Terminals.** `/dev/tty*` stays writable so tools that open a sub-pty work: a caged child could print onto another pane's
   screen (not type into it). Never trust a screen on its own.
+
+## A private Rex server
+
+A caged worker can't reach your Rex server: a process that can drive your server can drive every pane in every session,
+uncaged. It can start a Rex server of its own, though, to run tests that need a live one (such as
+`tests/lua/live.sh`), the same way that suite does:
+
+```sh
+REXBIN=…/rex       # the Rex CLI: ~/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/
+                   # Rex Server.app/Contents/MacOS/rex, or /Applications/Rex.app/Contents/Helpers/Rex Server.rex/
+                   # Contents/MacOS/rex. It is not on the cage's PATH; reading and running it is allowed.
+T=$(mktemp -d "${TMPDIR%/}/rx.XXXXXX")     # TMPDIR is in the cage home for every agent
+mkdir -p "$T/home"; : > "$T/init.lua"
+export HOME="$T/home" XDG_CONFIG_HOME="$T/home/.config" XDG_DATA_HOME="$T/home/.local/share" \
+  XDG_CACHE_HOME="$T/home/.cache" REX_SERVER="unix://$T/rex.sock" REX_CONFIG="$T/init.lua"
+"$REXBIN" --autostart=false server run --listen "$REX_SERVER" --state-dir "$T/state" --restore=false \
+  --config "$T/init.lua" > "$T/server.log" 2>&1 &
+server=$!
+"$REXBIN" --autostart=false session new test --shell none --keep-open --json -- /bin/sh -c 'echo hi; exec sleep 60'
+"$REXBIN" --autostart=false capture -s <session_id> -b <block id> --trim    # both from the --json output
+kill "$server"     # rex server stop looks under the real HOME, so stop it by its process ID
+```
+
+- **Socket in the cage home.** The cage opens unix-socket connections only under the child's own cage home, where
+  `TMPDIR` points for every agent. A socket in DIR, in another cage's home or anywhere else stays unreachable. Unix
+  socket paths are limited to 104 bytes, so keep the folder name short.
+- **`HOME` in the cage home too.** The server keeps its lock and runtime records under
+  `$HOME/Library/Application Support/rex`. With the real `HOME` (codex, claude) that folder is your Rex folder, which
+  the cage read- and write-denies, so the server fails to start.
+- **Set `REX_SERVER` and pass `--autostart=false`.** The cage sets `REX_SERVER=unix:///dev/null/rex-cage-no-server`,
+  so a bare `rex` says no server is running there and starts none: Rex autostarts a server only for your personal
+  socket. Unset, `rex` goes for the personal socket under `HOME`. For codex and claude, whose `HOME` is your real
+  one, that is your socket: the connect is denied, and so is the autostart's write there. Autostart (and
+  `rex server start`) runs the server as a launchd job, which would be outside the cage: the cage denies
+  `launchctl`, so it fails for every agent, grok and agy (whose `HOME` is in the cage home) included. Run the server
+  with `rex server run`, as above.
+- **Finding the CLI.** This repo's suites find it with `tests/isolate.inc.sh`'s `test_find_rex`, which looks under
+  `HOME` and in `/Applications`. Under grok and agy, whose `HOME` is in the cage home, it finds only an app in
+  `/Applications`: set `REX_TEST_REX` to the CLI's path.
+- **The panes stay caged.** The server and the programs in its panes are the worker's children, in the same cage, with
+  the same limits.
+
+What keeps your server out of reach: the profile allows connecting only to sockets whose resolved path is in the
+child's own cage home, so a symlink there to your socket, a `../` spelling through it, or a relative path doesn't
+count, and a hard link to your socket can't be made (it is a write outside DIR and the cage home). After that allow,
+it denies connecting to anything in `~/Library/Application Support/rex` explicitly, and reading and writing there, so
+the deny holds whatever the other rules become. `launch` refuses a DIR that is, holds or sits in that folder. The
+cage home is a fresh `mktemp` folder that nothing outside the cage binds a socket in. If you point `REX_SERVER` at
+another socket for your own server, keep it out of the cage homes (`STATE_DIR/cage/`).
 
 ## Harmless messages
 

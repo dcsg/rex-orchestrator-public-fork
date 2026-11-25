@@ -249,7 +249,10 @@
 ; The user's own Rex server stays unreachable, explicitly and after the allow above (last match wins), whatever the
 ; other rules become: it drives every pane in every session UNCAGED. Its socket is HOME/Library/Application Support/
 ; rex/server.sock; the folder is also read- and write-denied above, and launch refuses a DIR in or holding it. The
-; wrappers set REX_SERVER to an address no server can be at, so a bare `rex` neither reaches nor autostarts one.
+; wrappers set REX_SERVER to an address no server can be at, so a bare `rex` neither reaches nor autostarts one. Rex's
+; autostart and `rex server start` run a server as a launchd job, which would be OUTSIDE the cage: they go through
+; /bin/launchctl, exec-denied above (verified: "posix_spawn /bin/launchctl: operation not permitted"). Only a
+; foreground `rex server run`, the child's own child, works.
 (deny network-outbound
   (remote unix-socket (subpath (string-append (param "HOME") "/Library/Application Support/rex"))))
 

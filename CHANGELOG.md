@@ -11,6 +11,9 @@ project uses [Semantic Versioning](https://semver.org/).
   failed or empty commands stop the wrapper with exit 71 before agy starts. Unset preserves copied logins.
 - `REX_ORCHESTRATOR_CAGE_CODEX_BIN`, `REX_ORCHESTRATOR_CAGE_CLAUDE_BIN` and `REX_ORCHESTRATOR_CAGE_GROK_BIN` name the
   executable a caged agent runs. They never apply to an uncaged launch.
+- A caged agent can run a private Rex server for tests that need a live one: the cage allows connecting to unix
+  sockets in the child's own cage home, where `rex server run --listen unix://…` puts it with `HOME` and state there
+  too, and its panes run in the same cage. See [docs/cage.md](docs/cage.md#a-private-rex-server).
 
 ### Changed
 - Rex commands run in Lua via `rex do`. LuaJIT is required for local operations, and `jq` and `python3` are no longer
@@ -48,6 +51,13 @@ project uses [Semantic Versioning](https://semver.org/).
   there with exit 2. An executable reached through a link inside an agent home runs by its physical path.
 - Find cage assets beside the real CLI script through absolute and relative install symlinks and symlink chains,
   while keeping environment overrides first.
+
+### Security
+- The user's Rex server stays out of a caged child's reach explicitly: `~/Library/Application Support/rex` (the
+  socket, server records, ssh folder and host list) is connect-, read- and write-denied after the private-server
+  allow, and `launch` refuses a caged DIR that is, holds or sits in it. Before, its files were readable from the cage.
+- Every cage runtime sets `REX_SERVER=unix:///dev/null/rex-cage-no-server`, so a bare `rex` in the cage finds no
+  server and autostarts none.
 
 ## [0.1.0] - 2026-11-11
 
