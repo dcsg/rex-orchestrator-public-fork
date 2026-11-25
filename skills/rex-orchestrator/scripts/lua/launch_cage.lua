@@ -54,7 +54,8 @@ return function(C,M)
     local hooks=top and git_value(dir,"config","--path","--get","core.hooksPath")
     if not hooks or hooks=="" then return nil end
     if not M.starts(hooks,"/") then hooks=top .. "/" .. hooks end
-    hooks=hooks:gsub("/+","/"):gsub("/$","")
+    hooks=hooks:gsub("/+","/")
+    if #hooks>1 then hooks=hooks:gsub("/$","") end
     local physical=F.canonical(hooks)
     if not physical then
       local parent=F.real(M.dirname(hooks))
@@ -150,7 +151,7 @@ return function(C,M)
     end
     if not F.test("-r",profile) then return fail("cage: profile not found: " .. profile .. " (set REX_ORCHESTRATOR_CAGE_PROFILE)") end
     local dir=opts.dir
-    if dir:find("[%z\1-\31\127]") then
+    if M.dir_control(dir) then
       return fail("cage: " .. name .. "'s DIR path has a control character; use a plain folder name or --no-cage")
     end
     local physical_secrets=F.canonical(secrets) or F.real(secrets)

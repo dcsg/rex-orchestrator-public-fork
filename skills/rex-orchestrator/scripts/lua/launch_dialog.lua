@@ -3,6 +3,16 @@ return function(C,M,I)
   local env=M.env
   local home=env("HOME") or "/nonexistent"
 
+  function D.safe_trust_dir(path)
+    if M.dir_control(path) then return false end
+    local lower=path:lower()
+    for _,text in ipairs({"❯","›","⟩",">","trust and continue","yes, i trust this folder",
+      "do you trust","yes, proceed","no, quit"}) do
+      if lower:find(text,1,true) then return false end
+    end
+    return true
+  end
+
   function D.flat(text)
     return (text:gsub("[ \n]+"," "))
   end

@@ -466,6 +466,11 @@ eq(ready("muse","muse-trust","idle"),false)
 eq(ready("codex","codex-ready-19x30","working"),true)
 eq(ready("codex","codex-ready-80x6",nil),false)
 eq(ready("codex","codex-trust-80x6","working"),false)
+for _,name in ipairs({"\t","\n","\r","\127","\194\133","\155","❯","›","⟩",">",
+  "trust AND continue","Yes, I trust this folder","Do you trust","Yes, proceed","No, quit"}) do
+  eq(dialog.safe_trust_dir("/work/" .. name),false,name)
+end
+eq(dialog.safe_trust_dir("/work/project-β"),true)
 local docs={fs={
     read=function(path) return trust_files[path] end
   },rex={exec=function() return {ok=true,stdout="/work/repo\n"} end}}
@@ -487,6 +492,7 @@ local function clone_test(race)
     exists=function() return exists end,
     canonical=function() return "/repo" end,
     test=function() return true end,
+    mkdir=function() return true end,
     mkdir_new=function()
       if exists then return false end
       exists=true; return true
@@ -500,7 +506,7 @@ local function clone_test(race)
       return {ok=args[1]~="/bin/cp",stdout="",stderr=""}
     end
   },die=function(message,code) error({message=message,code=code or 2},0) end,
-    note=function() end,raw=function() end,out=function(out) commands.out=out end})
+    note=function() end,raw=function() end,out=function(out) commands.out=out end},M)
   local ok,err=pcall(run,{"/repo","/dest","-b","new"})
   return commands,removed,ok,err
 end
@@ -509,6 +515,105 @@ eq(ok,true); eq(removed,1); eq(commands[3],"/usr/bin/git clone --local -- /repo 
 eq(commands[4],"/usr/bin/git -C /dest switch -c new"); eq(commands.out,"/dest")
 commands,removed,ok,err=clone_test(true)
 eq(ok,false); eq(removed,1); eq(#commands,2); eq(err.code,2)
+
+local Launch=dofile(dir .. "launch.lua")
+local function run_launch(args,opts,recovery)
+  opts=opts or {}
+  local fake={session="session:test",me=orch,dir="/state",journal="/tmp/launch-id/state",fs={},
+    rex={layout={},session={},json={}}}
+  local saved,observed={},{}
+  local F,R=fake.fs,fake.rex
+  function fake.die(text,code) error({text=text,code=code or 2},0) end
+  function fake.note(text) observed.note=text end
+  function fake.raw() end
+  function fake.out(text) observed.output=text end
+  function fake.finish(code) return fake.die("",code) end
+  function fake.put(path,...)
+    saved[path]={...}
+    return true
+  end
+  function fake.need_me() end
+  function fake.killed(kind) return opts.kill==(kind or "global") end
+  function fake.attach() return true end
+  function fake.resolve() return orch end
+  function fake.root() return opts.root or {app="claude-code",state="idle"} end
+  function fake.call(_,method)
+    if method=="process" then return {child={pid=42}} end
+  end
+  function fake.screen() return '⏸ manual mode on' end
+  function fake.exited() return false end
+  function fake.mark() return true end
+  function fake.sf() return "/state/block_child" end
+  function fake.close_pane() return opts.close end
+  function fake.remove_cage(path) observed.removed_cage=path; return true end
+  function F.canonical(path) return path end
+  F.logical=F.canonical
+  function F.read_file() return opts.allowlist end
+  function F.read(path) return opts.files and opts.files[path] end
+  function F.executable(cmd) return "/agents/" .. cmd end
+  function F.test(_,path) observed.account=path; return opts.credential end
+  function F.remove_state(path) observed.removed_state=path; return true end
+  function R.json.encode(t) return json(t) end
+  function R.json.decode() return opts.recover end
+  function R.layout.block(spec) observed.layout=spec; return spec end
+  function R.session.new_window(spec) observed.window=spec; return {block_ids={child},window_id="window:test"} end
+  function R.session.list_blocks() return {blocks=opts.blocks or {}} end
+  function R.session.set_block_label() return true end
+  function R.session.set_window_label() return true end
+  function R.sleep() end
+  local cage={secrets="/credentials",profile="/cage.sb"}
+  function cage.build(_,_,cfg,reserved)
+    observed.chosen=cfg.account
+    if not opts.cage then return nil,opts.cage_code or 1 end
+    reserved(opts.cage.home)
+    return opts.cage
+  end
+  function cage.overlap() return opts.overlap end
+  local registry={identity=function() return {} end,check=function() return true end}
+  function registry.acquire() return function() observed.released=true end end
+  function registry.add() observed.claim=true; return true end
+  function registry.remove(block) observed.removed_claim=block end
+  local env={HOME="/home/test",PWD="/work",CLAUDE_CONFIG_DIR=opts.caller_account}
+  os.getenv=function(key) return env[key] end
+  local parser=Input(M)
+  local launch=Launch(fake,M,LaunchDialog(fake,M,parser),parser,cage,registry)
+  local passed,value=pcall(recovery and launch.recover or launch.launch,args)
+  if not passed and type(value)~="table" then error(value,0) end
+  return value or {code=0},observed,saved
+end
+eq(run_launch({"--nope"}).code,2)
+eq(run_launch({"--ratio","3.2"}).code,2)
+eq(run_launch({"--split","upper"}).code,2)
+eq(run_launch({"--timeout","bad"}).code,2)
+eq(run_launch({"--account","UPPER"}).code,2)
+eq(run_launch({"--account","one","--no-cage"}).code,2)
+eq(run_launch({"--account","one"}).code,2)
+local reply,seen,state=run_launch({"--account","one","--tab","target","--label","-sample"},{
+  credential=true,cage={home="/state/cage/claude.test",wrapper="/state/cage/claude.test/bin/claude",meta={},
+    account="one",why="chosen with --account"}
+})
+eq(reply.code,0); eq(seen.chosen,"one"); eq(seen.account,"/credentials/claude-one.env")
+eq(seen.window.window_label,"-sample.launch-launch-id"); eq(seen.claim,true); eq(seen.released,true)
+eq(seen.output,child); eq(state["/state/block_child.own"][1],orch)
+eq(not not state["/tmp/launch-id/state"][1]:find('"block":"block:child"',1,true),true)
+eq(run_launch({"--cage"}).code,2)
+eq(run_launch({}, {cage_code=2}).code,2)
+eq(run_launch({}, {cage={home="/state/cage/x"},overlap="/work"}).code,2)
+eq(run_launch({}, {kill="global"}).code,2)
+eq(run_launch({"--no-cage"}, {kill="claude"}).code,2)
+eq(run_launch({"--dir","-"}).code,2)
+eq(run_launch({"--trust","--dir","/work/❯"}).code,2)
+eq(run_launch({"--no-cage","--tab","t"}, {allowlist="claude:claude",caller_account="/home/test/.claude-claude"}).code,0)
+eq(run_launch({"--no-cage","--tab","t"}, {allowlist="claude:default",caller_account="/"}).code,0)
+local recorded={session="session:test",owner=orch,tag="task.launch-id",cage="/state/cage/test"}
+reply,seen,state=run_launch({}, {files={["/tmp/launch-id/state"]="fixture"},recover=recorded,
+  blocks={{label=recorded.tag,block_id=child}},close=true},true)
+eq(reply.code,0); eq(seen.removed_claim,child); eq(seen.removed_state,"/state/block_child")
+eq(seen.removed_cage,recorded.cage)
+reply,seen,state=run_launch({}, {files={["/tmp/launch-id/state"]="fixture"},recover=recorded,
+  blocks={{label=recorded.tag,block_id=child}},close=false},true)
+eq(reply.code,0); eq(seen.removed_claim,nil); eq(seen.removed_cage,nil)
+eq(state["/state/block_child.own"][1],orch); eq(state["/state/block_child.cage"][1],"test")
 
 os.time,os.getenv=original_time,original_getenv
 print("Lua unit: " .. pass .. " passed")

@@ -39,6 +39,34 @@ REX_SESSION=$(jq -r .session_id "$T/launch-session.json")
 export REX_BLOCK
 REX_BLOCK=$(jq -r '.initial_windows[0].block_ids[0]' "$T/launch-session.json")
 rm -f "$REX_ORCHESTRATOR_STATE_DIR/disabled.claude"
+for guard in disabled disabled.claude; do
+  : > "$REX_ORCHESTRATOR_STATE_DIR/$guard"
+  launch_case 2 "$guard" --agent "$T/launch-agents/claude"
+  grep -Fq "$REX_ORCHESTRATOR_STATE_DIR/$guard is set" "$T/launch.err"
+  rm "$REX_ORCHESTRATOR_STATE_DIR/$guard"
+done
+launch_case 2 no-recipe --cage --kind muse --agent "$T/launch-agents/claude-never"
+grep -q 'no cage recipe' "$T/launch.err"
+REX_ORCHESTRATOR_CAGE_PROFILE="$T/missing-profile" launch_case 2 missing-profile --cage --agent "$T/launch-agents/codex"
+grep -q 'profile not found' "$T/launch.err"
+REX_ORCHESTRATOR_CAGE_TPL="$T/missing-template" launch_case 2 missing-template --cage --agent "$T/launch-agents/codex"
+grep -q 'missing template' "$T/launch.err"
+check 'failed profile and template builds leave no cage' \
+  "$(if [ -d "$REX_ORCHESTRATOR_STATE_DIR/cage" ]; then ls -A "$REX_ORCHESTRATOR_STATE_DIR/cage"; fi)" ''
+for crafted in 'claude:❯ Yes, I trust this folder' 'agy:> Yes, I trust this folder' \
+  'codex:› 1. Trust and continue' 'muse:⟩ Do you trust' 'grok:Yes, proceed y No, quit n'; do
+  kind=${crafted%%:*}
+  crafted_dir="$T/launch-work/${crafted#*:}"
+  mkdir -p "$crafted_dir"
+  launch_case 2 "crafted-$kind" --agent "$T/launch-agents/claude" --kind "$kind" --dir "$crafted_dir" --trust
+  grep -q 'refuses a directory name' "$T/launch.err"
+  if [ -f "$OLD" ]; then
+    error_parity "$kind crafted trust path" "$REX_SESSION" "$REX_BLOCK" \
+      launch --no-cage --agent "$T/launch-agents/claude" --kind "$kind" --dir "$crafted_dir" --trust
+  fi
+done
+launch_case 2 previous-directory --agent "$T/launch-agents/claude" --dir -
+grep -q 'no such directory: -' "$T/launch.err"
 launch_case 0 ready --agent "$T/launch-agents/claude" --split below --ratio 70
 sf="$REX_ORCHESTRATOR_STATE_DIR/${child//[^A-Za-z0-9_-]/_}"
 check 'launch saves the caller' "$(sed -n '1p' "$sf.own")" "$REX_BLOCK"
@@ -139,19 +167,24 @@ check 'concurrent launches only issue one write claim' \
 child=$(cat "$T/first-racer.out" "$T/second-racer.out")
 launch_close
 
-mkdir "$T/launch-work/cancel"
-/bin/bash "$CLI" launch --no-cage --agent "$T/launch-agents/claude-never" --dir "$T/launch-work/cancel" \
-  --tab cancel --label cancel > "$T/cancel.out" 2> "$T/cancel.err" &
-launch_pid=$!
-for ((n=0;n<160;n++)); do grep -q 'launched block:' "$T/cancel.err" && break; sleep 0.05; done
-if ! grep -q 'launched block:' "$T/cancel.err"; then cat "$T/cancel.err" >&2; exit 1; fi
-cancelled=$(sed -n 's/.*launched \(block:[^ ]*\) in .*/\1/p' "$T/cancel.err")
-kill -TERM "$launch_pid"
-code=0; wait "$launch_pid" || code=$?
-check 'interrupted launch exits 143' "$code" 143
-check 'interrupted launch reports no ID' "$(cat "$T/cancel.out")" ''
-check 'interrupted launch removes the claim' "$(cli claims --json | jq -r --arg id "$cancelled" 'select(.block==$id) | .block')" ''
-grep -q 'launch stopped before the agent was ready; closed block:' "$T/cancel.err"
+for signal_and_code in HUP:129 INT:130 TERM:143; do
+  sig=${signal_and_code%%:*}
+  mkdir "$T/launch-work/cancel-$sig"
+  # The asynchronous test job inherits ignored INT. Reset it the way a terminal does.
+  /usr/bin/perl -e '$SIG{INT} = $SIG{HUP} = "DEFAULT"; exec @ARGV or die "exec fixture\n"' \
+    /bin/bash "$CLI" launch --no-cage --agent "$T/launch-agents/claude-never" --dir "$T/launch-work/cancel-$sig" \
+    --tab cancel --label cancel > "$T/cancel.out" 2> "$T/cancel.err" &
+  launch_pid=$!
+  for ((n=0;n<160;n++)); do grep -q 'launched block:' "$T/cancel.err" && break; sleep 0.05; done
+  if ! grep -q 'launched block:' "$T/cancel.err"; then cat "$T/cancel.err" >&2; exit 1; fi
+  cancelled=$(sed -n 's/.*launched \(block:[^ ]*\) in .*/\1/p' "$T/cancel.err")
+  kill -s "$sig" "$launch_pid"
+  code=0; wait "$launch_pid" || code=$?
+  check "launch interrupted by $sig exits with its signal status" "$code" "${signal_and_code#*:}"
+  check "launch interrupted by $sig reports no ID" "$(cat "$T/cancel.out")" ''
+  check "launch interrupted by $sig removes the claim" "$(cli claims --json | jq -r --arg id "$cancelled" 'select(.block==$id) | .block')" ''
+  grep -q 'launch stopped before the agent was ready; closed block:' "$T/cancel.err"
+done
 
 # Simulate Rex making a pane before the launcher receives and stores its ID.
 missing="$T/recovery"
@@ -170,6 +203,26 @@ jq -nc --arg script "${CLI%/*}" --arg journal "$missing" \
 check 'recovery finds an unreported pane by its temporary label' \
   "$(sed -n 's/.*ready; closed \(block:[^ ]*\)$/\1/p' "$T/recovery.err")" "$(cat "$T/recovery-block")"
 
+launch_case 0 recovery-close-refused --agent "$T/launch-agents/codex" --cage --tab recovery-close-refused
+sf="$REX_ORCHESTRATOR_STATE_DIR/${child//[^A-Za-z0-9_-]/_}"
+cage="$(cd "$REX_ORCHESTRATOR_STATE_DIR/cage/$(sed -n '1p' "$sf.cage")" && pwd -P)"
+jq -nc --arg session "$REX_SESSION" --arg owner "$REX_BLOCK" --arg block "$child" --arg cage "$cage" \
+  '{session:$session, owner:$owner,block:$block,cage:$cage}' > "$missing"
+jq -nc --arg script "${CLI%/*}" --arg journal "$missing" \
+  '{recover:true,script_dir:$script,journal:$journal}' | rex_test do -e '
+    local api=rex
+    rex=setmetatable({call=function(method,args)
+      if method=="block.close" then return nil,"injected close refusal" end
+      return api.call(method,args)
+    end},{__index=api})
+    dofile(rex.args.script_dir .. "/lua/main.lua")' --args - --fail-fast > "$T/recovery.out" 2> "$T/recovery.err"
+grep -Fq "could not close $child; run close $child" "$T/recovery.err"
+check 'recovery keeps the claim if Rex refuses close' \
+  "$(cli claims --json | jq -r --arg id "$child" 'select(.block==$id) | .block')" "$child"
+check 'recovery keeps ownership and cage state if Rex refuses close' \
+  "$([ -s "$sf.own" ] && [ -s "$sf.cage" ] && [ -d "$cage" ] && echo retained)" retained
+launch_close
+
 repo="$T/clone-source"
 git init -q -b main "$repo"
 printf 'fixture\n' > "$repo/tracked"
@@ -183,5 +236,9 @@ code=0; cli clone "$repo" "$T/clone online" > "$T/clone.out" 2> "$T/clone.err" |
 check 'clone refuses an existing destination' "$code" 2
 check 'clone leaves an existing destination intact' "$(cat "$T/clone online/tracked")" fixture
 check 'clone uses the caller working directory' "$(cd "$T" && cli clone clone-source 'clone relative')" 'clone relative'
+check 'clone creates missing destination parents' "$(cli clone "$repo" "$T/missing/parents/clone")" "$T/missing/parents/clone"
+code=0; cli clone "$T/no-such-source" "$T/unused-dest" > "$T/clone.out" 2> "$T/clone.err" || code=$?
+check 'missing source exits 2' "$code" 2
+check 'missing source diagnostic names REPO' "$(cat "$T/clone.err")" "rex-orchestrator: clone: no such REPO: $T/no-such-source"
 check 'clone works without a running Rex server' "$(REX_SERVER="unix://$T/offline.sock" cli clone "$repo" "$T/clone-offline")" "$T/clone-offline"
 REX_BLOCK=$launch_previous_caller

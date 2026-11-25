@@ -44,7 +44,7 @@ C.context={session=decode(rex.args.session),block=decode(rex.args.block)}
 local command=table.remove(argv,1)
 if command=="clone" then
   select_git()
-  commands.clone=dofile(dir .. "clone.lua")(C)
+  commands.clone=dofile(dir .. "clone.lua")(C,M)
 elseif command=="claims" then C.init_state()
 else C.init() end
 if command=="launch" then

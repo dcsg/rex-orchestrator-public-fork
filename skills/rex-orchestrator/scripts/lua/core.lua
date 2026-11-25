@@ -117,6 +117,9 @@ function M.prompt_control(text)
   end
   return false
 end
+function M.dir_control(path)
+  return path:find("[\t\r\n]")~=nil or M.prompt_control(path)
+end
 function M.duration(opt, value, die)
   local n,u=value:match("^(%d+)([smh]?)$")
   if not n then die(opt .. " takes a duration such as 90, 90s, 10m or 1h, not '" .. value .. "'") end

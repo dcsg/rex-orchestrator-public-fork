@@ -22,7 +22,8 @@ cage wrappers from shell fragments. The wrappers run the cage, and a shared shel
 1. **launch** calls Rex's layout API to split a pane or open a tab with `--tab`. It records the new block ID, its label,
    its parent (your `REX_BLOCK`) and the agent kind in the state directory, then polls until the child is ready.
    The claim lock spans placement and claim creation. Launch keeps a temporary recovery record until it returns the
-   block ID so it can close an interrupted launch and release the claim.
+   block ID so it can close an interrupted launch and release the claim. A pane Rex cannot close keeps its claim, ownership,
+   and cage so the caller can retry with `close`.
 2. **Readiness** is decided from the child's *own* status record plus its screen: the screen is read only to find dialogs
    (trust, hooks review, login) and the input footer, never to infer that a turn finished.
 3. **send** reads status and screen, writes the text through Rex's terminal API, checks the composer, then sends

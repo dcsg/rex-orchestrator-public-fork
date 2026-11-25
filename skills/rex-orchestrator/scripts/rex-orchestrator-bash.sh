@@ -100,11 +100,13 @@ rex-orchestrator launch [-d DIR] [-l LABEL] [--split right|left|above|below] [--
     claude), and wait until it is ready for a prompt: no dialog on screen, a status that isn't working, and its
     footer below the input box or an idle status. Prints the block ID on stdout, also on exits 3, 12 and 124, where
     the pane stays open for you to read or close; interrupted or failing before that, launch closes the pane.
+    If Rex cannot close it, launch keeps its claim and state for a later close.
     Placement: a split of ANCHOR taking PCT percent of it (default 50; Rex's "autobalance splits" overrides it), or a
     new tab NAME with --tab (unfocused, 80x24). With neither -b nor --split, ANCHOR is the largest pane of your own
     window, split along its longer side, so all agents stay in one view.
     --trust answers the folder trust dialog with "Yes", only once the dialog names DIR (grok: only its exact
-    "Yes, proceed y" / "No, quit n" form); without it launch stops there with exit 3.
+    "Yes, proceed y" / "No, quit n" form); without it launch stops there with exit 3. With --trust, DIR may not
+    contain terminal controls, selection markers or trust dialog text.
     --agent CMD runs another agent or a wrapper script, the one your PATH finds. KIND (claude, codex, grok, gemini or
     muse; gemini is the agy CLI) picks its dialog handling, by default from CMD's name (claude-* and agy-* wrappers
     count as claude and gemini).
@@ -312,7 +314,9 @@ cmd_clone() {
     branch=$2
   fi
   [ ! -e "$dest" ] && [ ! -L "$dest" ] || die "clone: DEST already exists: $dest"
-  repo=$(cd "$repo" 2>/dev/null && pwd -P) || die "clone: no such REPO: $repo"
+  local canonical
+  canonical=$(cd "$repo" 2>/dev/null && pwd -P) || die "clone: no such REPO: $repo"
+  repo=$canonical
   [ -d "$repo/.git" ] || die "clone: REPO must have its own .git directory"
   git -C "$repo" rev-parse --show-toplevel >/dev/null 2>&1 || die "clone: not a git repository: $repo"
   if ! cp -c -R "$repo" "$dest" 2>/dev/null; then
@@ -1245,6 +1249,15 @@ overlap() {
   return 1
 }
 
+safe_trust_dir() {
+  /usr/bin/perl -MEncode=decode,FB_CROAK -e '
+    for my $dir (@ARGV) {
+      $dir = eval { decode("UTF-8", $dir, FB_CROAK) };
+      exit 1 if !defined($dir) ||
+        $dir =~ /[\x00-\x1f\x7f-\x9f\x{276f}\x{203a}\x{27e9}>]|trust and continue|yes, i trust this folder|do you trust|yes, proceed|no, quit/i;
+    }' -- "$@"
+}
+
 cmd_launch() {
   need_me
   orchestrator_check
@@ -1287,10 +1300,13 @@ cmd_launch() {
   # claude covers one named otherwise.
   local name; name=$(basename "$agent")
   [ -n "$kind" ] || case "$name" in claude-*) kind=claude ;; agy-*) kind=agy ;; *) kind=$name ;; esac
-  [ -d "$dir" ] || die "launch: no such directory: $dir"
+  local trust_error="launch: --trust refuses a directory name containing terminal controls, a selection marker or trust dialog text"
+  [ "$trust" -eq 0 ] || safe_trust_dir "$dir" || die "$trust_error"
+  [ "$dir" != - ] && [ -d "$dir" ] || die "launch: no such directory: $dir"
   local dir_given="$dir" identity
   local dir_l; dir_l=$(cd "$dir" && pwd -L)
   dir=$(cd "$dir" && pwd -P)
+  [ "$trust" -eq 0 ] || safe_trust_dir "$dir" "$dir_l" || die "$trust_error"
   # Session-scoped allow rules through --settings: nothing is written to the user's settings files.
   if [ "$allow_edits" -eq 1 ] || [ ${#rules[@]} -gt 0 ]; then
     [ "$kind" = claude ] || die "launch: --allow-edits and --allow work with claude only"

@@ -24,8 +24,11 @@ return function(C,M,D,I,K,G)
     local shown=table.concat(ordered," ")
     if not kind then C.die("launch: can't tell which agent runs in your pane, and only " .. shown .. " may orchestrate (" .. config .. "/orchestrators)") end
     local path=kind=="claude" and env("CLAUDE_CONFIG_DIR") or kind=="codex" and env("CODEX_HOME")
-    local account=path and M.basename(path):gsub("^%.",""):gsub("^" .. kind .. "%-(.+)$","%1") or "default"
-    if account==kind then account="default" end
+    local account="default"
+    if path and path~="/" then
+      local leaf=path:gsub("/$",""):match("([^/]*)$"):gsub("^%.","")
+      if leaf~=kind then account=leaf:gsub("^" .. kind .. "%-(.+)$","%1") end
+    end
     local id=kind .. ":" .. account
     if not allowed[id] and not allowed[kind] then
       C.die("launch: " .. id .. " is not a designated orchestrator; only " .. shown .. " may launch children (" .. config .. "/orchestrators)")
@@ -79,9 +82,13 @@ return function(C,M,D,I,K,G)
     end
     opts.name=M.basename(opts.agent)
     opts.kind=opts.kind or (M.starts(opts.name,"claude-") and "claude") or (M.starts(opts.name,"agy-") and "agy") or opts.name
+    local trust_error="launch: --trust refuses a directory name containing terminal controls, a selection marker or trust dialog text"
+    if opts.trust and not D.safe_trust_dir(opts.given) then C.die(trust_error) end
+    if opts.given=="-" then C.die("launch: no such directory: " .. opts.given) end
     opts.logical=F.logical(opts.given)
     opts.dir=F.canonical(opts.given)
     if not opts.dir or not opts.logical then C.die("launch: no such directory: " .. opts.given) end
+    if opts.trust and (not D.safe_trust_dir(opts.dir) or not D.safe_trust_dir(opts.logical)) then C.die(trust_error) end
     return opts
   end
 
@@ -362,7 +369,7 @@ return function(C,M,D,I,K,G)
     if not clear then release(); C.die(conflict,code) end
     local attached,attach_error=C.attach()
     if not attached then release(); C.die("launch: rex could not attach to " .. C.session .. ": " .. tostring(attach_error),1) end
-    journal.tag=M.basename(M.dirname(C.journal))
+    journal.tag=opts.label .. ".launch-" .. M.basename(M.dirname(C.journal))
     persist()
     local result,err=place(opts,command,journal.tag)
     if not result then

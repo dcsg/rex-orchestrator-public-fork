@@ -1,4 +1,4 @@
-return function(C)
+return function(C,M)
   local R,F=C.rex,C.fs
   local function git(args,diagnostics)
     table.insert(args,1,C.git)
@@ -16,8 +16,9 @@ return function(C)
       C.die("clone: expected REPO DEST [-b BRANCH]")
     end
     if F.exists(dest) then C.die("clone: DEST already exists: " .. dest) end
-    repo=F.canonical(repo)
-    if not repo then C.die("clone: no such REPO: ") end
+    local canonical=F.canonical(repo)
+    if not canonical then C.die("clone: no such REPO: " .. repo) end
+    repo=canonical
     if not F.test("-d",repo .. "/.git") then C.die("clone: REPO must have its own .git directory") end
     if not git({"-C",repo,"rev-parse","--show-toplevel"}) then C.die("clone: not a git repository: " .. repo) end
     local function reserve_destination()
@@ -25,6 +26,7 @@ return function(C)
       if F.exists(dest) then C.die("clone: DEST already exists: " .. dest) end
       C.die("clone failed",1)
     end
+    if not F.mkdir(M.dirname(dest)) then C.die("clone failed",1) end
     reserve_destination()
     local copy=R.exec({"/bin/cp","-c","-R",repo .. "/.",dest})
     if not copy or not copy.ok then

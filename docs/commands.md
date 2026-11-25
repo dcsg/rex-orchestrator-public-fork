@@ -33,7 +33,7 @@ on screen, a status that isn't `working` or `blocked`, and its input footer or a
 | `--tab NAME` | Open a tab instead of a split (80x24 unless focused) |
 | *(no placement flag)* | Split the largest pane of your window along its longer side, so every child stays in view |
 | `--focus` | Focus the new pane (by default you keep focus) |
-| `--trust` | Confirm the folder-trust dialog, only once it names DIR |
+| `--trust` | Confirm the folder-trust dialog, only once it names DIR. Refuses paths containing terminal controls, selection markers, or trust dialog text |
 | `--timeout DUR` | How long to wait for readiness (default 90s) |
 | `--cage` / `--no-cage` | Force or skip the macOS sandbox ([cage.md](cage.md)); default from `REX_ORCHESTRATOR_CAGE` (`auto`) |
 | `--account NAME` | Credential for a caged claude: `$CAGE_SECRETS/claude-NAME.env` |
@@ -58,7 +58,8 @@ its answer. It runs on whatever account its command uses.
 | 124 | Not ready within `--timeout` (end of its screen on stderr) |
 
 On 3, 12 and 124 the pane stays open and its ID is printed. If `launch` is interrupted or fails before reporting, it closes
-its pane and removes its state.
+its pane and removes its state. If Rex cannot close the pane, launch keeps its claim, ownership, and cage state for a later
+`close`.
 
 ## send
 
