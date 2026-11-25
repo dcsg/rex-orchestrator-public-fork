@@ -57,6 +57,16 @@ case "$mode" in
   bypass) printf ' ❯ \n ⏵⏵ bypass permissions on\n'; report idle ;;
   exits) printf 'stand-in exited\n'; exit 8 ;;
   never) report working ;;
+  steer)
+    # A child the orphan tests drive: a state name typed into it becomes its status, any other line is a prompt.
+    ready
+    while IFS= read -r line; do
+      case "$line" in
+        working | done | idle | error) report "$line" ;;
+        *) printf '%s\n' "$line" >> prompts; report 'done' ;;
+      esac
+    done
+    exit 0 ;;
   *) exit 9 ;;
 esac
 while IFS= read -r key; do printf '%s\n' "$key" >> presses; done

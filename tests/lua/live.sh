@@ -262,6 +262,8 @@ check 'destroyed session exit' "$code:$(cat "$T/wait.out")" '12:exited'
 . "$ROOT/tests/lua/mutations.inc.sh"
 # shellcheck source=tests/lua/launch.inc.sh
 . "$ROOT/tests/lua/launch.inc.sh"
+# shellcheck source=tests/lua/orphans.inc.sh
+. "$ROOT/tests/lua/orphans.inc.sh"
 rex_test session new lua-disconnect --shell none --keep-open --json -- /bin/bash "$ROOT/tests/lua/standin.sh" "$T/work" > "$T/session.json"
 REX_SESSION=$(jq -r .session_id "$T/session.json")
 B=$(jq -r '.initial_windows[0].block_ids[0]' "$T/session.json")
@@ -275,6 +277,9 @@ kill -KILL "$server_pid"; wait "$server_pid" 2>/dev/null || :
 server_pid=''
 code=0; prompt_wait || code=$?
 check 'server disconnect fails promptly' "$code:$(cat "$T/wait.out")" '1:'
+# A Rex restart ends every orphan watcher: none outlives its server.
+orphan_await_watchers "$O_LAST" 0
+check 'the orphan watcher of a live child exits with its server' "$(orphan_watchers "$O_LAST" | wc -l | tr -d ' ')" 0
 grep -q 'rex did not answer' "$T/wait.err"
 expect_error 'server down' "$REX_SESSION" '' 1 'rex did not answer for block' status "$B"
 expect_error 'server down with implicit session' '' "$B" 2 'REX_SESSION is empty and no session could be resolved' wait "$B"
