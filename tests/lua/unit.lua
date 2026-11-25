@@ -371,6 +371,18 @@ for _,case in ipairs({
   {"emoji 🦊 and 中文\194\155",[[emoji 🦊 and 中文\u009B]]}
 }) do eq(M.terminal_text(case[1]),case[2]) end
 eq(M.prompt_control("\224\130\155"),true)
+eq(M.prompt_control("\193\191"),true) -- Overlong DEL without a raw C1 byte.
+eq(M.prompt_control("\237\160\191"),true)
+eq(M.prompt_control("\245\191\191\191"),true)
+for byte=0xaa,0xae do eq(M.prompt_control("one" .. string.char(0xe2,0x80,byte) .. "two"),true) end
+for byte=0xa6,0xa9 do eq(M.prompt_control("one" .. string.char(0xe2,0x81,byte) .. "two"),true) end
+eq(M.prompt_control("\226\128\169"),false) -- U+2029 is outside the rejected bidi range.
+eq(M.terminal_text("\226\129\166"),[[\u2066]])
+for _,text in ipairs({"bad \193\191","bidi \226\128\174"}) do
+  o=owned({rec=d,screen=composer("")})
+  r=test(o)("send",{child,text})
+  eq(r.code,2); eq(o.typed,nil)
+end
 o=owned({rec=d,screen=composer(""),typed_screen=composer("different")})
 r=test(o)("send",{child,"a prompt not visible"})
 eq(r.code,4); eq(o.typed,"a prompt not visible"); eq(o.presses,nil)

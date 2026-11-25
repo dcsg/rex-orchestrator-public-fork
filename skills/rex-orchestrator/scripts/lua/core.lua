@@ -117,13 +117,18 @@ local function control_at(text,i)
   local width=M.utf8_width(text,i)
   if not width then return 1,nil,b end
   if b==0xc2 and text:byte(i+1)<=0x9f then return width,text:byte(i+1) end
+  if width==3 and b==0xe2 then
+    local middle,tail=text:byte(i+1,i+2)
+    if middle==0x80 and tail>=0xaa and tail<=0xae then return width,0x202a+tail-0xaa end
+    if middle==0x81 and tail>=0xa6 and tail<=0xa9 then return width,0x2066+tail-0xa6 end
+  end
   return width
 end
 function M.prompt_control(text)
   local i=1
   while i<=#text do
-    local width,code=control_at(text,i)
-    if code and code~=9 and code~=10 and code~=13 then return true end
+    local width,code,invalid=control_at(text,i)
+    if invalid or (code and code~=9 and code~=10 and code~=13) then return true end
     i=i+width
   end
   return false

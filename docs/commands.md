@@ -70,8 +70,8 @@ rex-orchestrator send [--force] BLOCK -f FILE
 
 Types the prompt at the child's input box and presses Return. Newlines become spaces. A leading `/` runs a slash command.
 
-It **refuses** (exit 2): an empty prompt, terminal control characters, or a prompt starting with `!` (agents run it as a
-shell command without asking). For claude it also refuses
+It **refuses** (exit 2) empty prompts, invalid UTF-8, terminal controls, and bidirectional overrides and isolates.
+A leading `!` also exits 2 because agents run it as a shell command without asking. For claude it also refuses
 one starting with a digit (Claude's survey would take it as a rating); for an uncaged claude, `/permissions`,
 `/allowed-tools`, `/config`, `/settings`, `/add-dir`, `/hooks`, `/plugin`, `/mcp` or a prefix of one (each widens what the
 child may do for the rest of the session — scope permissions at launch instead).

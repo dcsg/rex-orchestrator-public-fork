@@ -57,6 +57,7 @@ rex-orchestrator claims [--json]
     List live write claims (one launch per checkout), pruning dead pids and missing Rex blocks.
 rex-orchestrator send [--force] BLOCK TEXT...   Type a prompt (newlines become spaces) and press Return.
 rex-orchestrator send [--force] BLOCK -f FILE   Same, reading the prompt from FILE.
+    send refuses invalid UTF-8, terminal controls, and bidirectional overrides and isolates.
     A prompt that starts with "/" runs a slash command. One whose first non-blank character is "!" is refused (the
     agents run it as a shell command without asking). For claude, so is one that starts with a digit (its session
     survey would take it as a rating), and for an uncaged claude /permissions, /allowed-tools, /config, /settings,
