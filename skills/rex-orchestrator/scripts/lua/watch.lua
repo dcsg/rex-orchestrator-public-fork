@@ -4,7 +4,12 @@
 -- has no children left, once its pane has been gone longer than the grace period and the maximum wait, when the
 -- session is destroyed, or when the connection to Rex is lost (a Rex restart); the sweep on every rex-orchestrator
 -- call covers what it no longer sees.
-local a=rex.args
+-- Every argument crosses Rex's JSON as Latin-1 (orphans.lua, M.to_bytes), so a path that isn't UTF-8 survives.
+local function bytes(s)
+  return (s:gsub("[\194\195][\128-\191]",function(c) return string.char(c:byte(2)+(c:byte(1)-194)*64) end))
+end
+local a={}
+for key,value in pairs(rex.args) do a[key]=type(value)=="string" and bytes(value) or value end
 local dir=a.script_dir .. "/lua/"
 local M=dofile(dir .. "core.lua")
 local fs=dofile(dir .. "fs.lua")(rex)

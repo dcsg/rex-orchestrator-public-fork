@@ -32,6 +32,19 @@ function M.dirname(path)
   local parent=path:gsub("/+$",""):match("^(.*)/[^/]+$")
   return parent=="" and "/" or parent or "."
 end
+-- Rex's JSON replaces invalid UTF-8. A path crosses it byte for byte as Latin-1: to_bytes spells every byte from
+-- 0x80 as its two-byte UTF-8 character (always valid), from_bytes reads them back (the shell entry encodes argv so).
+function M.to_bytes(s)
+  return (s:gsub("[\128-\255]",function(c)
+    local b=c:byte()
+    return string.char(194+math.floor((b-128)/64),128+(b-128)%64)
+  end))
+end
+function M.from_bytes(s)
+  return (s:gsub("[\194\195][\128-\191]",function(c)
+    return string.char(c:byte(2)+(c:byte(1)-194)*64)
+  end))
+end
 function M.lines(s)
   local a = {}; s=s or ""; local text=s:gsub("\n$", ""); text=text .. "\n"
   for l in text:gmatch("(.-)\n") do a[#a+1]=l end

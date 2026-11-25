@@ -33,11 +33,7 @@ if rex.args.recover then
   launcher().recover()
   return
 end
-local function decode(arg)
-  return (arg:gsub("[\194\195][\128-\191]",function(c)
-    return string.char(c:byte(2)+(c:byte(1)-194)*64)
-  end))
-end
+local decode=M.from_bytes
 local argv=rex.args.argv
 for i,arg in ipairs(argv) do argv[i]=decode(arg) end
 C.context={session=decode(rex.args.session),block=decode(rex.args.block)}

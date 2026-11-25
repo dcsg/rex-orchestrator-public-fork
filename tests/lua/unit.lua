@@ -743,6 +743,15 @@ do
   end
 end
 
+-- Paths cross Rex's JSON byte for byte as Latin-1.
+do
+  local raw="/tmp/\255x/\195\169/\128\194"
+  local wire=M.to_bytes(raw)
+  eq(wire:gsub("[\194\195][\128-\191]",""):find("[\128-\255]"),nil,"the wire form is two-byte UTF-8 only")
+  eq(M.from_bytes(wire),raw,"a non-UTF-8 path survives the round trip")
+  eq(M.to_bytes("/plain/ascii"),"/plain/ascii","ASCII is unchanged")
+end
+
 -- Orphan decisions: only a gone orchestrator pane makes an orphan; close only finished turns, after the grace period.
 do
   local base={owner="block:o",session="session:s",here="session:s",me="block:me",block="block:c",presence="gone",

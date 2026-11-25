@@ -149,8 +149,8 @@ function O.new(C,M,close_block)
       if beat and os.time()-tonumber(beat)<20 then return end
     end
     if not C.fs.mkdir(C.dir .. "/watch") then C.note("could not create " .. C.dir .. "/watch"); return end
-    local args=R.json.encode({script_dir=C.script_dir,rex_bin=C.rex_bin,orchestrator=orch,session=C.session,
-      state_dir=C.dir})
+    local args=R.json.encode({script_dir=M.to_bytes(C.script_dir),rex_bin=M.to_bytes(C.rex_bin),
+      orchestrator=M.to_bytes(orch),session=M.to_bytes(C.session),state_dir=M.to_bytes(C.dir)})
     if not C.fs.daemon(base .. ".lock",base .. ".log",tries,
       {C.rex_bin,"--autostart=false","do","-s",C.session,C.script_dir .. "/lua/watch.lua","--args",args}) then
       C.note("could not start the orphan watcher for " .. orch)

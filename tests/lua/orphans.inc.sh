@@ -214,6 +214,26 @@ REX_BLOCK=$O2 cli ls > /dev/null
 check 'a record without a session is left alone' "$(orphan_open "$E" && [ -s "$(orphan_sf "$E").own" ] && echo open)" open
 REX_BLOCK=$O2 cli close --force "$E"
 
+# A state dir whose name isn't ASCII: the watcher gets it byte for byte, and calls don't start another one. One whose
+# name isn't UTF-8 is refused before anything starts.
+orphan_ascii_state_dir=$REX_ORCHESTRATOR_STATE_DIR
+export REX_ORCHESTRATOR_STATE_DIR="$T/orphan-é-state"
+O4=$(orphan_pane)
+E=$(orphan_launch "$O4" latin-child)
+orphan_await_watchers "$O4" 1
+for ((n=0;n<50;n++)); do [ ! -s "$REX_ORCHESTRATOR_STATE_DIR/watch/${O4//[^A-Za-z0-9_-]/_}.alive" ] || break; sleep 0.1; done
+check 'the watcher of a non-ASCII state dir writes its heartbeat there' \
+  "$([ -s "$REX_ORCHESTRATOR_STATE_DIR/watch/${O4//[^A-Za-z0-9_-]/_}.alive" ] && echo yes)" yes
+REX_BLOCK=$O2 cli ls > /dev/null; sleep 0.5
+check 'a call starts no second watcher for it' "$(orphan_watchers "$O4" | wc -l | tr -d ' ')" 1
+rex_test block close -s "$REX_SESSION" "$O4"
+orphan_await_closed "$E"
+code=0; REX_ORCHESTRATOR_STATE_DIR="$T/orphan-"$'\377'"-state" REX_BLOCK=$O2 cli launch --no-cage \
+  --agent "$T/launch-agents/claude-steer" --dir "$T/launch-work" > /dev/null 2> "$T/orphan.err" || code=$?
+check 'a state dir whose name is not UTF-8 is refused' "$code" 2
+grep -q 'refusing state dir' "$T/orphan.err"
+export REX_ORCHESTRATOR_STATE_DIR=$orphan_ascii_state_dir
+
 # Left running for live.sh: a watcher that must exit when the server goes away.
 O_LAST=$(orphan_pane)
 orphan_launch "$O_LAST" last-child > /dev/null
