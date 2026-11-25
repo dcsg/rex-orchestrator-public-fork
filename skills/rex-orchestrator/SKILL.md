@@ -23,6 +23,7 @@ Rex sets in every pane. When `REX_SESSION` is empty, the CLI resolves the sessio
 such as `clone` and transcript harvesting require LuaJIT.
 The CLI follows install symlinks to find its cage profile and templates beside the real script; the
 `REX_ORCHESTRATOR_CAGE_PROFILE` and `REX_ORCHESTRATOR_CAGE_TPL` overrides take priority.
+A relative `REX_ORCHESTRATOR_CAGE_AGY_HOME` resolves against the launcher's working directory.
 For a caged agy login from a secret store, set `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` to a shell command returning the
 token JSON with a non-empty string `.token.refresh_token` (or legacy `.refresh_token`). It runs outside the cage from `/` with a fixed environment;
 the command text is hidden from caged children, and the temporary mode 600 token is removed after child shutdown.
@@ -41,7 +42,8 @@ the wrapper with 71 (`launch` reports 12 if observed during startup). Unset keep
    - Panes open beside yours in one view; `--split right|left|above|below`, `-b ANCHOR`, `--ratio PCT` or `--tab NAME`
      change that.
    - `--trust` confirms the folder-trust dialog only when it names DIR. Use it only for a directory you made for the task
-     or the user's own project.
+     or the user's own project. Caged launches and `--trust` refuse a DIR containing terminal controls, invalid UTF-8,
+     or bidirectional overrides or isolates.
    - Exit 0 ready · 2 refused (nothing open) · 3 a dialog left for the user · 12 the agent exited · 124 not ready in time.
      On 3, 12 and 124 the pane stays open: read it with `screen`, then tell the user or `close` it.
 2. **Send** the task. Put long instructions in a file and send `Read /abs/path/TASK.md and do what it says.`

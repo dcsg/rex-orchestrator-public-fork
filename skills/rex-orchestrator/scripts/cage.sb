@@ -18,7 +18,7 @@
 ; DIR, DIR_RE, CAGE_TMP, CAGE_ROOT, TTY, HOME, AGENT_AUTH, AGENT_CFG_RO, LOCK_RE and CAGE_SECRETS are required: a missing one makes
 ; the profile fail to load (rc 65), i.e. fail closed. DIR_RE is DIR with ( ) [ ] { } . ^ $ * + ? | \
 ; each backslash-escaped, so the DIR-plant regexes below match DIR literally whatever its path holds
-; (rex-orchestrator.sh computes it and refuses a DIR with a control character, which a regex can't express).
+; (lua/launch_cage.lua computes it and refuses a DIR with a control character, invalid UTF-8 or a bidi control, which a regex can't express).
 ; HOOKSPATH is OPTIONAL: without it only the extra lock on a custom in-DIR core.hooksPath is skipped; .git/hooks, .husky and .githooks stay locked. An empty -D HOOKSPATH=
 ; fails to load; a relative one silently matches nothing.
 ;

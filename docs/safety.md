@@ -21,7 +21,8 @@ sandbox or permissions block. For untrusted work, cage it ([cage.md](cage.md)).
 
 - `--trust` confirms the trust dialog only when the dialog names the exact DIR (as given, physical, `~/`-relative, wrapped
   or cut at the pane edge). A dialog naming another folder, or none, is left to the user (exit 3).
-- With `--trust`, launch refuses paths containing terminal controls, selection markers, or trust dialog text (exit 2).
+- A caged launch or `--trust` refuses a `DIR` containing terminal controls, invalid UTF-8, or bidirectional overrides or
+  isolates (exit 2). `--trust` also refuses selection markers and trust dialog text.
 - Afterwards, none of DIR's ancestors may have become trusted in the agent's trust store; if one did, `launch` exits 3 and
   sets that agent's kill switch.
 - Trusting a folder also applies its project settings (pre-approved tools, hooks). In a project you didn't create, read

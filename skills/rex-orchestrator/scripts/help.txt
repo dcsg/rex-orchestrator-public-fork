@@ -13,7 +13,8 @@ rex-orchestrator launch [-d DIR] [-l LABEL] [--split right|left|above|below] [--
     largest pane of your own window, split along its longer side, so all agents stay in one view.
     --trust answers the folder trust dialog with "Yes", only once the dialog names DIR (grok: only its exact
     "Yes, proceed y" / "No, quit n" form); without it launch stops there with exit 3. With --trust, DIR may not
-    contain terminal controls, selection markers or trust dialog text.
+    contain selection markers or trust dialog text. Caged launches and --trust also refuse DIR containing terminal
+    controls, invalid UTF-8, or bidirectional overrides or isolates.
     --agent CMD runs another agent or a wrapper script, the one your PATH finds. KIND (claude, codex, grok, gemini or
     muse; gemini is the agy CLI) picks its dialog handling, by default from CMD's name (claude-* and agy-* wrappers
     count as claude and gemini).
@@ -109,6 +110,7 @@ Environment:
   REX_ORCHESTRATOR_CAGE           launch's cage default: auto (default), on or off
   REX_ORCHESTRATOR_CAGE_PROFILE, REX_ORCHESTRATOR_CAGE_TPL   cage.sb and cage/ beside the real script (following symlinks)
   REX_ORCHESTRATOR_CAGE_AGY_HOME   agy home (default CAGE_SECRETS/agy-home)
+                                 relative paths use the launcher's cwd
   REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD   shell command returning agy's token JSON; unset keeps the cage home's login
   REX_ORCHESTRATOR_REX_BIN_DIR    the folder holding the rex CLI, if it isn't on PATH
   REX_ORCHESTRATOR_CONFIG_DIR     the folder of ORCH_FILE, "orchestrators" (default

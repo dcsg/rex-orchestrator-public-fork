@@ -61,7 +61,9 @@ return function(C,M)
     else
       text=table.concat(args," ")
     end
-    if M.prompt_control(text) then C.die("send: refusing a prompt containing a terminal control character") end
+    if M.prompt_control(text) then
+      C.die("send: refusing a prompt containing a terminal control character, invalid UTF-8, or a bidirectional override or isolate")
+    end
     text=text:gsub("[\r\n\t]"," ")
     if not text:find("[^ ]") then C.die("send: empty prompt") end
     if text:match("^%s*!") then

@@ -420,8 +420,25 @@ if [ -d "$data_work/project" ] && [ "$(stat -f '%d:%i' "$data_work")" = "$(stat 
 else
   test_skip 'agy overlap checks need a Data volume firmlink for the test directory'
 fi
+CAGE_AGY_HOME="$work/separate-login"
+for unsafe in tab:$'\t' invalid-utf8:$'\377' bidi-override:$'\342\200\256' bidi-isolate:$'\342\201\246'; do
+  # The refusal comes before any use of DIR; APFS cannot even create the invalid UTF-8 name.
+  unsafe_dir="$work/unsafe-${unsafe%%:*}-${unsafe#*:}-dir"
+  unsafe_rc=0
+  cage_build agy "$work/bin/probe" "$unsafe_dir" >"$work/unsafe.log" 2>&1 || unsafe_rc=$?
+  check "caged DIR with ${unsafe%%:*} is refused" \
+    "$unsafe_rc:$(grep -Fc 'contains terminal controls, invalid UTF-8, or bidirectional overrides or isolates' "$work/unsafe.log")" '2:1'
+done
 CAGE_AGY_HOME=$provisioned_home
 REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=$(command_for success)
+ct=$(
+  cd "$work"
+  CAGE_AGY_HOME="${provisioned_home#"$work/"}" cage_build agy "$work/bin/probe" "$work/project" 2>"$work/build.log"
+  printf '%s\n' "$cage_tmp"
+)
+cage_wrapper="$ct/bin/agy"
+run normal 0
+check 'a relative provisioned home resolves against the launcher cwd' "$rc:$(started)" '0:yes'
 build; run crash 0
 check 'agent crash status forwarded' "$rc" 137
 check 'agent crash removes token' "$(gone)" yes

@@ -87,7 +87,7 @@ return function(C,M,D,I,K,G)
       end
       if opts.name~="claude" or opts.cage=="off" then C.die("launch: --account is for a caged claude only; " .. account_hint) end
     end
-    local trust_error="launch: --trust refuses a directory name containing terminal controls, a selection marker or trust dialog text"
+    local trust_error="launch: --trust refuses a directory name containing terminal controls, invalid UTF-8, bidirectional overrides or isolates, selection markers, or trust dialog text"
     if opts.trust and not D.safe_trust_dir(opts.given) then C.die(trust_error) end
     if opts.given=="-" then C.die("launch: no such directory: " .. opts.given) end
     opts.logical=F.logical(opts.given)

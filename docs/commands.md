@@ -33,9 +33,9 @@ on screen, a status that isn't `working` or `blocked`, and its input footer or a
 | `--tab NAME` | Open a tab instead of a split (80x24 unless focused) |
 | *(no placement flag)* | Split the largest pane of your window along its longer side, so every child stays in view |
 | `--focus` | Focus the new pane (by default you keep focus) |
-| `--trust` | Confirm the folder-trust dialog, only once it names DIR. Refuses paths containing terminal controls, selection markers, or trust dialog text |
+| `--trust` | Confirm the folder-trust dialog, only once it names DIR. Refuses paths containing terminal controls, invalid UTF-8, bidirectional overrides or isolates, selection markers, or trust dialog text |
 | `--timeout DUR` | How long to wait for readiness (default 90s) |
-| `--cage` / `--no-cage` | Force or skip the macOS sandbox ([cage.md](cage.md)); default from `REX_ORCHESTRATOR_CAGE` (`auto`) |
+| `--cage` / `--no-cage` | Force or skip the macOS sandbox ([cage.md](cage.md)); default from `REX_ORCHESTRATOR_CAGE` (`auto`). A caged DIR rejects terminal controls, invalid UTF-8, and bidirectional overrides and isolates |
 | `--account NAME` | Credential for a caged claude: `$CAGE_SECRETS/claude-NAME.env` |
 | `--allow-edits` | claude only: read and edit inside DIR without asking, for this session |
 | `--allow RULE` | claude only, repeatable: add a permission rule such as `'Bash(npm test:*)'` |
@@ -158,7 +158,7 @@ The Lua claim operations wait up to about 30 seconds for the registry lock.
 | `REX_ORCHESTRATOR_STATE_DIR` | `${XDG_STATE_HOME:-~/.local/state}/rex-orchestrator` | Pane state, claims, kill switches, harvested runs (mode 700) |
 | `REX_ORCHESTRATOR_CAGE_SECRETS` | `${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator/cage-secrets` | Cage credentials ([cage.md](cage.md)) |
 | `REX_ORCHESTRATOR_CAGE` | `auto` | Cage default: `auto`, `on` or `off` |
-| `REX_ORCHESTRATOR_CAGE_PROFILE`, `REX_ORCHESTRATOR_CAGE_TPL`, `REX_ORCHESTRATOR_CAGE_AGY_HOME` | `cage.sb` and `cage/` beside the real script (following install symlinks); agy home under cage secrets | Other cage assets; environment overrides take priority |
+| `REX_ORCHESTRATOR_CAGE_PROFILE`, `REX_ORCHESTRATOR_CAGE_TPL`, `REX_ORCHESTRATOR_CAGE_AGY_HOME` | `cage.sb` and `cage/` beside the real script (following install symlinks); agy home under cage secrets | Other cage assets; environment overrides take priority. A relative agy home resolves against the launcher's working directory |
 | `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` | unset | Shell command returning one JSON object with a non-empty string `.token.refresh_token` or legacy `.refresh_token`; runs outside the cage from `/` with a fixed environment. Private command text is hidden from caged children; the temporary mode 600 login is removed after child shutdown. Wrapper exits 71 on failure/invalid output; `launch` reports 12 if seen during startup ([cage.md](cage.md)) |
 | `REX_ORCHESTRATOR_REX_BIN_DIR` | `rex` on `PATH`, else the Rex app bundle | Where the `rex` CLI lives |
 | `REX_ORCHESTRATOR_CONFIG_DIR` | `${XDG_CONFIG_HOME:-~/.config}/rex-orchestrator` | Holds `orchestrators`, the designated orchestrators ([orchestrators.md](orchestrators.md)) |

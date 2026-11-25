@@ -36,6 +36,9 @@ HOME=~/.config/rex-orchestrator/cage-secrets/agy-home agy
 With several `claude-*.env` files, `--account NAME` picks one; without it the only file is used, otherwise the
 alphabetically first, and `launch` says which. `status` shows it as `account`.
 
+Set `REX_ORCHESTRATOR_CAGE_AGY_HOME` to override the provisioned agy home. A relative path resolves against the
+launcher's working directory.
+
 For agy with a login held in a secret store, keep only non-secret settings in the provisioned cage home and set
 `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` to a shell command that returns the complete token JSON on stdout. For example:
 

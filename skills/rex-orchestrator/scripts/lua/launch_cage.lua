@@ -151,7 +151,7 @@ return function(C,M)
     if not F.test("-r",profile) then return fail("cage: profile not found: " .. profile .. " (set REX_ORCHESTRATOR_CAGE_PROFILE)") end
     local dir=opts.dir
     if M.dir_control(dir) then
-      return fail("cage: " .. name .. "'s DIR path has a control character; use a plain folder name or --no-cage")
+      return fail("cage: " .. name .. "'s DIR path contains terminal controls, invalid UTF-8, or bidirectional overrides or isolates")
     end
     if r.runtime=="agy" then
       if not M.starts(r.login,"/") then
