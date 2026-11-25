@@ -114,8 +114,8 @@ orchestrator ──rex split──▶ child pane ──OSC 7501──▶ Rex ser
 ```
 
 State lives in `${XDG_STATE_HOME:-~/.local/state}/rex-orchestrator` (mode 700). Details: [docs/how-it-works.md](docs/how-it-works.md).
-`status`, `ls`, `screen` and `wait` use Rex's Lua API; `wait` reacts to status and lifecycle events. The remaining
-commands retain their Bash implementation during the migration. Their public commands and state files are shared.
+`status`, `ls`, `screen`, `wait`, `send`, `keys`, `close` and `claims` run in Lua. `wait` reacts to status and lifecycle
+events. Bash `launch` uses the same ownership and claim files, and cage cleanup stays in the shell.
 
 ## Safety model
 

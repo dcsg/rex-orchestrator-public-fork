@@ -62,6 +62,8 @@ for ((n=0;n<100;n++)); do
   sleep 0.03
 done
 check 'title fixture' "$(cli status "$B" | jq -r .title)" "$title"
+rex_test "do" -e 'assert(rex.call("session.attach",{session_id=rex.args.s})); assert(rex.session.set_block_label{session_id=rex.args.s,block_id=rex.args.b,label=rex.args.label})' \
+  "s=$REX_SESSION" "b=$B" 'label=fixture\label'
 cli status "$B" > "$T/lua.out"; old status "$B" > "$T/old.out"
 cmp "$T/old.out" "$T/lua.out"
 pass=$((pass+1))
@@ -195,7 +197,7 @@ rex_test session new lua-destroy --shell none --keep-open --json -- /bin/bash "$
 REX_SESSION=$(jq -r .session_id "$T/session.json")
 B=$(jq -r '.initial_windows[0].block_ids[0]' "$T/session.json")
 await_state working
-rex_test do -e 'assert(rex.call("session.attach",{session_id=rex.args.s})); assert(rex.session.set_block_label{session_id=rex.args.s,block_id=rex.args.b,label="twins"})' \
+rex_test "do" -e 'assert(rex.call("session.attach",{session_id=rex.args.s})); assert(rex.session.set_block_label{session_id=rex.args.s,block_id=rex.args.b,label="twins"})' \
   "s=$REX_SESSION" "b=$B"
 rex_test split -s "$REX_SESSION" -b "$B" --label twins --shell none --keep-open -- /bin/cat >/dev/null
 error_parity 'ambiguous block label' "$REX_SESSION" '' status twins
@@ -204,6 +206,7 @@ wait_pid=$!
 sleep 0.4; rex_test session kill "$REX_SESSION"
 code=0; wait "$wait_pid" || code=$?
 check 'destroyed session exit' "$code:$(cat "$T/wait.out")" '12:exited'
+. "$ROOT/tests/lua/mutations.inc.sh"
 rex_test session new lua-disconnect --shell none --keep-open --json -- /bin/bash "$ROOT/tests/lua/standin.sh" "$T/work" > "$T/session.json"
 REX_SESSION=$(jq -r .session_id "$T/session.json")
 B=$(jq -r '.initial_windows[0].block_ids[0]' "$T/session.json")

@@ -12,6 +12,10 @@ while IFS= read -r line; do
     done | working | idle) report "$line" ;;
     blocked) report blocked ':kind=question:msg=QSBxdWVzdGlvbg==' ;;
     error) report error ':msg=Qm9vbQ==' ;;
+    composer)
+      printf '\033[2J\033[H────────────────────\n ❯ \n────────────────────\n ⏸ manual mode on\n\033[2;4H'
+      stty echo
+      report idle ;;
     bg)
       printf '\033[2J\033[H────────────────────\n ❯\n────────────────────\n  1 shell\n'
       report 'done' ;;
@@ -29,5 +33,8 @@ while IFS= read -r line; do
         [ ! -e "$work/mode-change" ] || printf '────────────────────────────────────────────────────────────────────────────────\n ⏵⏵ accept edits on\n'
         report 'done' ;;
     exit) exit 0 ;;
+    *) printf '%s\n' "$line" >> "$work/prompts"
+       stty -echo
+       report 'done' ;;
   esac
 done

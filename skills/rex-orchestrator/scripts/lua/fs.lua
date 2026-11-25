@@ -16,6 +16,10 @@ return function(rex)
     if not f then return nil end
     local s = f:read("*a"); f:close(); return s
   end
+  function F.read_file(path)
+    if not sh('[ -f "$1" ]',path) then return nil end
+    return F.read(path)
+  end
   function F.exists(path)
     return sh('[ -e "$1" ] || [ -L "$1" ]', path)
   end
@@ -30,6 +34,16 @@ return function(rex)
     os.remove(tmp); return false
   end
   function F.remove(path) os.remove(path) end
+  function F.unlink(path) return sh('rm -f -- "$1"',path) end
+  function F.remove_state(path) return sh('rm -rf -- "$1" "$1".*',path) end
+  function F.mkdir(path) return sh('mkdir -p -- "$1"',path) end
+  function F.claim_paths(directory)
+    local ok,out=sh('for path in "$1"/*.json; do [ ! -f "$path" ] || printf "%s\\0" "$path" || exit 1; done',directory)
+    if not ok then return nil end
+    local paths={}
+    for path in out:gmatch("([^%z]+)%z") do paths[#paths+1]=path end
+    return paths
+  end
   function F.append(path, text)
     return sh('(umask 077; printf "%s" "$2" >> "$1")', path, text)
   end

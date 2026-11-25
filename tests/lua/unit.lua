@@ -4,6 +4,9 @@ local dir=root .. "/skills/rex-orchestrator/scripts/lua/"
 local M=dofile(dir .. "core.lua")
 local Approval=dofile(dir .. "approval.lua")
 local Commands=dofile(dir .. "commands.lua")
+local Input=dofile(dir .. "input.lua")
+local Mutations=dofile(dir .. "mutations.lua")
+local Registry=dofile(dir .. "registry.lua")
 local pass=0
 local function eq(a,b,label)
   if a~=b then error((label or "check") .. ": got [" .. tostring(a) .. "], expected [" .. tostring(b) .. "]",0) end
@@ -33,8 +36,23 @@ local function test(options)
   local fs={}
   function fs.init() return not options.bad_state end
   function fs.read(p) return files[p] end
+  fs.read_file=fs.read
   function fs.put(p,s) files[p]=s; return not options.bad_write end
   function fs.remove(p) files[p]=nil end
+  function fs.unlink(p) files[p]=nil; return true end
+  function fs.mkdir() return true end
+  function fs.remove_state(path)
+    for p in pairs(files) do if p==path or M.starts(p,path .. ".") then files[p]=nil end end
+    return true
+  end
+  function fs.claim_paths(dir)
+    local paths={}
+    for p in pairs(files) do
+      if M.starts(p,dir .. "/") and p:match("%.json$") then paths[#paths+1]=p end
+    end
+    table.sort(paths)
+    return paths
+  end
   function fs.append(p,s) files[p]=(files[p] or "") .. s; return true end
   function fs.exists(p) return files[p]~=nil end
   function fs.canonical(p)
@@ -45,20 +63,34 @@ local function test(options)
   function fs.real(p) if p:find("link",1,true) then return nil end; return p end
   function fs.plain(p) return not p:find("hardlink",1,true) end
   function fs.prefix() return true end
-  function fs.pid_alive() return not options.dead_owner end
+  function fs.pid_alive(pid) return pid~="99999999" and not options.dead_owner end
   function fs.lock()
     if options.lock_busy then return nil,2 end
     return function() options.released=true end
   end
-  local rex={session={},block={},json={encode=json}}
+  local rex={session={},block={},json={encode=json,decode=function(s) return (options.decoded or {})[s] end}}
   function rex.stop(code) error({stop=code},0) end
   function rex.sleep(n) now=now+n end
-  function rex.exec() return {ok=false} end
+  function rex.exec(a)
+    if a[2]=="send-key" then
+      options.key_args=a
+      return {ok=not options.fail_keys,stderr=""}
+    end
+    return {ok=false,stderr=""}
+  end
   function rex.call(method,a)
     calls[#calls+1]=method
     if method=="server.status" then return not options.server_down and {} or nil end
     if method=="session.attach" then return {} end
+    if method=="block.close" then
+      if options.close_error then return nil,"offline" end
+      options.closed=a.block_id
+      return {}
+    end
     if method=="client.key" then
+      options.key_events=options.key_events or {}
+      options.key_events[#options.key_events+1]={key=a.key.key,action=a.key.action,text=a.key.text,mods=a.key.mods}
+      if options.fail_keys then return nil,"write failed" end
       if a.key.action=="press" then options.presses=(options.presses or 0)+1 end
       return {}
     end
@@ -84,6 +116,12 @@ local function test(options)
     if method=="process" then return current.process end
     if method=="format" then return {content=current.screen} end
     if method=="title" then return {title="child title"} end
+    if method=="write" then
+      options.typed=a.data
+      if options.typed_screen then current.screen=options.typed_screen end
+      if options.typed_record then current.rec=options.typed_record end
+      return {bytes_written=#a.data}
+    end
   end
   function rex.on(name,fn) handlers[name]=fn end
   function rex.after(delay,fn)
@@ -97,6 +135,9 @@ local function test(options)
   local C=M.new(rex,fs,{out=function(s) out[#out+1]=s end,
     note=function(s) notes[#notes+1]=s end,raw=function(s) notes[#notes+1]=s end})
   local A=Approval(C,M); local commands=Commands(C,M,A)
+  C.rex_bin="/fixture/rex"
+  C.script_dir="/fixture"
+  for name,fn in pairs(Mutations(C,M,Input(M),Registry(C,M))) do commands[name]=fn end
   local function run(command,args,events)
     for _,e in ipairs(events or {}) do
       rex.after(e.at,function()
@@ -110,7 +151,8 @@ local function test(options)
       end)
     end
     local ok,err=pcall(function()
-      C.init(); commands[command](args or {})
+      if command=="claims" then C.init_state() else C.init() end
+      commands[command](args or {})
       while true do
         table.sort(timers,function(a,b) return a.at<b.at or a.at==b.at and a.seq<b.seq end)
         local t=table.remove(timers,1); if not t then break end
@@ -253,6 +295,8 @@ local o={files={["/state/block_child.own"]=own,["/state/disabled.claude"]="stop"
 eq(test(o)("wait",{child,"--approve-in","/work"}).code,10); eq(o.presses,nil)
 o={files={["/state/block_child.own"]=own,["/state/block_child.cage"]="cage\n"},screen=cl,rec=opts.rec}
 eq(test(o)("wait",{child,"--approve-in","/work"}).code,10); eq(o.presses,nil)
+o={files={["/state/block_child.own"]=own,["/state/disabled"]=""},screen=cl,rec=opts.rec}
+eq(test(o)("wait",{child,"--approve-in","/work"}).code,10); eq(o.presses,nil)
 -- Root record ownership and child exclusion.
 run,C,A=test(); C.init()
 local current=run("status",{child}).current
@@ -263,5 +307,97 @@ r=test({rec=d,files={["/state/block_child.own"]=own}})("ls",{})
 eq(r.code,0); eq(r.out:find('"mine":true',1,true)~=nil,true)
 eq(test({rec={}})("ls",{}).out,"")
 eq(test({list_error=true})("ls",{}).code,1)
+
+-- Phase 2 uses the same fixtures and state files that the Bash launcher produces.
+local function owned(options)
+  options=options or {}
+  options.files=options.files or {}
+  options.files["/state/block_child.own"]=own
+  return options
+end
+local function done_record(now)
+  return {app="claude-code",state="done",updated_at=now or "new"}
+end
+local rule="────────────────────"
+local function composer(text)
+  return rule .. "\n❯ " .. text .. "\n" .. rule .. "\n⏸ manual mode on"
+end
+local input=Input(M)
+eq(input.dialog(cl),true)
+eq(input.dialog(rule .. "\n› 1. Continue\n   2. No",true),true)
+eq(input.dialog("› type Do you want to make a change?"),false)
+eq(input.dialog("› 1. Review hooks"),true)
+eq(not not input.one_time("Continue without trusting"),true)
+eq(not not input.one_time("Yes, allow for this session"),false)
+eq(not not input.one_time("No, remember"),false)
+eq(input.picked(cl,"enter"),"Yes")
+eq(input.picked(rule .. "\n  1. Yes,\n     allow for this session","1"),"Yes, allow for this session")
+eq(input.typed_shown(composer("a complete prompt"),"a complete prompt","claude-code"),true)
+eq(input.typed_shown(composer("different text"),"a complete prompt","claude-code"),false)
+eq(input.typed_shown("› [Pasted Content 50 chars]","a long message","codex"),true)
+
+for _,verb in ipairs({"send","keys","close"}) do
+  local args={child,"enter"}
+  eq(test()(verb,args).code,2,verb .. " requires ownership")
+  eq(test(owned())(verb,{"self","enter"}).code,2,verb .. " refuses self")
+end
+for _,text in ipairs({"","    ","!whoami","  !whoami","7"," /PERM","/m"}) do
+  o=owned({rec=d})
+  r=test(o)("send",{child,text}); eq(r.code,2,text); eq(o.typed,nil)
+end
+o=owned({rec=d,screen=composer(""),typed_screen=composer("-sample text"),
+  files={["/work/input"]="-sample\ntext\n",["/state/block_child.hold"]="old hold"}})
+r=test(o)("send",{child,"-f","/work/input"})
+eq(r.code,0); eq(o.typed,"-sample text"); eq(o.presses,1); eq(r.files["/state/block_child"],"new\n\n")
+eq(r.files["/state/block_child.hold"],nil)
+o=owned({rec=d,screen=composer(""),typed_screen=composer("different")})
+r=test(o)("send",{child,"a prompt not visible"})
+eq(r.code,4); eq(o.typed,"a prompt not visible"); eq(o.presses,nil)
+o=owned({rec=d,screen=composer(""),typed_screen=cl,typed_record=opts.rec})
+r=test(o)("send",{child,"typed before dialog"})
+eq(r.code,4); eq(o.typed,"typed before dialog"); eq(o.presses,nil)
+o=owned({rec=d,screen=composer(""),bad_write=true})
+eq(test(o)("send",{child,"refuse when state write fails"}).code,1); eq(o.typed,nil)
+o=owned({rec=d,process={child={pid=99}}})
+eq(test(o)("send",{child,"refuse replacement process"}).code,12); eq(o.typed,nil)
+o=owned({rec=d,files={["/state/disabled.claude"]=""}})
+eq(test(o)("send",{child,"disabled Claude"}).code,2); eq(o.typed,nil)
+o=owned({rec=d,screen="──────────\n⏵⏵ accept edits on"})
+r=test(o)("keys",{child,"tab"}); eq(r.code,2); eq(r.files["/state/block_child.stopped"]~=nil,true); eq(o.presses,nil)
+for _,keys in ipairs({{"2"},{"enter","down"},{"shift+Tab"},{"[Slash]"}}) do
+  o=owned({rec=opts.rec,screen=cl})
+  local args={child}; for _,key in ipairs(keys) do args[#args+1]=key end
+  r=test(o)("keys",args); eq(r.code,2); eq(o.presses,nil); eq(o.key_args,nil)
+end
+o=owned({rec=opts.rec,screen=cl,files={["/state/block_child"]="prior\n7 shells\n",["/state/block_child.hold"]="hold"}})
+r=test(o)("keys",{child,"enter"})
+eq(r.code,0); eq(o.presses,1); eq(r.files["/state/block_child"],"new\n7 shells\n"); eq(r.files["/state/block_child.hold"],"hold")
+o=owned({rec=d,files={["/state/disabled"]=""}})
+r=test(o)("keys",{child,"escape","ctrl+c"})
+eq(r.code,0); eq(o.presses,2); eq(o.key_events[3].mods,"ctrl")
+o=owned({rec=done_record(),screen=composer("")})
+eq(test(o)("keys",{child,"shift+left","[Slash]"}).code,0)
+eq(table.concat(o.key_args," "),"/fixture/rex send-key -s session:test -b block:child -- shift+left [Slash]")
+
+local claim_path="/state/registry/block_child.json"
+local stale_path="/state/registry/block_stale.json"
+local live={block=child,label="task\tname",session="session:test",kind="claude",pid=42,canonical_dir="/work"}
+local dead={block="block:stale",session="session:test",pid=99999999}
+local claim_json='{"block":"block:child","label":"task\\tname"}'
+o=owned({env={REX_SESSION="",REX_BLOCK=""},files={[claim_path]=claim_json .. "\n",[stale_path]="dead"},
+  decoded={[claim_json .. "\n"]=live,dead=dead}})
+r=test(o)("claims",{})
+eq(r.code,0); eq(r.out,"block:child\ttask\\tname\tsession:test\tclaude\t42\t/work"); eq(r.files[stale_path],nil)
+r=test(o)("claims",{"--json"}); eq(r.out,claim_json)
+eq(test()("claims",{"--unknown"}).code,2)
+r=test({files={[claim_path]="bad"}})("claims",{}); eq(r.code,1); eq(r.files[claim_path],"bad")
+o=owned({files={[claim_path]=claim_json,["/state/block_child.hold"]="active"},close_error=true})
+r=test(o)("close",{child})
+eq(r.code,1); eq(r.files[claim_path],claim_json); eq(r.files["/state/block_child.hold"],"active")
+o.close_error=false
+r=test(o)("close",{child})
+eq(r.code,0); eq(o.closed,child); eq(r.files[claim_path],nil); eq(r.files["/state/block_child.hold"],nil)
+o={files={["/state/block_missing.own"]=own}}
+eq(test(o)("close",{"block:missing"}).code,0); eq(o.closed,nil)
 os.time,os.getenv=original_time,original_getenv
 print("Lua unit: " .. pass .. " passed")

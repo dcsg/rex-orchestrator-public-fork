@@ -18,7 +18,9 @@ check() {
     printf 'FAIL  agy token: %s\n' "$1"; fail=$((fail + 1))
   fi
 }
-for f in note ere_escape sq real_path rmcage cage_emit acct_ok claude_account cage_build; do
+# shellcheck source=skills/rex-orchestrator/scripts/cage-cleanup.sh
+. "$assets/cage-cleanup.sh"
+for f in note ere_escape sq real_path cage_emit acct_ok claude_account cage_build; do
   eval "$(awk -v f="$f() {" 'index($0, f) == 1 { on = 1; one = /}[[:space:]]*$/ } on { print } on && (one || /^}/) { exit }' "$SCRIPT")"
 done
 export HOME="$work/home"
@@ -192,7 +194,7 @@ case "$cmd_file/" in "${ct%/*}/"*) command_outside=no ;; esac
 check 'command stored outside CAGE_ROOT' "$command_outside" yes
 build; run private 0 "$reserved_cmd"
 check 'agent cannot read or modify another pending command' "$rc" 0
-rmcage "$reserved_ct" >"$work/close.log" 2>&1
+cleanup_cage "$reserved_ct" >"$work/close.log" 2>&1
 check 'close removes command of an unstarted wrapper' "$([ ! -e "$reserved_cmd" ] && echo yes || echo no)" yes
 normal_state=$STATE_DIR
 STATE_DIR="$HOME/.config/git/custom-state"
@@ -200,7 +202,7 @@ build; git_command_ct=$ct git_command_file=$cmd_file
 check 'pending command exists beneath git-config state override' "$([ -f "$git_command_file" ] && echo yes || echo no)" yes
 build; run private 0 "$git_command_file"
 check 'git-config read exception cannot reopen private commands' "$rc" 0
-rmcage "$git_command_ct" >"$work/git-state-close.log" 2>&1
+cleanup_cage "$git_command_ct" >"$work/git-state-close.log" 2>&1
 check 'close removes private command beneath git-config state override' "$([ ! -e "$git_command_file" ] && echo yes || echo no)" yes
 STATE_DIR=$normal_state
 REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD="$(command_for background) $(sq "$work/provider-pid")"
@@ -341,7 +343,7 @@ cage_build agy "$work/bin/probe" "$work/project" >"$work/guard.log" 2>&1 || guar
 check 'linked private-command root fails closed' "$guard_rc" 2
 check 'linked private-command root leaves external file alone' \
   "$(cmp -s "$work/preserve" "$work/linked-command-root/$guard_leaf" && echo yes || echo no)" yes
-rmcage "$STATE_DIR/cage/$guard_leaf" >"$work/guard-close.log" 2>&1
+cleanup_cage "$STATE_DIR/cage/$guard_leaf" >"$work/guard-close.log" 2>&1
 check 'close removes the refused cage' "$([ ! -e "$STATE_DIR/cage/$guard_leaf" ] && echo yes || echo no)" yes
 check 'close never follows a linked private-command root' \
   "$(cmp -s "$work/preserve" "$work/linked-command-root/$guard_leaf" && echo yes || echo no)" yes

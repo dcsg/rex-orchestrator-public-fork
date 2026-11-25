@@ -881,28 +881,11 @@ unlaunch() {
   [ -z "${CAGING:-}" ] || rmcage "$CAGING" || note "could not remove $CAGING"
 }
 
-# Delete a throwaway cage home (rmcage DIR). A caged child, or a tool it ran (Go's module cache is read-only), can leave
-# what rm -rf can't remove: folders without the owner's rwx, the uchg or uappnd flag, an ACL that denies the owner.
-# Clear them, nested ones too (find fixes each folder before it reads it); chflags, chmod, find and rm follow no link
-# inside, and the cage can't link a file from outside in. The agent may still be writing as it exits: retry once.
 rmcage() {
-  local n=0
-  # A launch that never reached its wrapper can still have a private agy command waiting outside CAGE_ROOT.
-  case "${1##*/}" in agy.* | agy-*.*)
-    if [ -d "${1%/*}-commands" ] && [ ! -L "${1%/*}-commands" ] && [ -O "${1%/*}-commands" ]; then
-      rm -f "${1%/*}-commands/${1##*/}"
-    fi ;;
-  esac
-  # Restore access to sealed transcript directories before reading them.
-  { chflags -R nouchg,nouappnd "$1"; chmod -R -N "$1"; chmod -R u+rwX "$1"; } 2>/dev/null || true
-  # Measurement never prevents cleanup, including when Python/storage fails.
-  python3 -I "${SCRIPT_DIR:-${SDIR:-.}}/harvest.py" "$1" "${STATE_DIR:-${1%/cage/*}}" ||
-    note "harvest failed for $1; continuing removal; storage failure may prevent a manifest"
-  until { chflags -R nouchg,nouappnd "$1"; chmod -R -N "$1"; chmod -R u+rwX "$1"; rm -rf "$1"; } 2>/dev/null; do
-    [ $((n += 1)) -lt 2 ] || { rm -rf "$1"; return; }
-    find "$1" -type d -exec chflags nouchg,nouappnd {} \; -exec chmod -N {} \; -exec chmod u+rwx {} \; 2>/dev/null
-    sleep 1
-  done
+  # Some compatibility callers use a standalone copy for commands that never touch a cage.
+  # shellcheck source=skills/rex-orchestrator/scripts/cage-cleanup.sh
+  . "$SCRIPT_DIR/cage-cleanup.sh" || return 1
+  cleanup_cage "$1"
 }
 
 # End launch with exit RC, the block ID on stdout and the pane left open for the caller, who closes it and its cage

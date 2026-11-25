@@ -1,5 +1,12 @@
 -- Shared read-side contract, usable with a fake rex table under LuaJIT/Lua 5.1.
 local M = {}
+function M.persistent(text)
+  for _,word in ipairs({"always","don[^ ]*t ask","ask again","persist","remember","session","conversation",
+    "all edits","auto mode","accept edits","bypass"}) do
+    if text:find(word) then return true end
+  end
+  return false
+end
 local json_escapes={
   ['"']='\\"', ['\\']='\\\\', ['\b']='\\b', ['\f']='\\f',
   ['\n']='\\n', ['\r']='\\r', ['\t']='\\t'
@@ -102,6 +109,7 @@ function M.new(rex, fs, output)
   function C.line(b,suffix,n) return M.lines(C.read(b,suffix))[n] or "" end
   function C.put(path,...) return fs.put(path,table.concat({...},"\n") .. "\n") end
   function C.call(b,method,args)
+    if not C.attach() then return nil end
     args=args or {}; args.block_id=b; args.session_id=C.session
     for n=1,3 do
       local r,err=rex.block.call("com.superlogical.terminal",method,args)
@@ -117,17 +125,60 @@ function M.new(rex, fs, output)
     C.attached=true
     return true
   end
-  function C.enter()
+  local function key_event(key)
     local attached,err=C.attach()
     if not attached then return nil,err end
-    local key={key="enter",mods="",consumed_mods="",text="",unshifted_codepoint=0,composing=false}
     local args={session_id=C.session,block_id=C.block,key=key}
     key.action="press"
     local pressed,why=rex.call("client.key",args)
     if not pressed then return nil,why end
     key.action="release"
+    key.text=""
     local released,release_error=rex.call("client.key",args)
     if not released and release_error then C.raw("Error: " .. release_error) end
+    return true
+  end
+  local function plain_key(name)
+    return {key=name,mods="",consumed_mods="",text="",unshifted_codepoint=0,composing=false}
+  end
+  function C.enter()
+    return key_event(plain_key("enter"))
+  end
+  local named_keys={enter="enter",escape="escape",esc="escape",tab="tab",
+    up="arrow_up",down="arrow_down",left="arrow_left",right="arrow_right"}
+  function C.send_keys(keys)
+    local native={}
+    for _,name in ipairs(keys) do
+      local key
+      if named_keys[name] then
+        key=plain_key(named_keys[name])
+      elseif name:match("^[0-9]$") then
+        key=plain_key("digit_" .. name)
+        key.text=name
+        key.unshifted_codepoint=name:byte()
+      elseif name=="ctrl+c" then
+        key=plain_key("key_c")
+        key.mods="ctrl"
+        key.unshifted_codepoint=string.byte("c")
+      end
+      if not key then
+        -- Rex's public key grammar includes layout-dependent chords and physical keys.
+        -- Use its parser for those spellings, with the resolved block fixed before "--".
+        local args={C.rex_bin,"send-key","-s",C.session,"-b",C.block,"--"}
+        for _,input in ipairs(keys) do args[#args+1]=input end
+        local result=rex.exec(args)
+        if result and result.stderr~="" then C.raw(result.stderr:gsub("\n$","")) end
+        return result and result.ok
+      end
+      native[#native+1]=key
+    end
+    for _,key in ipairs(native) do
+      local ok,err=key_event(key)
+      if not ok then
+        if err then C.raw("Error: " .. err) end
+        return false
+      end
+    end
     return true
   end
   function C.resolve(query,kind,session)
@@ -161,8 +212,9 @@ function M.new(rex, fs, output)
     if not fs.init(C.dir) then C.die("refusing state dir " .. C.dir .. ": a link, not a directory, or not yours (REX_ORCHESTRATOR_STATE_DIR picks another)") end
   end
   function C.init()
-    local session=env("REX_SESSION")
-    local caller=env("REX_BLOCK")
+    local context=C.context or {session=env("REX_SESSION"),block=env("REX_BLOCK")}
+    local session=context.session~="" and context.session or nil
+    local caller=context.block~="" and context.block or nil
     local query=session or caller
     if query then
       local canonical,code,reason
@@ -199,17 +251,20 @@ function M.new(rex, fs, output)
     local b,code,reason=C.resolve(q)
     if not b then
       if code==3 then explain_target(q,reason) end
-      if code==3 and gone and M.starts(q,"block:") then b=q
+      if code==3 and gone and M.starts(q,"block:") then b=q; C.target_missing=true
       elseif code==3 then C.die("no such block in this session: " .. q)
       else C.resolve_failed("rex did not answer for block " .. q,reason) end
     end
     if b==C.me then C.die("refusing to target your own pane (" .. q .. ")") end
     C.block=b; return b
   end
-  function C.owned()
+  function C.need_me()
     if C.me=="" then C.die("REX_BLOCK is not set: run inside a Rex pane, or prefix the call with REX_SESSION=… REX_BLOCK=…") end
+  end
+  function C.owned(verb)
+    C.need_me()
     if not C.force and C.line(C.block,"own",1)~=C.me then
-      C.die("wait --approve-in: " .. C.block .. " was not launched from this pane; pass --force only for a pane the user named")
+      C.die(verb .. ": " .. C.block .. " was not launched from this pane; pass --force only for a pane the user named")
     end
   end
   function C.root(b)
@@ -232,12 +287,28 @@ function M.new(rex, fs, output)
       local w=C.line(b,"own",2)
       return p.last_exit~=nil or p.child==nil or (w~="" and tostring(p.child.pid)~=w)
     end
+    if C.gone(b) then return true end
+    return nil
+  end
+  function C.gone(b)
+    if not C.attach() then return nil end
     local r=rex.session.list_blocks{session_id=C.session}
     if r and type(r.blocks)=="table" then
-      for _,v in ipairs(r.blocks) do if v.block_id==b then return nil end end
+      for _,v in ipairs(r.blocks) do if v.block_id==b then return false end end
       return true
     end
     return nil
+  end
+  function C.mark(rec)
+    local screen=C.screen(C.block)
+    if not screen then return false end
+    local path=C.sf(C.block)
+    return C.put(path,rec.updated_at or "",M.background(screen)) and fs.unlink(path .. ".hold")
+  end
+  function C.mark_since(rec)
+    local previous=C.read(C.block)
+    if not previous then return C.mark(rec) end
+    return C.put(C.sf(C.block),rec.updated_at or "",M.lines(previous)[2] or "")
   end
   function C.status(b)
     local r=C.root(b) or {}; local p=C.call(b,"process"); local t=C.call(b,"title")
@@ -259,7 +330,7 @@ function M.new(rex, fs, output)
     return k~="" and k or ({["claude-code"]="claude",antigravity="agy",["grok-build"]="grok",codex="codex",muse="muse"})[(rec or {}).effective_app or (rec or {}).app] or ""
   end
   function C.pin(screen,rec)
-    if not C.read(C.block,"own") or C.read(C.block,"cage") or C.kind(rec)~="claude" then return true end
+    if not C.read(C.block,"own") or C.caged() or C.kind(rec)~="claude" then return true end
     local now=M.mode(screen); if not now then return true end
     local pin=C.line(C.block,"own",6)
     if pin=="" then
@@ -271,7 +342,10 @@ function M.new(rex, fs, output)
   end
   function C.stopped() return C.line(C.block,"stopped",1) end
   function C.stop(why) C.put(C.sf(C.block)..".stopped",why); C.note("stopped: " .. why .. "; report it") end
-  function C.killed(kind) return fs.exists(C.dir .. "/disabled" .. (kind and kind~="" and "." .. kind or "")) end
+  function C.caged() return C.read(C.block,"cage")~=nil end
+  function C.killed(kind)
+    return fs.exists(C.dir .. "/disabled" .. (kind and kind~="" and "." .. kind or ""))~=false
+  end
   function C.kill(why)
     if not fs.append(C.dir .. "/disabled.claude",os.date("!%Y-%m-%dT%H:%M:%SZ") .. " " .. why .. "\n") then C.note("could not write " .. C.dir .. "/disabled.claude") end
     C.raw("\27[31mrex-orchestrator: stopped: " .. why .. "; " .. C.dir .. "/disabled.claude is set: report it, never remove it yourself\27[0m")

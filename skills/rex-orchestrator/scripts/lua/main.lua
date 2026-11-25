@@ -8,12 +8,19 @@ local C=M.new(rex,fs,{raw=function(text)
 end})
 local A=dofile(dir .. "approval.lua")(C,M)
 local commands=dofile(dir .. "commands.lua")(C,M,A)
-local argv=rex.args.argv
-for i,arg in ipairs(argv) do
-  argv[i]=arg:gsub("[\194\195][\128-\191]",function(c)
+C.script_dir=rex.args.script_dir
+C.rex_bin=rex.args.rex_bin
+local registry=dofile(dir .. "registry.lua")(C,M)
+local input=dofile(dir .. "input.lua")(M)
+for name,fn in pairs(dofile(dir .. "mutations.lua")(C,M,input,registry)) do commands[name]=fn end
+local function decode(arg)
+  return (arg:gsub("[\194\195][\128-\191]",function(c)
     return string.char(c:byte(2)+(c:byte(1)-194)*64)
-  end)
+  end))
 end
+local argv=rex.args.argv
+for i,arg in ipairs(argv) do argv[i]=decode(arg) end
+C.context={session=decode(rex.args.session),block=decode(rex.args.block)}
 local command=table.remove(argv,1)
-C.init()
+if command=="claims" then C.init_state() else C.init() end
 commands[command](argv)

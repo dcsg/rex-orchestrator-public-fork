@@ -16,6 +16,7 @@ return function(C, M, A)
     for i=math.max(1,#a-tonumber(n)+1),#a do C.out(a[i]) end
   end
   function commands.ls()
+    if not C.attach() then C.die("rex could not list the blocks",1) end
     local r=R.session.list_blocks{session_id=C.session}
     if not r then C.die("rex could not list the blocks",1) end
     if type(r.blocks)~="table" then C.die("rex returned a block list that isn't JSON",1) end
@@ -66,9 +67,9 @@ return function(C, M, A)
       else C.die("wait: unknown option " .. k) end
     end
     C.target(q,true)
-    if approve~="" then C.owned() end
+    if approve~="" then C.owned("wait --approve-in") end
     local sf=C.sf(C.block)
-    if approve~="" and C.read(C.block,"cage") then
+    if approve~="" and C.caged() then
       C.note("wait: --approve-in is ignored for a caged block (its prompts go to the user)"); approve=""
     end
     local mark=M.lines(C.read(C.block)); local since,bgbase=mark[1] or "",mark[2] or ""

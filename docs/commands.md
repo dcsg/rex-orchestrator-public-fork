@@ -7,8 +7,8 @@ more context. Conventions:
 - **DUR** is `N`, `Ns`, `Nm` or `Nh`.
 - Every command exits **2** on a usage error or a refusal and **1** when a `rex` call it needs fails.
 - `launch`, `send`, `keys`, `close` and `wait --approve-in` need `REX_BLOCK` (Rex sets it in every pane). When
-  `REX_SESSION` is empty, the CLI resolves a real session ID once with `rex whoami --json`; an explicit `REX_SESSION`
-  is used unchanged. If your shell strips Rex's environment, prefix the call with `REX_BLOCK=…` (and optionally
+  `REX_SESSION` is empty, the CLI resolves the session from `REX_BLOCK`. An explicit `REX_SESSION` selects the
+  session. If your shell strips Rex's environment, prefix the call with `REX_BLOCK=…` (and optionally
   `REX_SESSION=…`). Commands other than `help`, `clone` and `claims` require a session; failure to resolve it exits 2
   with an error naming both variables.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 1 entry point. Commands not yet ported retain the Bash implementation.
+# Launch, clone and help retain the Bash implementation.
 set -euo pipefail
 unset CDPATH
 SCRIPT_SRC=$0
@@ -13,7 +13,7 @@ while [ -L "$SCRIPT_SRC" ]; do
 done
 SCRIPT_DIR=$(cd "$(dirname "$SCRIPT_SRC")" && pwd -P)
 case "${1:-help}" in
-  status | ls | screen | wait) ;;
+  status | ls | screen | wait | send | keys | close | claims) ;;
   *) exec "$BASH" "$SCRIPT_DIR/rex-orchestrator-bash.sh" "$@" ;;
 esac
 REX="${REX_ORCHESTRATOR_REX_BIN_DIR:+$REX_ORCHESTRATOR_REX_BIN_DIR/}rex"
@@ -47,20 +47,25 @@ json_string() {
   done
   printf '"'
 }
-args=$(printf '{"forward_errors":true,"script_dir":'; json_string "$SCRIPT_DIR" no; printf ',"argv":['
+args=$(printf '{"forward_errors":true,"script_dir":'; json_string "$SCRIPT_DIR" no
+  printf ',"rex_bin":'; json_string "$REX" no
+  printf ',"session":'; json_string "${REX_SESSION:-}" yes
+  printf ',"block":'; json_string "${REX_BLOCK:-}" yes
+  printf ',"argv":['
   sep=''; for arg in "$@"; do printf '%s' "$sep"; json_string "$arg" yes; sep=,; done; printf ']}')
 run_lua() {
   local command=$1 diagnostics line rc=0
   local flags=(--fail-fast)
   # Keep wait alive long enough to handle destruction of its target's session itself.
   if [ "$command" = wait ]; then flags+=(--all); fi
-  diagnostics=$("$REX" "do" "$SCRIPT_DIR/lua/main.lua" --args "$args" "${flags[@]}" 4>&2 2>&1 >&3) || rc=$?
+  # Let Lua resolve explicit targets even when their session has no focused block.
+  diagnostics=$(REX_SESSION='' REX_BLOCK='' "$REX" "do" "$SCRIPT_DIR/lua/main.lua" --args - "${flags[@]}" 4>&2 2>&1 >&3 <<<"$args") || rc=$?
   case "$diagnostics" in
     'Error: unknown flag: --all'* | 'Error: unknown flag: --fail-fast'* | 'Error: unknown flag: --args'* | 'Error: unknown command "do"'*)
       printf '%s\n' 'rex-orchestrator: this Rex CLI lacks rex do with --args, --all and --fail-fast; update Rex' >&2
       return 1 ;;
-    'Error: '*'no Rex server is running'*)
-      # Rex failed before executing Lua. Preserve the pre-migration startup diagnostics.
+    'Error: REX_SERVER: no Rex server is running '* | 'Error: no Rex server is running '*)
+      # Rex failed before executing Lua. Preserve startup diagnostics and offline dead-claim pruning.
       if [ "$rc" = 4 ]; then "$BASH" "$SCRIPT_DIR/rex-orchestrator-bash.sh" "$@" >&3; return $?; fi ;;
   esac
   while IFS= read -r line; do

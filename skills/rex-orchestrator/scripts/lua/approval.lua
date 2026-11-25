@@ -28,13 +28,6 @@ return function(C, M)
     local t=M.trim(l); local s=M.cursor(t)
     return (s or t):match("^(%d+)%.%s*(.*)$")
   end
-  local function persistent(text)
-    text=text:lower()
-    for _,p in ipairs({"always","don[^ ]*t ask","ask again","persist","remember","session","conversation","all edits","auto mode","accept edits","bypass"}) do
-      if text:find(p) then return true end
-    end
-    return false
-  end
   function A.dialog(screen,app,path,cut)
     local a=M.region(screen); local width=0
     for _,l in ipairs(M.lines(screen)) do
@@ -74,7 +67,7 @@ return function(C, M)
       end
     end
     if width>0 and ok and selected==1 and num=="1" and text and
-      (M.starts(text,"Yes") or M.starts(text,"Allow") or M.starts(text,"Approve")) and not persistent(text) then return shown end
+      (M.starts(text,"Yes") or M.starts(text,"Allow") or M.starts(text,"Approve")) and not M.persistent(text:lower()) then return shown end
   end
   local function clean(path)
     local a={}; for c in path:gmatch("[^/]+") do
@@ -147,6 +140,7 @@ return function(C, M)
     local function leave(why) C.note("--approve-in left this to you: " .. why); return 1 end
     local why=C.stopped()
     if why~="" then return leave(C.block .. " is stopped (" .. why .. ")") end
+    if C.killed() then return leave("the kill switch " .. C.dir .. "/disabled is set") end
     local k=C.kind(rec)
     if C.killed(k) then return leave("the kill switch " .. C.dir .. "/disabled." .. k .. " is set") end
     local msg,app,upd=rec.msg or "",rec.effective_app or rec.app or "",rec.updated_at or ""

@@ -12,8 +12,8 @@ case "${REX_TEST_NO_WAIT_RESULT:-}" in
   yes) exit 0 ;;
   old) printf 'Error: unknown flag: --all\n' >&2; exit 2 ;;
 esac
-[ "$1" = do ] && [ "$3" = --args ] && [ "$5" = --fail-fast ]
-printf '%s' "$4"
+[ "$1" = do ] && [ "$3" = --args ] && [ "$4" = - ] && [ "$5" = --fail-fast ]
+cat
 REX
 chmod +x "$T/bin/rex"
 ln -s "$ROOT/skills/rex-orchestrator/scripts/rex-orchestrator.sh" "$T/install space/first"

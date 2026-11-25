@@ -47,7 +47,9 @@ chk() { if [ "$2" = "$3" ]; then ok "$1 ($3)"; else bad "$1: want [$2] got [$3]"
 command -v jq >/dev/null 2>&1 || { echo "zt: jq required"; exit 2; }
 
 # --- The script's own cage functions (no agent, no rex): one-line bodies, or ones closed by a '}' in column 0. ---
-for f in die note ere_escape sq real_path rmcage cage_emit acct_ok claude_account cage_build; do
+# shellcheck source=skills/rex-orchestrator/scripts/cage-cleanup.sh
+. "$SDIR/cage-cleanup.sh"
+for f in die note ere_escape sq real_path cage_emit acct_ok claude_account cage_build; do
   eval "$(awk -v f="$f() {" 'index($0, f) == 1 { on = 1; one = /}[[:space:]]*$/ } on { print } on && (one || /^}/) { exit }' "$SCRIPT")"
   declare -F "$f" >/dev/null || { echo "zt: no function $f in $SCRIPT"; exit 2; }
 done
@@ -478,7 +480,7 @@ sealed=$(cg -c "cd $(q "$CT") && mkdir seal && cd seal && ln -s $(q "$OUT/keep")
   mkdir -p n1/n2/n3/n4 && echo q > n1/n2/n3/n4/f && chflags uchg n1/n2/n3/n4/f &&
   for d in n1/n2/n3/n4 n1/n2/n3 n1/n2 n1; do chmod 000 \$d && chflags uchg \$d || exit 1; done && echo SEALED")
 chk "the child sealed its cage home" SEALED "$(printf '%s' "$sealed" | tail -n 1)"
-rmcage "$CT" >/dev/null 2>&1; rc=$?
+cleanup_cage "$CT" >/dev/null 2>&1; rc=$?
 chk "rmcage removes it" "rc 0, gone" "rc $rc, $([ -e "$CT" ] && echo left || echo gone)"
 chk "rmcage leaves a file a link in it points to alone" "-r-------- uchg" "$(stat -f '%Sp %Sf' "$OUT/keep")"
 

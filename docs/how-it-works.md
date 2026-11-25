@@ -1,8 +1,8 @@
 # How it works
 
-`rex-orchestrator` has a Bash entry point that resolves install symlinks and runs `status`, `ls`, `screen` and `wait`
-through `rex do` and the Lua API. The other commands and the cage runtime remain in `rex-orchestrator-bash.sh` during
-the phased migration. Both implementations use the same state files and guards.
+`rex-orchestrator` has a Bash entry point that resolves install symlinks and runs `status`, `ls`, `screen`, `wait`,
+`send`, `keys`, `close` and `claims` through `rex do`. Bash still handles `launch` and `clone`. Both implementations
+use the same ownership and claim files. Cage cleanup runs in a shared shell helper.
 
 ## The pieces
 
@@ -22,15 +22,18 @@ the phased migration. Both implementations use the same state files and guards.
    its parent (your `REX_BLOCK`) and the agent kind in the state directory, then polls until the child is ready.
 2. **Readiness** is decided from the child's *own* status record plus its screen: the screen is read only to find dialogs
    (trust, hooks review, login) and the input footer, never to infer that a turn finished.
-3. **send** reads status and screen again, types with `rex send`, checks that the input box shows the text, then presses
-   Return with `rex send-key`.
+3. **send** reads status and screen, writes the text through Rex's terminal API, checks the composer, then sends
+   Return through the keyboard API. **keys** checks the selected option before sending a dialog answer. Rex's CLI
+   parses key chords and physical-key spellings outside the common Lua key set.
 4. **wait** subscribes to program-status, process, block-close and session-destruction events for its target, then
    reads the initial snapshot. It takes the newest *root* record (records with an `id` belong to sub-agents and
    background tasks). Only records newer than the last `send`/`keys` count. Timers implement the timeout, idle grace
    and stale-dialog deadlines. A second startup snapshot and a five-second recheck catch missed events and detect
    lost connections. Screen-derived background counts and permission-mode guards still need screen reads
    every half second while active because Rex exposes no screen-damage event.
-5. **close** runs `rex block close`, harvests a caged child's transcripts, and removes state and claims.
+5. **close** closes the pane through Rex's block API, removes its registry record under the shared flock,
+   harvests a caged child's transcripts, and removes the pane state. **claims** uses the same flock to prune and list
+   live claims across sessions.
 
 ## Program status (OSC 7501)
 
@@ -49,7 +52,8 @@ refused) holds:
 
 | Path | Content |
 |---|---|
-| `<block>` | One small record per launched pane: parent, label, kind, launch time, cage home… |
+| `<block>` | Last send or keypress baseline and background count |
+| `<block>.own`, `<block>.cage` | Parent pane, process identity, agent kind, pinned mode, and cage metadata |
 | `registry/` | Write claims, one per launch, guarded by a lock |
 | `cage/` | Throwaway homes of caged children |
 | `runs/<label>-<UTC>/` | Harvested transcripts and logs of caged children, with a `manifest.json` |
