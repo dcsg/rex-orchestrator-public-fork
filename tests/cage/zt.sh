@@ -641,7 +641,7 @@ for typed in "$NA_LOWER" "$NA_NFD"; do
   else bad "non-ASCII case: cage_build failed for a link ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
   chk "non-ASCII case: launch refuses DIR in the agent home" yes \
     "$(HOME="$WORK/$typed" ZT_OVERLAP=1 cage_build codex "$ARGPROBE" "$WORK/$NA/.CODEX/proj" >/dev/null 2>&1
-      case $cage_tmp in *codex\*) echo yes ;; *) echo "no ($cage_tmp)" ;; esac)"
+      case $cage_tmp in (*codex\*) echo yes ;; (*) echo "no ($cage_tmp)" ;; esac)"
 done
 # Paths in launch's notes and refusals are escaped: a shim folder, a link and an executable with terminal controls in
 # their names show as \x1B and \x09, never as raw bytes.
