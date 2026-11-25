@@ -56,7 +56,8 @@ every caged child reads and writes there. The generated wrapper contains only th
 removed after lookup, on wrapper exit, or by `close` if the wrapper never started. Use a store lookup rather than a
 literal credential in the command. Its stdout goes straight to
 `home/.gemini/antigravity-cli/antigravity-oauth-token` under the cage temp directory, created with `umask 077` and mode
-600. Output must be exactly one JSON object with a non-empty string `refresh_token`; validation prints nothing.
+600. Output must be exactly one JSON object with a non-empty string `.token.refresh_token`, as in agy's normal
+token file. A top-level `.refresh_token` is also accepted for compatibility. Validation prints nothing.
 Failure, invalid JSON, a missing/empty refresh token, or empty stdout (including a set but empty command) removes partial
 output and exits the wrapper with **71**, naming only the variable; agy never starts.
 If observed during startup, `launch` reports its usual **12** for an exited child.

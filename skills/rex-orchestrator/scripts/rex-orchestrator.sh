@@ -120,7 +120,8 @@ rex-orchestrator launch [-d DIR] [-l LABEL] [--split right|left|above|below] [--
     (export CLAUDE_CODE_OAUTH_TOKEN=...) exists; agy once its cage home CAGE_SECRETS/agy-home exists. Its login can
     come from REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD (a shell command returning the token JSON on stdout), or that home.
     The command runs outside the cage from / with a fixed environment; its private command file is unreadable by
-    caged children. Output must be one JSON object with a non-empty string refresh_token. The temporary mode 600
+    caged children. Output must be one JSON object with a non-empty string token.refresh_token (or refresh_token
+    for compatibility). The temporary mode 600
     token is removed after agy exits, including signal shutdown with a bounded wait and KILL if needed.
     Command failure or invalid output stops the wrapper with exit 71 (launch reports 12 if observed during startup).
     A caged child runs from the cage's own config templates, not your settings: pass a model and other settings after --.
@@ -1089,7 +1090,11 @@ if [ -n "$AGY_CMD_FILE" ]; then
   /bin/rm -f "$AGY_CMD_FILE"
   AGY_JQ=/opt/homebrew/bin/jq; [ -x "$AGY_JQ" ] || AGY_JQ=/usr/bin/jq
   if [ "$AGY_TOKEN_RC" -ne 0 ] || ! "$AGY_JQ" -e -s \
-    'length == 1 and (.[0] | type == "object" and (.refresh_token | type == "string" and length > 0))' \
+    'def nonempty_string: if type == "string" then length > 0 else false end;
+     length == 1 and (.[0] | if type == "object" then
+       ((.token | if type == "object" then .refresh_token else null end) | nonempty_string)
+       or (.refresh_token | nonempty_string)
+     else false end)' \
     "$AGY_TOKEN_FILE" >/dev/null 2>&1 || ! chmod 600 "$AGY_TOKEN_FILE"; then
     echo 'rex-orchestrator cage: REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD failed or returned invalid token JSON; agy not started' >&2
     exit 71

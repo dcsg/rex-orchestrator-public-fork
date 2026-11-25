@@ -23,7 +23,7 @@ an explicit `REX_SESSION` is used unchanged. If your shell strips Rex's environm
 The CLI follows install symlinks to find its cage profile and templates beside the real script; the
 `REX_ORCHESTRATOR_CAGE_PROFILE` and `REX_ORCHESTRATOR_CAGE_TPL` overrides take priority.
 For a caged agy login from a secret store, set `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` to a shell command returning the
-token JSON with a non-empty string `refresh_token`. It runs outside the cage from `/` with a fixed environment;
+token JSON with a non-empty string `.token.refresh_token` (or legacy `.refresh_token`). It runs outside the cage from `/` with a fixed environment;
 the command text is hidden from caged children, and the temporary mode 600 token is removed after child shutdown.
 Failure or invalid output exits
 the wrapper with 71 (`launch` reports 12 if observed during startup). Unset keeps the copied-login behavior. See

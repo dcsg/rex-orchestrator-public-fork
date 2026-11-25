@@ -11,6 +11,8 @@ project uses [Semantic Versioning](https://semver.org/).
   failed or empty commands stop the wrapper with exit 71 before agy starts. Unset preserves copied logins.
 
 ### Fixed
+- Accept agy's nested `token.refresh_token` in token-command output while preserving top-level `refresh_token`
+  compatibility; use the complete nested token shape in fake-login regressions.
 - Isolate agy's uncaged token lookup from project configs and environment, hide its command text from caged children,
   and validate the returned refresh-token JSON silently. Stop and reap the child before signal cleanup, with a
   five-second grace period and forced termination if needed; cover additional signals and the fork startup race.

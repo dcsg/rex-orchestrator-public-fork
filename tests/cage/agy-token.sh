@@ -31,7 +31,12 @@ CAGE_AGY_HOME="$CAGE_SECRETS/agy-home" STATE_DIR="$work/state" SCRIPT_DIR="$asse
 cage_tmp='' cage_wrapper=''
 mkdir -p "$CAGE_AGY_HOME/.gemini/antigravity-cli" "$work/project" "$work/bin"
 # Dummy bytes are only ever written to files or compared silently.
-printf '{"refresh_token":"fixture-login"}\n' >"$work/expected"
+cat >"$work/expected" <<'TOKEN'
+{"token":{"access_token":"fixture-access","token_type":"Bearer","refresh_token":"fixture-refresh","expiry":"2099-01-01T00:00:00Z","expires_in":3600},"auth_method":"oauth","id_token_email":"fixture@example.invalid"}
+TOKEN
+jq '.token' "$work/expected" >"$work/expected-top-level"
+jq '.refresh_token = 5' "$work/expected" >"$work/expected-nested-mixed"
+jq '.token = false' "$work/expected-top-level" >"$work/expected-top-level-mixed"
 cat >"$work/bin/token-command" <<'CMD'
 #!/bin/bash
 case "$1" in
@@ -39,10 +44,14 @@ case "$1" in
   fail) cat "$2"; cat "$2" >&2; exit 9 ;;
   empty) exit 0 ;;
   invalid) printf '{' ;;
-  missing) printf '{}' ;;
-  null) printf '{"refresh_token":null}' ;;
-  number) printf '{"refresh_token":5}' ;;
-  blank) printf '{"refresh_token":""}' ;;
+  missing) printf '{"token":{}}' ;;
+  null) printf '{"token":{"refresh_token":null}}' ;;
+  number) printf '{"token":{"refresh_token":5}}' ;;
+  blank) printf '{"token":{"refresh_token":""}}' ;;
+  top-null) printf '{"refresh_token":null}' ;;
+  top-number) printf '{"refresh_token":5}' ;;
+  top-blank) printf '{"refresh_token":""}' ;;
+  array) jq -s . "$2" ;;
   multiple) cat "$2" "$2" ;;
   context)
     pwd -P >"$3/cwd"
@@ -120,7 +129,7 @@ wait_file() {
   for i in {1..200}; do [ ! -f "$1" ] || return 0; sleep 0.05; done
   return 1
 }
-command_for() { printf '%s %s %s' "$(sq "$work/bin/token-command")" "$1" "$(sq "$work/expected")"; }
+command_for() { printf '%s %s %s' "$(sq "$work/bin/token-command")" "$1" "$(sq "${2:-$work/expected}")"; }
 dead() { if kill -0 "$1" 2>/dev/null; then echo no; else echo yes; fi; }
 start_terminal() {
   # Reset inherited dispositions as a real terminal does, before starting the supervising wrapper.
@@ -148,6 +157,16 @@ for code in 0 17; do
   check "token bytes preserved (exit $code)" "$(cmp -s "$work/expected" "$ct/home/observed" && echo yes || echo no)" yes
   check "token removed after exit $code" "$(gone)" yes
   check "command file removed after exit $code" "$([ ! -e "$cmd_file" ] && echo yes || echo no)" yes
+done
+# Accept both supported locations independently, including a malformed unused alternative path.
+for shape in nested top-level nested-mixed top-level-mixed; do
+  shape_fixture="$work/expected"
+  [ "$shape" = nested ] || shape_fixture="$work/expected-$shape"
+  REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=$(command_for success "$shape_fixture")
+  build; run normal 0
+  check "$shape refresh token accepted" "$rc" 0
+  check "$shape payload preserved byte for byte" "$(cmp -s "$shape_fixture" "$ct/home/observed" && echo yes || echo no)" yes
+  check "$shape token removed on exit" "$(gone)" yes
 done
 # The uncaged lookup cannot discover project configs or inherit project environment/startup hooks.
 mkdir -p "$work/context" "$work/project/bin"
@@ -202,7 +221,7 @@ build; run redirect 0 "$work/outside"
 check 'child can replace token parent with a link' "$rc" 0
 check 'cleanup leaves external token behind a parent link alone' \
   "$(cmp -s "$work/expected" "$work/outside/antigravity-oauth-token" && echo yes || echo no)" yes
-for mode in fail empty invalid missing null number blank multiple; do
+for mode in fail empty invalid missing null number blank top-null top-number top-blank array multiple; do
   REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=$(command_for "$mode")
   build; run normal 0
   check "$mode command exits distinctly" "$rc" 71
