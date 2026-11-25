@@ -43,7 +43,9 @@ grok launched by name (`--agent codex`):
   | `#!/usr/bin/env -S node [OPTIONS]` | the same |
 
   OPTIONS are plain dashed words such as `--no-warnings`, with no `=`, `/`, quotes or `$`: nothing that names a file,
-  sets a value or reads the environment. `node` must be a compiled Mach-O, because macOS won't start a script as an
+  sets a value or reads the environment. Words are separated by spaces and tabs only, the line holds no other control
+  character, and it ends with a newline within its first 511 bytes: the kernel runs a longer line, or one it splits
+  differently, with `/bin/sh` instead. `node` must be a compiled Mach-O, because macOS won't start a script as an
   interpreter and `sandbox-exec` would then run the agent file with `/bin/sh`. Any other first line is a script and
   is skipped. That includes any other `env` option or assignment (`-P`, `-i`, `-u`, `-`, `--`, `PATH=…`), a word
   that only looks like a long option (macOS `env` reads `--P/dir` as `-P /dir`), a nested `env`, an argument naming a

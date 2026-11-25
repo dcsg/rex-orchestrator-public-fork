@@ -55,10 +55,14 @@ function M.compiled(head) return machos[head:sub(1,4)]==true end
 local node_names={node=true,nodejs=true}
 function M.node_launcher(head)
   if machos[head:sub(1,4)] then return nil end
-  local line=head:match("^#!([^\n]*)")
-  if not line then return nil end
+  -- The kernel needs the newline within its first 512 bytes, or the file falls back to /bin/sh; stay one byte stricter.
+  local newline=head:find("\n",1,true)
+  if not newline or newline>511 then return nil end
+  local line=head:match("^#!([^\n]*)\n")
+  -- The kernel splits on space and tab only; any other control byte (\r, \v, \f, NUL, ...) is refused, not split on.
+  if not line or line:find("[%z\1-\8\10-\31\127]") then return nil end
   local words={}
-  for word in line:gmatch("%S+") do words[#words+1]=word end
+  for word in line:gmatch("[^ \t]+") do words[#words+1]=word end
   local first,program,options=words[1] or "",nil,2
   if first=="/usr/bin/env" then
     options=3

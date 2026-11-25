@@ -245,7 +245,14 @@ for _,head in ipairs({
   "#!/usr/bin/env node --title \"x\"\n", "#!/usr/bin/env node -\n", "#!/usr/bin/env node --\n",
   "#!/opt/node/bin/node /tmp/x.js\n", "#!/opt/node/bin/node script.js\n", "#!/opt/node/bin/node --a=b\n",
   "#!/opt/node/bin/node $X\n", "#!/opt/node/bin/node 'x'\n",
+  -- The kernel runs a #! line only with its newline in the first 512 bytes, and splits on space and tab alone: an
+  -- overlong line or one the kernel would split differently falls back to /bin/sh, so neither is a Node launcher.
+  "#!/usr/bin/env node" .. string.rep(" -a", 200) .. "\n", "#!/usr/bin/env node", "#!/abs/node\v-x\n",
+  "#!/abs/node\f-x\n", "#!/usr/bin/env node\r\n", "#!/usr/bin/env node\0-x\n", "#!/usr/bin/env\vnode\n",
 }) do eq(M.node_launcher(head),nil,"not a node launcher: " .. M.terminal_text(head)) end
+-- The longest line the kernel still runs stays accepted up to one byte under its limit.
+eq(M.node_launcher("#!/usr/bin/env node" .. string.rep(" -a", 163) .. "\n"),"node","node launcher at 509 bytes")
+eq(M.node_launcher("#!/usr/bin/env node\t--no-warnings\n"),"node","node launcher with a tab")
 for _,v in ipairs({"-1","1.5","","1d","1M"," 1","1sfoo"}) do
   local r=test() -- the command parser must return public exit 2
   eq(r("wait",{child,"--timeout",v}).code,2,"duration " .. v)
