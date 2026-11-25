@@ -40,6 +40,65 @@ end
 function M.trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 function M.starts(s, p) return s:sub(1, #p) == p end
 function M.below(s, p) return M.starts(s, p .. "/") and #s > #p+1 end
+-- What the kernel runs for an executable file, from its first bytes: nil for a compiled Mach-O (thin or universal,
+-- either byte order), else the basename of the interpreter its #! line names, or "sh" without a #! line (execvp hands
+-- such a file to /bin/sh). Through env, it skips options (also those taking a value: -u NAME, -P DIR, -S STRING,
+-- joined or not, and the long forms), NAME=VALUE assignments and "--", and reads a -S string as more arguments.
+local machos={}
+for _,magic in ipairs({"\206\250\237\254","\207\250\237\254","\254\237\250\206","\254\237\250\207",
+  "\202\254\186\190","\202\254\186\191","\190\186\254\202","\191\186\254\202"}) do machos[magic]=true end
+local env_values={P=true,S=true,u=true,L=true,U=true,C=true}
+local env_long={["split-string"]="S",unset="u",chdir="C"}
+local function unquote(word) return (word:gsub("^['\"]",""):gsub("['\"]$","")) end
+local function env_utility(words)
+  local stack={}
+  for i=#words,1,-1 do stack[#stack+1]=words[i] end
+  local function pop() local word=stack[#stack]; stack[#stack]=nil; return word end
+  local function rest()
+    local words={}
+    for i=#stack,1,-1 do words[#words+1]=stack[i] end
+    return words
+  end
+  local function split(value)
+    local parts={}
+    for part in unquote(value):gmatch("%S+") do parts[#parts+1]=unquote(part) end
+    for i=#parts,1,-1 do stack[#stack+1]=parts[i] end
+  end
+  while #stack>0 do
+    local word=pop()
+    if word=="--" then return pop(),rest() end
+    if M.starts(word,"--") then
+      local name,value=word:match("^%-%-([^=]+)=(.*)$")
+      local kind=env_long[name or word:sub(3)]
+      if kind then
+        value=value or pop()
+        if kind=="S" and value then split(value) end
+      end
+    elseif M.starts(word,"-") then
+      for k=2,#word do
+        local option=word:sub(k,k)
+        if env_values[option] then
+          local value=word:sub(k+1)
+          if value=="" then value=pop() end
+          if option=="S" and value then split(value) end
+          break
+        end
+      end
+    elseif not word:match("^[%a_][%w_]*=") then
+      return word,rest()
+    end
+  end
+end
+function M.script_interpreter(head)
+  if machos[head:sub(1,4)] then return nil end
+  local line=head:match("^#!([^\n]*)")
+  if not line then return "sh" end
+  local words={}
+  for word in line:gmatch("%S+") do words[#words+1]=word end
+  local interpreter=table.remove(words,1)
+  while interpreter and M.basename(interpreter)=="env" do interpreter,words=env_utility(words) end
+  return interpreter and M.basename(interpreter) or "sh"
+end
 function M.region(s)
   local a = {}; for _, l in ipairs(M.lines(s)) do
     if l:find("──────────", 1, true) then a={} else a[#a+1]=l end

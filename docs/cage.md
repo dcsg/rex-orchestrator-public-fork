@@ -30,13 +30,19 @@ grok launched by name (`--agent codex`):
   the executable. It must be an absolute path to an executable file. It applies to caged launches only: when nothing
   on `PATH` matches and the cage doesn't apply after all (claude with no cage credential under `auto`), `launch` exits
   2 instead of running the variable's file uncaged.
-- Otherwise `launch` takes the first one on your `PATH` that is not a shell script. A file whose `#!` line names `sh`,
-  `bash`, `zsh`, `dash` or `ksh` (directly or through `env`) is a wrapper or shim, such as one that fetches MCP tokens
-  and then runs the real agent. Inside the cage its environment is gone, its `PATH` lookup usually finds nothing, and
-  the cage config has no MCP servers to give tokens to, so `launch` skips it and says which file it skipped and which
-  one it runs. It never runs the shim. When every match on `PATH` is a shell script, `launch` exits 2 and names the
-  variable to set. If such a script is the agent's own launcher (some package managers install one), set the variable
-  to it. Uncaged launches still run the first match, shim included.
+- Otherwise `launch` takes the first one on your `PATH` that is a compiled executable (Mach-O) or a Node script. Those
+  are what the agents install: codex's and claude's native binaries and grok's download are Mach-O, an npm install of
+  codex runs `bin/codex.js` through `#!/usr/bin/env node`, and npm's claude package puts its native binary in place
+  at install time. Every other match is a script: a shell script in any `#!` form (directly, or through `env` with any
+  options, `NAME=VALUE` assignments or a `-S` string, joined or not), a text file with no `#!` line (which `execvp`
+  hands to `/bin/sh`), or a fish, Python, Perl or Ruby script, or any other interpreter. Such a file is a wrapper or
+  shim, such as one that fetches MCP tokens and then runs the real agent. Inside the cage its environment is gone,
+  its `PATH` lookup usually finds nothing, and the cage config has no MCP servers to give tokens to, so `launch`
+  skips it and says which file it skipped and which one it runs. It never runs the shim. An unreadable file is skipped
+  too, since it can't be told apart. When nothing on `PATH` qualifies, `launch` exits 2 and names the variable to set.
+  If such a script is the agent's own launcher (a pnpm or asdf wrapper, say), set the variable to it. Uncaged launches
+  still run the first match, shim included. agy is not affected: its Homebrew launcher is itself a Bash script, and
+  `launch` runs it as before.
 - `--agent` given as a path is used as given.
 
 The cage denies reads and execution under every agent home (`~/.claude*`, `~/.codex*`, `~/.grok*`, `~/.gemini*`), so an
@@ -57,10 +63,8 @@ This protects only the codex homes the profile denies, `~/.codex*`. With `CODEX_
 `config.toml`, sessions, history and logs, as it could before this release folder rule existed. Keep `CODEX_HOME`
 under `~/.codex*` if that matters.
 
-Known limits of the shim check: it reads only the `#!` line. A script with no `#!` line (run by the shell anyway), a
-`#!` line where `env` has an option that takes a value (`env -u NAME sh`, `env -P DIR sh`) or the shell joined to
-`-S` (`env -Ssh`), and a shim written in another language (fish, Node, Python) are not recognized as shims. Such a
-file runs in the cage as it did before this check existed, still with no access to anything the cage denies. Set
+A shim written in Node is the one kind the check can't tell from an npm-installed agent: it runs in the cage, as
+it did before this check existed, still with no access to anything the cage denies. Set
 `REX_ORCHESTRATOR_CAGE_<AGENT>_BIN` to skip it.
 
 ### Setting up claude and Gemini (agy)

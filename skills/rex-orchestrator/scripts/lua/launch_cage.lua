@@ -102,34 +102,28 @@ return function(C,M)
     return r
   end
 
-  -- The cage runs codex, claude and grok as their own executables. A shell script found on PATH under the agent's
-  -- name is a wrapper or shim (one that injects tokens and execs the real agent, say), not the agent: the cage
-  -- skips it, because its env -i and fixed PATH would break it, and what it adds is what the cage strips.
+  -- The cage runs codex, claude and grok as their own executables: a compiled one, or a Node script (an npm install
+  -- of codex runs bin/codex.js through `#!/usr/bin/env node`). Any other file on PATH under the agent's name is a
+  -- script (a shell, fish, Python, Perl or Ruby one, or text with no #! line that execvp hands to sh): a wrapper or
+  -- shim, one that injects tokens and execs the real agent, say. The cage skips it, because its env -i and fixed PATH
+  -- would break it, and what it adds is what the cage strips. An unreadable file can't be told apart, so it is
+  -- skipped too.
   local direct={codex=true,claude=true,grok=true}
-  local shells={sh=true,bash=true,zsh=true,dash=true,ksh=true}
-  local function shell_script(path)
+  local runnable={node=true,nodejs=true}
+  local function agent_file(path)
     local f=io.open(path,"rb")
     if not f then return false end
-    local head=f:read(256) or ""
+    local head=f:read(512) or ""
     f:close()
-    local line=head:match("^#![ \t]*([^\n]*)")
-    if not line then return false end
-    local words={}
-    for word in line:gmatch("%S+") do words[#words+1]=word end
-    local interpreter=words[1] and M.basename(words[1]) or ""
-    if interpreter=="env" then
-      for i=2,#words do
-        if not M.starts(words[i],"-") and not words[i]:find("=",1,true) then interpreter=M.basename(words[i]); break end
-      end
-    end
-    return shells[interpreter]==true
+    local interpreter=M.script_interpreter(head)
+    return interpreter==nil or runnable[interpreter]==true
   end
   function K.override(name)
     return direct[name] and env("REX_ORCHESTRATOR_CAGE_" .. name:upper() .. "_BIN") or nil
   end
 
   -- The executable a caged agent runs: --agent's path as given; for a bare name, REX_ORCHESTRATOR_CAGE_<AGENT>_BIN,
-  -- else the first one on PATH that isn't a shell script.
+  -- else the first one on PATH that is compiled or a Node script.
   local function caged_binary(r,name,opts)
     if not direct[r.runtime] or (opts.agent or r.bin):find("/",1,true) then return r.bin end
     local variable="REX_ORCHESTRATOR_CAGE_" .. name:upper() .. "_BIN"
@@ -144,16 +138,16 @@ return function(C,M)
     local skipped={}
     for _,path in ipairs(F.executables(opts.agent)) do
       if not M.starts(path,"/") then path=(env("PWD") or F.logical(".")) .. "/" .. path end
-      if not shell_script(path) then
+      if agent_file(path) then
         if #skipped>0 then
-          C.note("cage: skipped " .. table.concat(skipped,", ") .. ": a shell script, not " .. name ..
+          C.note("cage: skipped " .. table.concat(skipped,", ") .. ": a script, not " .. name ..
             " itself (a wrapper or shim the cage would break); running " .. path .. " (" .. variable .. " picks another)")
         end
         return path
       end
       skipped[#skipped+1]=path
     end
-    return nil,"cage: every " .. name .. " on PATH is a shell script (" .. table.concat(skipped,", ") ..
+    return nil,"cage: every " .. name .. " on PATH is a script that isn't Node (" .. table.concat(skipped,", ") ..
       "), a wrapper or shim the cage would break; set " .. variable .. " to the real " .. name .. " executable" ..
       " (or to that script, if it is " .. name .. "'s own launcher and runs without your environment)"
   end

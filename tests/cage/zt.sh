@@ -31,7 +31,8 @@
 #   - a standalone codex under HOME/.codex/packages/standalone/releases/<version>/, reached through a link on PATH,
 #     runs in the cage from its physical path with only its release folder readable: auth.json (with CODEX_HOME
 #     elsewhere), config, sessions, history, logs and a sibling release stay unreadable and unexecutable, the release
-#     folder unwritable; a shell-script shim first on PATH is skipped and never run, a PATH of shims only is refused
+#     folder unwritable; script shims first on PATH (shell in every #! form, no #!, fish, Python, Perl, Ruby) are
+#     skipped and never run while a Node script is taken, a PATH of shims only is refused
 #     naming the override, REX_ORCHESTRATOR_CAGE_CODEX_BIN picks the executable, an agent executable elsewhere
 #     under an agent home is refused, and one outside them reached through a link inside one runs by its physical path;
 #   - a seeding step of the wrapper that fails stops it before the agent starts (its set -e);
@@ -445,15 +446,14 @@ want w ALLOW "$CT/home/.gemini/x"
 CAGE_AGY_HOME="$WORK/no-agy-home"
 
 echo "== a standalone codex release under the agent home =="
+# Runs only with a C compiler: the cage runs no script found on PATH under an agent's name but a Node one, so the
+# stand-in for the release's codex is compiled (tests/cage/argprobe.c drops the recipe's flags and runs sh, like PROBE).
+standalone_checks() {
 # The layout codex's standalone installer makes: releases/<version>/ holding bin/codex and its helpers, a current link
-# to the release in use, and ~/.local/bin/codex linking through it. The stand-in is a Perl script, not a shell one: the
-# cage runs no shell script found on PATH under an agent's name. Like PROBE, it drops the recipe's flags and runs sh.
+# to the release in use, and ~/.local/bin/codex linking through it.
 SA="$FH/.codex/packages/standalone"; REL="$SA/releases/9.9.9-zt"; OLD="$SA/releases/9.9.8-zt"
 mkdir -p "$REL/bin" "$REL/codex-path" "$OLD/bin" "$FH/.local/bin" "$FH/.codex/sessions" "$FH/.codex/log" "$FH/.codex/bin"
-# shellcheck disable=SC2016 # Perl source, written as is.
-printf '%s\n' '#!/usr/bin/perl' 'shift @ARGV while @ARGV && $ARGV[0] =~ /^--/;' 'exec "/bin/sh", @ARGV or exit 127;' \
-  >"$REL/bin/codex"
-chmod 755 "$REL/bin/codex"; cp "$REL/bin/codex" "$OLD/bin/codex"; cp "$REL/bin/codex" "$FH/.codex/bin/codex"
+cp "$ARGPROBE" "$REL/bin/codex"; cp "$ARGPROBE" "$OLD/bin/codex"; cp "$ARGPROBE" "$FH/.codex/bin/codex"
 printf 'helper\n' >"$REL/codex-path/rg"
 # A Mach-O in each release too: the kernel refuses to exec one the cage can't read, before any interpreter runs.
 cp /usr/bin/true "$REL/bin/helper"; cp /usr/bin/true "$OLD/bin/helper"; cp /usr/bin/true "$FH/.codex/bin/helper"
@@ -464,6 +464,19 @@ SHIM_MARK="$WORK/shim-ran"; mkdir -p "$WORK/shims" "$WORK/tools"
 printf '%s\n' '#!/bin/bash' "# a user's codex shim" ": >$(q "$SHIM_MARK")" \
   "echo \"codex: the real codex isn't on PATH\" >&2; exit 127" >"$WORK/shims/codex"
 chmod 755 "$WORK/shims/codex"; ln -s "$(command -v luajit)" "$WORK/tools/luajit"
+# Shims in every other form the cage must not take for codex: no #! line (execvp hands it to sh), env with options
+# taking a value, -S separate, quoted or joined, assignments, and fish, Python, Perl and Ruby scripts. Each would
+# leave the same mark. A Node script is what an npm install runs, so it is taken.
+SHIMS=""
+for form in 'none' '#!/usr/bin/env -u NAME sh' '#!/usr/bin/env -P /usr/bin bash' "#!/usr/bin/env -S 'bash -e'" \
+  '#!/usr/bin/env -Ssh' '#!/usr/bin/env A=1 B=2 bash' '#!/usr/bin/env fish' '#!/usr/bin/python3' '#!/usr/bin/perl' \
+  '#!/usr/bin/env ruby'; do
+  d=$WORK/shims-$(printf '%s' "$form" | tr -c 'A-Za-z0-9' _); mkdir -p "$d"
+  if [ "$form" = none ]; then printf ': >%s\n' "$(q "$SHIM_MARK")" >"$d/codex"
+  else printf '%s\n%s\n' "$form" "# would mark $SHIM_MARK" >"$d/codex"; fi
+  chmod 755 "$d/codex"; SHIMS="$SHIMS$d:"
+done
+mkdir -p "$WORK/nodebin"; printf '#!/usr/bin/env node\n' >"$WORK/nodebin/codex"; chmod 755 "$WORK/nodebin/codex"
 # sa_build PATH [VAR=VALUE...]: build a codex cage for PD as launch does for a bare --agent codex, with only PATH (and
 # the variables) changed; sets W, CT and CWD on success and SA_RC to the build's exit code, its notes in build.log.
 sa_build() {
@@ -482,7 +495,7 @@ if sa_build "$WORK/shims:$LINKED"; then
   chk "standalone: the cage runs the release's physical path" "REAL='$REL/bin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
   chk "standalone: AGENT_BIN_DIR is that release folder" "BINDIR='$REL'" "$(grep -m1 -o "BINDIR='[^']*'" "$W")"
   chk "standalone: launch says it skipped the shim" yes \
-    "$(grep -qF "skipped $WORK/shims/codex: a shell script" "$WORK/build.log" && echo yes || echo no)"
+    "$(grep -qF "skipped $WORK/shims/codex: a script" "$WORK/build.log" && echo yes || echo no)"
   chk "standalone: the release codex starts in the cage" RAN "$(cg -c 'echo RAN')"
   want r READ "$REL/bin/codex" "$REL/codex-path/rg" "$REL"
   want r DENY "$FH/.codex/config.toml" "$FH/.codex/history.jsonl" "$FH/.codex/sessions/s.jsonl" \
@@ -496,6 +509,13 @@ if sa_build "$WORK/shims:$LINKED"; then
   chk "standalone: the link through current does not run" DENY \
     "$(cg -c "$(q "$FH/.local/bin/codex") -c 'echo RAN' 2>/dev/null || echo DENY")"
 else bad "standalone: cage_build failed with a shim first on PATH (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
+if sa_build "$SHIMS$LINKED"; then
+  chk "every script form is skipped for the release" "REAL='$REL/bin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
+  chk "the note names all ten skipped scripts" 10 "$(grep -o "$WORK/shims-[^ ,:]*/codex" "$WORK/build.log" | sort -u | wc -l | tr -d ' ')"
+else bad "script forms: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
+if sa_build "$WORK/shims:$WORK/nodebin:$LINKED"; then
+  chk "a Node script on PATH is taken as the agent" "REAL='$WORK/nodebin/codex'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
+else bad "Node script: cage_build failed (rc $SA_RC: $(tr '\n' ' ' <"$WORK/build.log"))"; fi
 # With CODEX_HOME elsewhere AGENT_AUTH is that home's auth.json, so only the release folder could open
 # HOME/.codex/auth.json: it must stay unreadable, and, made executable, must not run.
 CXH="$WORK/codex-alt-home"; mkdir -p "$CXH"; printf 'fixture\n' >"$CXH/auth.json"
@@ -545,6 +565,14 @@ rc=0; cage_build grok "$FH/.grok/grok" "$PD" >/dev/null 2>"$WORK/build.log" || r
 chk "a grok executable under ~/.grok: refused" 2 "$rc"
 chk "the refusal says the cage can't read it" yes \
   "$(grep -qF "under $FH/.grok, which the cage can't read" "$WORK/build.log" && echo yes || echo no)"
+
+}
+if command -v cc >/dev/null 2>&1 && cc -o "$WORK/argprobe" "$HERE/argprobe.c" 2>"$WORK/cc.log"; then
+  ARGPROBE=$WORK/argprobe
+  standalone_checks
+else
+  test_skip "standalone codex checks require a C compiler ($(tr '\n' ' ' <"$WORK/cc.log" 2>/dev/null))"
+fi
 
 echo "== what runs or is sourced outside the cage stays write-locked, even in a DIR that holds it =="
 # The claude wrapper sources claude-<name>.env outside the cage, and the skill folder holds the launcher, its profile,

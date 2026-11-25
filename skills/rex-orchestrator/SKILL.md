@@ -24,7 +24,7 @@ such as `clone` and transcript harvesting require LuaJIT.
 The CLI follows install symlinks to find its cage profile and templates beside the real script; the
 `REX_ORCHESTRATOR_CAGE_PROFILE` and `REX_ORCHESTRATOR_CAGE_TPL` overrides take priority.
 A relative `REX_ORCHESTRATOR_CAGE_AGY_HOME` resolves against the launcher's working directory.
-A caged codex, claude or grok runs the first match on `PATH` that isn't a shell script (a shim is skipped, never run),
+A caged codex, claude or grok runs the first match on `PATH` that is compiled or a Node script (a shim is skipped, never run),
 or `REX_ORCHESTRATOR_CAGE_<AGENT>_BIN` when set. A standalone codex under `~/.codex/packages/standalone/` runs caged
 from its release folder, the only part of `~/.codex` the cage opens.
 For a caged agy login from a secret store, set `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` to a shell command returning the

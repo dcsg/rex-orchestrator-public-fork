@@ -27,8 +27,8 @@ Every command works with any agent that reports Rex program status. `launch` pic
   `Rex.app`/`Rex Beta.app` (or `REX_ORCHESTRATOR_REX_BIN_DIR`), and each call needs `REX_BLOCK=…` in front, from the
   session-start text Rex's Codex hook prints. When `REX_SESSION` is empty, the CLI resolves the session from
   `REX_BLOCK`. An explicit `REX_SESSION` selects the session.
-- Caged, `launch` runs codex's own executable, never a shell-script shim found on `PATH` first (one that fetches MCP
-  tokens, say): it skips the shim and says so, or exits 2 when only shims match. `REX_ORCHESTRATOR_CAGE_CODEX_BIN` names
+- Caged, `launch` runs codex's own executable (compiled, or npm's Node `codex.js`), never a script shim found on `PATH`
+  first (one that fetches MCP tokens, say): it skips the shim and says so, or exits 2 when only shims match. `REX_ORCHESTRATOR_CAGE_CODEX_BIN` names
   the executable. A standalone install (`~/.local/bin/codex` linking into `~/.codex/packages/standalone/`) runs caged
   from its release folder, the only part of `~/.codex` the cage opens. That holds for `~/.codex*` only: the cage
   doesn't deny a `CODEX_HOME` outside it at all. See [cage.md](cage.md#which-executable-a-caged-agent-runs).

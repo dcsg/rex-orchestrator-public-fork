@@ -188,6 +188,50 @@ local expected={
 for name,want in pairs(expected) do eq(M.background(fixture("bg/" .. name)):match("^(%d+)") or "",want,"background " .. name) end
 local run,C,A=test()
 eq(M.duration("--timeout","008m",C.die),480)
+-- What runs an executable file: nil for a compiled Mach-O, else the interpreter's basename ("sh" without #!).
+for _,case in ipairs({
+  {"\207\250\237\254\7\0\0\1",nil},                      -- Mach-O 64-bit, little-endian (arm64, x86_64)
+  {"\206\250\237\254",nil},                              -- Mach-O 32-bit
+  {"\254\237\250\207",nil},{"\254\237\250\206",nil},     -- big-endian
+  {"\202\254\186\190\0\0\0\2",nil},                      -- universal
+  {"\202\254\186\191",nil},{"\190\186\254\202",nil},{"\191\186\254\202",nil},
+  {"#!/bin/bash\nexec x","bash"},
+  {"#! /bin/sh -e\n","sh"},
+  {"#!/bin/zsh","zsh"},
+  {"#!/usr/bin/env bash\n","bash"},
+  {"#!/usr/bin/env node\n","node"},
+  {"#!/usr/bin/env -S node --no-warnings\n","node"},
+  {"#!/usr/bin/env -i bash\n","bash"},
+  {"#!/usr/bin/env -iv bash\n","bash"},
+  {"#!/usr/bin/env - bash\n","bash"},
+  {"#!/usr/bin/env -u NAME sh\n","sh"},
+  {"#!/usr/bin/env -uNAME python3\n","python3"},
+  {"#!/usr/bin/env -P /opt/bin sh\n","sh"},
+  {"#!/usr/bin/env -P/opt/bin perl\n","perl"},
+  {"#!/usr/bin/env -S bash -e\n","bash"},
+  {"#!/usr/bin/env -S 'bash -e'\n","bash"},
+  {"#!/usr/bin/env -S\"ruby -w\"\n","ruby"},
+  {"#!/usr/bin/env -Ssh\n","sh"},
+  {"#!/usr/bin/env -S -u X fish\n","fish"},
+  {"#!/usr/bin/env -iS bash\n","bash"},
+  {"#!/usr/bin/env --split-string=bash\n","bash"},
+  {"#!/usr/bin/env --unset NAME node\n","node"},
+  {"#!/usr/bin/env --unset=NAME zsh\n","zsh"},
+  {"#!/usr/bin/env -C /tmp dash\n","dash"},
+  {"#!/usr/bin/env A=1 B=2 bash\n","bash"},
+  {"#!/usr/bin/env -i PATH=/x -- ksh\n","ksh"},
+  {"#!/usr/bin/env env bash\n","bash"},
+  {"#!/usr/bin/env -i /usr/bin/env -u X node\n","node"},
+  {"#!/usr/bin/env\n","sh"},
+  {"#!\n","sh"},
+  {"#!/usr/local/bin/fish\n","fish"},
+  {"#!/usr/bin/python3 -I\n","python3"},
+  {"#!/usr/bin/perl -w\n","perl"},
+  {"#!/usr/bin/ruby\n","ruby"},
+  {"#!/opt/homebrew/bin/node\n","node"},
+  {"echo no shebang\n","sh"},
+  {"","sh"},
+}) do eq(M.script_interpreter(case[1]),case[2],"script_interpreter " .. M.terminal_text(case[1]:sub(1,40))) end
 for _,v in ipairs({"-1","1.5","","1d","1M"," 1","1sfoo"}) do
   local r=test() -- the command parser must return public exit 2
   eq(r("wait",{child,"--timeout",v}).code,2,"duration " .. v)

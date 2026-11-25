@@ -30,7 +30,8 @@ project uses [Semantic Versioning](https://semver.org/).
   An explicit `REX_SESSION` selects the session.
 - Run a caged codex from a standalone install (`~/.codex/packages/standalone/releases/<version>/`): the cage runs it by
   its physical path and re-opens only that release folder, read and execute only, for that launch. A caged codex,
-  claude or grok launched by name skips shell-script shims on `PATH` instead of running them in the cage. The cage
+  claude or grok launched by name skips script shims on `PATH` (anything but a compiled executable or a Node script)
+  instead of running them in the cage. The cage
   now denies execution under agent homes as well as reads, and `launch` refuses an agent executable it can't start
   there with exit 2. An executable reached through a link inside an agent home runs by its physical path.
 - Find cage assets beside the real CLI script through absolute and relative install symlinks and symlink chains,
