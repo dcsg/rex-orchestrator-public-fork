@@ -14,8 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install tools
-        run: brew install shellcheck
-      - name: shellcheck (every shell script, following sourced files)
+        run: brew install shellcheck bash
+      - name: Bash 3.2 and 5 parse, and shellcheck (every shell script, following sourced files)
         run: tests/shellcheck.sh
       - name: Python compiles
         run: python3 -m py_compile tests/harness/*.py

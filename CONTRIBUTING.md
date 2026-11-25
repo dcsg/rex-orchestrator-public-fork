@@ -19,7 +19,7 @@ the system's Bash 3.2.
 tests/install_test.sh    # installer
 tests/harness/run.sh     # CLI entry and wrapper checks under Bash 3.2 and 5
 tests/cage/zt.sh         # cage profile: writes, reads, network, mach, plants — no agent, no tokens
-tests/shellcheck.sh       # shellcheck -x over every tracked shell script (what CI runs)
+tests/shellcheck.sh       # every tracked shell script: parses under Bash 3.2 and 5, passes shellcheck -x (CI runs it)
 luajit tests/lua/unit.lua .  # Lua 5.1 unit tests with fake Rex and in-memory state
 tests/lua/entry.sh          # shell entry point and argument serialization under Bash 3.2 and 5
 tests/lua/standalone.sh     # offline clone, claims, token validation and transcript archival
