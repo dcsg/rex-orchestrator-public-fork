@@ -1,14 +1,17 @@
-#!/bin/bash
+#!/bin/bash -p
 # Exercise generated agy wrappers with sandbox-exec and shell probes. No agents, Rex, or real secret-store commands.
 set -euo pipefail
+# shellcheck source=tests/isolate.inc.sh
+. "${BASH_SOURCE[0]%/*}/../isolate.inc.sh"
 here=$(cd "$(dirname "$0")" && pwd -P)
-SCRIPT=${REX_ORCHESTRATOR_SH:-$here/../../skills/rex-orchestrator/scripts/rex-orchestrator.sh}
-assets=$(cd "$(dirname "$SCRIPT")" && pwd -P)
+assets=$(cd "$here/../../skills/rex-orchestrator/scripts" && pwd -P)
 ASSETS=$assets
 test_bash=${HARNESS_BASH:-$BASH}
 work=$(mktemp -d "${TMPDIR:-/tmp}/rex-agy-token.XXXXXX")
 work=$(cd "$work" && pwd -P)
 wrapper_pid=
+has_pty=0
+if test_has_pty; then has_pty=1; fi
 trap '[ -z "$wrapper_pid" ] || kill -TERM "$wrapper_pid" 2>/dev/null || :; rm -rf "$work"' EXIT
 pass=0 fail=0
 check() {
@@ -24,7 +27,6 @@ check() {
 # shellcheck source=tests/cage/build.inc.sh
 . "$here/build.inc.sh"
 export HOME="$work/home"
-unset CODEX_HOME XDG_CONFIG_HOME REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD
 # shellcheck disable=SC2034  # read by the fixture driver
 CAGE_PROFILE="$assets/cage.sb" CAGE_TPL="$assets/cage"
 CAGE_SECRETS="$HOME/.config/rex-orchestrator/cage-secrets"
@@ -238,6 +240,17 @@ REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=''
 build; run normal 0
 check 'set but empty command fails closed' "$rc" 71
 check 'set but empty command removes token' "$(gone)" yes
+
+REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=$(command_for success)
+build
+printf '#!/bin/bash\nexit 69\n' > "$work/missing-lua.sh"
+sed "s| LOCAL_LUA='[^']*'| LOCAL_LUA='$work/missing-lua.sh'|" "$cage_wrapper" > "$ct/bin/without-lua"
+mv "$ct/bin/without-lua" "$cage_wrapper"; chmod +x "$cage_wrapper"
+run normal 0
+check 'missing LuaJIT fails closed before startup' "$rc:$(started)" '71:no'
+check 'missing LuaJIT reports the dependency' "$(grep -Fc 'requires LuaJIT' "$work/err")" 1
+check 'missing LuaJIT removes the token' "$(gone)" yes
+if [ "$has_pty" -eq 1 ]; then
 for signal in HUP INT TERM QUIT PIPE USR1 USR2 ALRM; do
   REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD=$(command_for success)
   build
@@ -282,6 +295,9 @@ finish_terminal
 check 'signal in fork-to-PID-assignment window returns 129' "$rc" 129
 check 'fork-race child is dead' "$(dead "$(cat "$ct/race-pid")")" yes
 check 'fork-race token removed' "$(gone)" yes
+else
+  test_skip 'agy terminal signal and fork-race checks cannot allocate a pty in this environment'
+fi
 # HUP while the command is still writing also removes its partial output and never starts the agent.
 REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD="$(command_for hold) $(sq "$work/command-started")"
 build
@@ -294,6 +310,7 @@ if wait_file "$work/command-started"; then
   check 'HUP during provisioning reaps command process' "$(dead "$(cat "$work/command-started.pid")")" yes
   check 'HUP during provisioning removes private command' "$([ ! -e "$cmd_file" ] && echo yes || echo no)" yes
 else check 'provisioning fixture starts' no yes; fi
+if [ "$has_pty" -eq 1 ]; then
 # Cancellation during the normal provider-drain grace period must be replayed before agent startup.
 REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD="$(command_for drain) $(sq "$work/draining-provider")"
 build; start_terminal normal 0
@@ -313,6 +330,9 @@ rc=0
 check 'pty child exits successfully' "$rc" 0
 check 'child keeps terminal stdin, stdout and foreground process group' "$([ -f "$ct/home/tty-ok" ] && echo yes || echo no)" yes
 check 'pty exit removes token' "$(gone)" yes
+else
+  test_skip 'agy provider-drain and foreground terminal checks cannot allocate a pty in this environment'
+fi
 unset REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD
 cp "$work/expected" "$CAGE_AGY_HOME/.gemini/antigravity-cli/antigravity-oauth-token"
 chmod 644 "$CAGE_AGY_HOME/.gemini/antigravity-cli/antigravity-oauth-token"

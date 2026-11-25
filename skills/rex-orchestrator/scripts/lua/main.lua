@@ -13,12 +13,13 @@ end,finish=function(code)
   rex.stop(code)
 end})
 local A=dofile(dir .. "approval.lua")(C,M)
-local commands=dofile(dir .. "commands.lua")(C,M,A)
+local args=dofile(dir .. "arguments.lua")(C,M)
+local commands=dofile(dir .. "commands.lua")(C,M,A,args)
 C.script_dir=rex.args.script_dir
 C.rex_bin=rex.args.rex_bin
 local registry=dofile(dir .. "registry.lua")(C,M)
 local input=dofile(dir .. "input.lua")(M)
-for name,fn in pairs(dofile(dir .. "mutations.lua")(C,M,input,registry)) do commands[name]=fn end
+for name,fn in pairs(dofile(dir .. "mutations.lua")(C,M,input,registry,args)) do commands[name]=fn end
 local function launcher()
   local cage=dofile(dir .. "launch_cage.lua")(C,M)
   local dialogs=dofile(dir .. "launch_dialog.lua")(C,M,input)

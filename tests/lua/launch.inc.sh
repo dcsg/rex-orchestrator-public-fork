@@ -170,6 +170,7 @@ launch_close
 for signal_and_code in HUP:129 INT:130 TERM:143; do
   sig=${signal_and_code%%:*}
   mkdir "$T/launch-work/cancel-$sig"
+  : > "$T/cancel.err"
   # The asynchronous test job inherits ignored INT. Reset it the way a terminal does.
   /usr/bin/perl -e '$SIG{INT} = $SIG{HUP} = "DEFAULT"; exec @ARGV or die "exec fixture\n"' \
     /bin/bash "$CLI" launch --no-cage --agent "$T/launch-agents/claude-never" --dir "$T/launch-work/cancel-$sig" \
@@ -183,7 +184,10 @@ for signal_and_code in HUP:129 INT:130 TERM:143; do
   check "launch interrupted by $sig exits with its signal status" "$code" "${signal_and_code#*:}"
   check "launch interrupted by $sig reports no ID" "$(cat "$T/cancel.out")" ''
   check "launch interrupted by $sig removes the claim" "$(cli claims --json | jq -r --arg id "$cancelled" 'select(.block==$id) | .block')" ''
-  grep -q 'launch stopped before the agent was ready; closed block:' "$T/cancel.err"
+  grep -q 'launch stopped before the agent was ready; closed block:' "$T/cancel.err" || {
+    cat "$T/cancel.err" >&2
+    exit 1
+  }
 done
 
 # Simulate Rex making a pane before the launcher receives and stores its ID.

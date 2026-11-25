@@ -29,7 +29,7 @@ on screen, a status that isn't `working` or `blocked`, and its input footer or a
 | `-l`, `--label LABEL` | Pane label (default `claude`) |
 | `--agent CMD` | Agent command to run (default `claude`); any wrapper on your `PATH` works |
 | `--kind KIND` | Dialog handling to use (`claude`, `codex`, `grok`, `agy` (Gemini), `muse`) when CMD's name doesn't say |
-| `--split DIR`, `-b ANCHOR`, `--ratio PCT` | Split ANCHOR (default: your pane) in that direction, the new pane taking PCT % (default 50) |
+| `--split DIR`, `-b ANCHOR`, `--ratio PCT` | Split ANCHOR (default: your pane) in that direction. The new pane takes a whole percentage from 1 to 99 (default 50) |
 | `--tab NAME` | Open a tab instead of a split (80x24 unless focused) |
 | *(no placement flag)* | Split the largest pane of your window along its longer side, so every child stays in view |
 | `--focus` | Focus the new pane (by default you keep focus) |

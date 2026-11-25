@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -p
 # zt.sh: a zero-token regression for the rex-orchestrator sandbox-exec cage. No agent, no network, no tokens; a few seconds.
 # Each cage is built by the Lua builder used by `launch`, with a probe in the
 # agent's place, and every check runs through the generated wrapper itself: its env -i, the -D set it computes and the
@@ -30,11 +30,13 @@
 #   - a seeding step of the wrapper that fails stops it before the agent starts (its set -e);
 #   - if clang is present, a Mach-O compiled in-cage reaches exactly the 7 allowlisted mach services and can't open
 #     an IOKit user client.
-# Usage: tests/cage/zt.sh   (REX_ORCHESTRATOR_SH picks the script; its sibling cage.sb and cage/ are the shipped assets.)
+# Usage: tests/cage/zt.sh
 # Prints one PASS/FAIL line per check; exits non-zero on any FAIL.
 set -u
+# shellcheck source=tests/isolate.inc.sh
+. "${BASH_SOURCE[0]%/*}/../isolate.inc.sh" || exit 2
 HERE=$(cd "$(dirname "$0")" && pwd -P)
-SCRIPT=${REX_ORCHESTRATOR_SH:-$HERE/../../skills/rex-orchestrator/scripts/rex-orchestrator.sh}
+SCRIPT=$HERE/../../skills/rex-orchestrator/scripts/rex-orchestrator.sh
 SDIR=$(cd "$(dirname "$SCRIPT")" && pwd -P)
 ASSETS=$SDIR
 PROFILE="$SDIR/cage.sb"
@@ -62,7 +64,6 @@ unseal() {
 }
 trap 'kill $SLEEPER $LISTENER 2>/dev/null; unseal "$WORK"; rm -rf "$WORK"' EXIT
 FH="$WORK/home"; STATE_DIR="$WORK/state"; mkdir -p "$FH" "$STATE_DIR"
-unset CODEX_HOME GROK_HOME CLAUDE_CONFIG_DIR REX_ORCHESTRATOR_CAGE_AGY_HOME REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD XDG_CONFIG_HOME XDG_STATE_HOME
 export HOME="$FH" REX_SESSION=session:zt REX_BLOCK=block:zt SSH_AUTH_SOCK="$WORK/agent.sock" ZT_TOKEN=zt-secret-must-not-leak
 # Use fixture secrets and a stand-in skill folder whose parent the cage write-locks.
 # shellcheck disable=SC2034
@@ -186,7 +187,11 @@ else ok "read another session's scratchpad (no $CT5 of yours, skipped)"; fi
 echo "== the pty: own tty, /dev/tty and other ptys are writable (sub-ptys must work) =="
 # The wrapper looks up its own tty (stdin) at run time, so this runs it on a pty of its own (python's pty.fork) next to
 # a second pty it must not write: the stand-in for another pane. /dev/tty (the controlling terminal) stays open.
-if command -v python3 >/dev/null 2>&1; then
+if ! command -v python3 >/dev/null 2>&1; then
+  test_skip 'cage pty checks require python3'
+elif ! test_has_pty; then
+  test_skip 'cage pty checks cannot allocate a pty in this environment'
+else
   mk codex "$PD" || bad "pty: cage_build failed"
   # shellcheck disable=SC2016  # the child's shell expands it
   ptyout=$(python3 -I -c '
@@ -215,12 +220,18 @@ while True:
 os.waitpid(pid, 0)
 print(out.decode(errors="replace").replace("\r", ""))
 ' "$W" "$CWD" 2>&1)
-  case "$ptyout" in *PRECONDITION*) bad "pty: $ptyout" ;; *)
+  case "$ptyout" in
+  *PRECONDITION*) test_skip "$ptyout" ;;
+  *'Operation not permitted'*|*'Permission denied'*|*'out of pty devices'*)
+    if [ "${ptyout#*Traceback}" != "$ptyout" ]; then
+      test_skip 'cage pty checks cannot allocate the second uncaged pty'
+    else bad "pty: $ptyout"; fi ;;
+  *)
     chk "pty: write to the child's own tty" ALLOW "$(sed -nE 's/^OWN=(ALLOW|DENY)$/\1/p' <<<"$ptyout")"
     chk "pty: write to a second pty (sub-pty case)" ALLOW "$(sed -nE 's/^OTHER=(ALLOW|DENY)$/\1/p' <<<"$ptyout")"
     chk "pty: write to /dev/tty" ALLOW "$(sed -nE 's/^DEVTTY=(ALLOW|DENY)$/\1/p' <<<"$ptyout")" ;;
   esac
-else ok "pty checks skipped (no python3)"; fi
+fi
 
 echo "== other repos under ~/Repos are unreadable, DIR's own is not =="
 # DIR = ~/Repos/zt-proj; ~/Repos/other (fixture), a repo whose name starts like DIR's, and one below DIR's name as a
@@ -324,7 +335,9 @@ chk "clone commit stays in destination" 2 "$(git -C "$CD" rev-list --count HEAD 
 echo "== no signals, local services or app launches out of the cage =="
 sleep 30 & SLEEPER=$!; disown
 chk "kill -0 a process outside the cage" DENY "$(cg -c "kill -0 $SLEEPER 2>/dev/null && echo ALLOW || echo DENY")"
-if command -v python3 >/dev/null 2>&1; then
+if ! command -v python3 >/dev/null 2>&1 || ! command -v nc >/dev/null 2>&1; then
+  test_skip 'cage network checks require python3 and nc'
+else
   # A loopback port and a unix socket that accept and close each connection, so nc returns at once.
   python3 -I -c 'import select, socket, sys, time
 s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(5)
@@ -332,15 +345,15 @@ u = socket.socket(socket.AF_UNIX); u.bind(sys.argv[1]); u.listen(5)
 print(s.getsockname()[1], flush=True)
 end = time.time() + 60
 while time.time() < end:
-    for x in select.select([s, u], [], [], 1)[0]: x.accept()[0].close()' "$WORK/zt.sock" >"$WORK/port" & LISTENER=$!; disown
+    for x in select.select([s, u], [], [], 1)[0]: x.accept()[0].close()' "$WORK/zt.sock" >"$WORK/port" 2>"$WORK/listener.err" & LISTENER=$!; disown
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$WORK/port" ] && break; sleep 0.2; done
   port=$(cat "$WORK/port")
   # Only a listener the same commands reach uncaged makes a denial mean something.
-  if nc -z -G 2 127.0.0.1 "$port" >/dev/null 2>&1 && nc -U "$WORK/zt.sock" </dev/null >/dev/null 2>&1; then
+  if [ -n "$port" ] && nc -z -G 2 127.0.0.1 "$port" >/dev/null 2>&1 && nc -w 2 -U "$WORK/zt.sock" </dev/null >/dev/null 2>&1; then
     chk "connect to a loopback listener (127.0.0.1:$port)" DENY "$(cg -c "nc -z -G 2 127.0.0.1 $port >/dev/null 2>&1 && echo ALLOW || echo DENY")"
     chk "connect to a unix socket outside the cage" DENY "$(cg -c "nc -U $(q "$WORK/zt.sock") </dev/null >/dev/null 2>&1 && echo ALLOW || echo DENY")"
-  else bad "network checks: nc can't reach the test listener even uncaged"; fi
-else ok "network checks skipped (no python3)"; fi
+  else test_skip 'cage network checks cannot reach the uncaged loopback and Unix socket listeners'; fi
+fi
 chk "exec /usr/bin/open" DENY "$(cg -c '/usr/bin/open -h >/dev/null 2>&1; [ $? -eq 126 ] && echo DENY || echo ALLOW')"
 chk "exec /bin/launchctl" DENY "$(cg -c '/bin/launchctl version >/dev/null 2>&1; [ $? -eq 126 ] && echo DENY || echo ALLOW')"
 

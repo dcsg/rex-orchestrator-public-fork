@@ -8,7 +8,7 @@ rex-orchestrator launch [-d DIR] [-l LABEL] [--split right|left|above|below] [--
     footer below the input box or an idle status. Prints the block ID on stdout, also on exits 3, 12 and 124, where
     the pane stays open for you to read or close; interrupted or failing before that, launch closes the pane.
     If Rex cannot close it, launch keeps its claim and state for a later close.
-    Placement: a split of ANCHOR taking PCT percent of it (default 50; Rex's "autobalance splits" overrides it), or a
+    Placement: a split of ANCHOR taking a whole percentage from 1 to 99 (default 50; Rex's "autobalance splits" overrides it), or a
     new tab NAME with --tab (unfocused, 80x24). With neither -b nor --split, ANCHOR is the largest pane of your own
     window, split along its longer side, so all agents stay in one view.
     --trust answers the folder trust dialog with "Yes", only once the dialog names DIR (grok: only its exact
@@ -94,8 +94,8 @@ rex-orchestrator close [--force] BLOCK      Close the pane (ends its agent) and 
 
 DUR is N, Ns, Nm or Nh. BLOCK is any form rex takes (full ID, short ID, label). The state is the agent's own (root)
 status record. Any agent running in a Rex pane can be the orchestrator: launch, send, keys, close and wait
---approve-in need REX_BLOCK (set in every Rex pane). When REX_SESSION is empty, the session is resolved from
-REX_BLOCK; an explicit REX_SESSION selects the session. If your shell strips Rex's environment, prefix the call
+--approve-in need REX_BLOCK (set in every Rex pane). When REX_SESSION is empty, the CLI resolves the session from
+REX_BLOCK. An explicit REX_SESSION selects the session. If your shell strips Rex's environment, prefix the call
 with REX_BLOCK=... (and optionally REX_SESSION=...). send, keys, close and wait --approve-in act only on panes launched from your pane,
 unless --force (only for a pane the user named).
 Kill switches: a file STATE_DIR/disabled stops every launch, and every send and key but escape and ctrl+c;

@@ -69,19 +69,24 @@ return function(C,M,D,I,K,G)
     if opts.cage~="auto" and opts.cage~="on" and opts.cage~="off" then
       C.die("launch: REX_ORCHESTRATOR_CAGE takes auto, on or off, not '" .. opts.cage .. "'")
     end
-    if C.killed() then
-      C.die("launch: stopped: the kill switch " .. C.dir .. "/disabled is set; report it, never remove it yourself")
-    end
     if opts.split and not directions[opts.split] then
       C.die("launch: --split takes right, left, above or below, not '" .. opts.split .. "'")
     end
     if not opts.ratio:match("^%d+$") then C.die("launch: --ratio takes a whole percentage, not '" .. opts.ratio .. "'") end
+    local size=tonumber(opts.ratio)
+    if not opts.tab and (not size or size<1 or size>99) then C.die("launch: --ratio must be between 1 and 99") end
     if opts.kind=="gemini" then opts.kind="agy" end
     if opts.kind and not known[opts.kind] then
       C.die("launch: --kind takes claude, codex, grok, gemini (agy) or muse, not '" .. opts.kind .. "'")
     end
     opts.name=M.basename(opts.agent)
     opts.kind=opts.kind or (M.starts(opts.name,"claude-") and "claude") or (M.starts(opts.name,"agy-") and "agy") or opts.name
+    if opts.account~="" then
+      if not opts.account:match("^[a-z0-9]+$") then
+        C.die("launch: --account takes lowercase letters and digits, not '" .. opts.account .. "'; " .. account_hint)
+      end
+      if opts.name~="claude" or opts.cage=="off" then C.die("launch: --account is for a caged claude only; " .. account_hint) end
+    end
     local trust_error="launch: --trust refuses a directory name containing terminal controls, a selection marker or trust dialog text"
     if opts.trust and not D.safe_trust_dir(opts.given) then C.die(trust_error) end
     if opts.given=="-" then C.die("launch: no such directory: " .. opts.given) end
@@ -111,8 +116,12 @@ return function(C,M,D,I,K,G)
       add(opts.dir)
       if opts.logical~=opts.dir then add(opts.logical) end
     end
-    table.insert(opts.args,1,R.json.encode({permissions={allow=opts.rules}}))
-    table.insert(opts.args,1,"--settings")
+  end
+
+  function L.parse(args)
+    local opts=options(args)
+    scoped_permissions(opts)
+    return opts
   end
 
   local function executable(opts)
@@ -120,10 +129,6 @@ return function(C,M,D,I,K,G)
     if not bin then C.die("launch: no " .. opts.agent .. " on your PATH (give --agent a full path)") end
     if not M.starts(bin,"/") then bin=(env("PWD") or F.logical(".")) .. "/" .. bin end
     if opts.account~="" then
-      if not opts.account:match("^[a-z0-9]+$") then
-        C.die("launch: --account takes lowercase letters and digits, not '" .. opts.account .. "'; " .. account_hint)
-      end
-      if opts.name~="claude" or opts.cage=="off" then C.die("launch: --account is for a caged claude only; " .. account_hint) end
       local path=K.secrets .. "/claude-" .. opts.account .. ".env"
       if not F.test("-f",path) or not F.test("-r",path) then
         C.die("launch: --account " .. opts.account .. ": no readable " .. path .. "; " .. account_hint)
@@ -201,7 +206,6 @@ return function(C,M,D,I,K,G)
     local id= C.resolve(anchor or C.me)
     if not id then return nil,"no such anchor in this session: " .. (anchor or C.me) end
     local size=tonumber(opts.ratio)
-    if not size or size<1 or size>99 then return nil,"ratio must be between 1 and 99" end
     local split=directions[direction or "right"]
     spec.anchor_id,spec.direction,spec.side=id,split[1],split[2]
     spec.ratio=(split[2]=="before" and size or 100-size)/100
@@ -331,8 +335,14 @@ return function(C,M,D,I,K,G)
   function L.launch(args)
     C.need_me()
     orchestrator_check()
-    local opts=options(args)
-    scoped_permissions(opts)
+    if C.killed() then
+      C.die("launch: stopped: the kill switch " .. C.dir .. "/disabled is set; report it, never remove it yourself")
+    end
+    local opts=L.parse(args)
+    if #opts.rules>0 then
+      table.insert(opts.args,1,R.json.encode({permissions={allow=opts.rules}}))
+      table.insert(opts.args,1,"--settings")
+    end
     local bin=executable(opts)
     local journal={session=C.session,owner=C.me}
     local function persist()

@@ -1,19 +1,18 @@
-return function(C, M, A)
+return function(C, M, A, P)
   local R=C.rex
   local commands={}
   function commands.status(args)
-    C.target(args[1])
+    C.target(P.block(args[1]))
     C.out(C.status(C.block))
   end
   function commands.screen(args)
-    C.target(args[1])
-    local n=args[2]
-    if not n or n=="" then n="60" end
-    if not n:match("^%d+$") then C.die("screen: LINES takes a whole number, not '" .. n .. "'") end
+    local query=P.block(args[1])
+    local n=P.screen_lines(args[2])
+    C.target(query)
     local text=C.screen(C.block)
     if not text then C.die("rex could not capture " .. C.block,1) end
     local a=M.lines(text); while #a>0 and not a[#a]:match("%S") do a[#a]=nil end
-    for i=math.max(1,#a-tonumber(n)+1),#a do C.out(a[i]) end
+    for i=math.max(1,#a-n+1),#a do C.out(a[i]) end
   end
   function commands.ls()
     if not C.attach() then C.die("rex could not list the blocks",1) end
@@ -42,30 +41,7 @@ return function(C, M, A)
     end
   end
   function commands.wait(args)
-    local timeout,ignore,bgmax,approve=600,false,300,""
-    if args[1]=="--force" then C.force=true; table.remove(args,1) end
-    local q=args[1]; if not q or q=="" then C.die("missing BLOCK") end
-    local i=2
-    local function value()
-      local v=args[i+1]; if not v or v=="" then C.die(args[i] .. " needs a value") end
-      return v
-    end
-    while i<=#args do
-      local k=args[i]
-      if k=="--timeout" then timeout=M.duration(k,value(),C.die); i=i+2
-      elseif k=="--bg-max" then bgmax=M.duration(k,value(),C.die); i=i+2
-      elseif k=="--ignore-background" then ignore=true; i=i+1
-      elseif k=="--force" then C.force=true; i=i+1
-      elseif k=="--approve-in" then
-        local v=value(); approve=C.fs.canonical(v)
-        if not approve then C.die("wait: no such directory: " .. v) end
-        local home=M.env("HOME")
-        for _,f in ipairs({"/","/Users",home or "/",(home or "") .. "/Library",(home or "") .. "/Repos"}) do
-          if approve==(C.fs.canonical(f) or "") then C.die("wait: --approve-in " .. v .. " is too broad; give the task's own directory") end
-        end
-        i=i+2
-      else C.die("wait: unknown option " .. k) end
-    end
+    local q,timeout,ignore,bgmax,approve=P.wait(args)
     C.target(q,true)
     if approve~="" then C.owned("wait --approve-in") end
     local sf=C.sf(C.block)

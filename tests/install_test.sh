@@ -1,6 +1,8 @@
-#!/usr/bin/env bash
+#!/bin/bash -p
 # Tests for install.sh in a throwaway HOME: dry run, install, idempotence, uninstall, refusal to clobber.
 set -uo pipefail
+# shellcheck source=tests/isolate.inc.sh
+. "${BASH_SOURCE[0]%/*}/isolate.inc.sh" || exit 2
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 T=$(mktemp -d)

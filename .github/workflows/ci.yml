@@ -35,7 +35,7 @@ jobs:
       - name: Lua unit and standalone tests
         run: |
           luajit tests/lua/unit.lua .
-          bash tests/lua/standalone.sh
+          bash -p tests/lua/standalone.sh
       - name: Shell entry and wrappers (Bash 3.2 and 5)
         run: tests/harness/run.sh
         timeout-minutes: 10

@@ -12,7 +12,7 @@ if command=="clone" then
   dofile(dir .. "/clone.lua")(C,M)(arg)
 elseif command=="harvest" then
   local ok,err=dofile(dir .. "/harvest.lua")(M,J,F,N)(arg[1],arg[2])
-  if not ok then C.die("harvest failed: " .. tostring(err),1) end
+  if not ok then C.die("harvest failed: " .. M.terminal_text(tostring(err)),1) end
 elseif command=="validate-agy" then
   local login=J.decode(N.read(nil,arg[1]))
   local function nonempty(value) return type(value)=="string" and value~="" end
@@ -29,14 +29,27 @@ elseif command=="offline" then
     dofile(dir .. "/registry.lua")(C,M).claims(arg)
     return
   end
+  local P=dofile(dir .. "/arguments.lua")(C,M)
+  local target
+  if verb=="launch" then
+    local I=dofile(dir .. "/input.lua")(M)
+    local D=dofile(dir .. "/launch_dialog.lua")(C,M,I)
+    dofile(dir .. "/launch.lua")(C,M,D,I).parse(arg)
+  elseif verb=="wait" then
+    target=P.wait(arg)
+  elseif verb=="send" or verb=="keys" or verb=="close" then
+    target=P.mutation(verb,arg)
+    if verb=="send" then P.prompt(arg) end
+  elseif verb=="status" or verb=="screen" then
+    target=P.block(arg[1])
+    if verb=="screen" then P.screen_lines(arg[2]) end
+  end
   local session,caller=M.env("REX_SESSION"),M.env("REX_BLOCK")
   if not session then C.missing_context() end
   C.init_state()
   if caller then C.die("rex did not answer for REX_BLOCK " .. caller,1) end
   if verb=="ls" then C.die("rex could not list the blocks",1) end
   if verb=="launch" or verb=="send" or verb=="keys" or verb=="close" then C.need_me() end
-  local target=arg[arg[1]=="--force" and 2 or 1]
-  if not target or target=="" then C.die("missing BLOCK") end
   C.die("rex did not answer for block " .. target,1)
 else
   C.die("unknown local operation",1)

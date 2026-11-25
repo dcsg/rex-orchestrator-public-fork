@@ -10,6 +10,10 @@ project uses [Semantic Versioning](https://semver.org/).
   The token is private (mode 600), absent from the agent's environment, and deleted on exit or HUP/INT/TERM;
   failed or empty commands stop the wrapper with exit 71 before agy starts. Unset preserves copied logins.
 
+### Changed
+- Rex commands run in Lua via `rex do`. LuaJIT is required for local operations, and `jq` and `python3` are no longer
+  runtime dependencies.
+
 ### Fixed
 - Accept agy's nested `token.refresh_token` in token-command output while preserving top-level `refresh_token`
   compatibility; use the complete nested token shape in fake-login regressions.
@@ -17,8 +21,8 @@ project uses [Semantic Versioning](https://semver.org/).
   and validate the returned refresh-token JSON silently. Stop and reap the child before signal cleanup, with a
   five-second grace period and forced termination if needed; cover additional signals and the fork startup race.
   Keep private command files denied after profile read exceptions, including custom state under `~/.config/git`.
-- Resolve the session once from `REX_BLOCK` when `REX_SESSION` is empty, supporting Rex server 0.1.0-preview.23.
-  Explicit `REX_SESSION` values remain unchanged; failed resolution reports both environment variables.
+- Resolve the session from `REX_BLOCK` when `REX_SESSION` is empty, supporting Rex server 0.1.0-preview.23.
+  An explicit `REX_SESSION` selects the session.
 - Find cage assets beside the real CLI script through absolute and relative install symlinks and symlink chains,
   while keeping environment overrides first.
 

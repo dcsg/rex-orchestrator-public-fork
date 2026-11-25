@@ -1,14 +1,12 @@
-return function(C, M, I, registry)
+return function(C, M, I, registry, P)
   local R=C.rex
   local commands={}
   local interrupts={escape=true,esc=true,["ctrl+c"]=true}
   local restricted={"/permissions","/allowed-tools","/config","/settings","/add-dir","/hooks","/plugin","/mcp"}
 
   local function target(verb,args,gone)
-    if args[1]=="--force" then C.force=true; table.remove(args,1) end
     C.need_me()
-    C.target(table.remove(args,1),gone)
-    if verb=="keys" and #args==0 then C.die("keys: no keys given") end
+    C.target(P.mutation(verb,args),gone)
     C.owned(verb)
   end
 
@@ -75,26 +73,7 @@ return function(C, M, I, registry)
   function commands.send(args)
     target("send",args)
     kill_switch("send")
-    local text
-    if args[1]=="-f" then
-      local path=args[2] or ""
-      local err
-      text,err=C.fs.read_file(path)
-      if not text then
-        if err=="not_file" then C.die("send: no such file: " .. path) end
-        C.raw("cat: " .. (err or path))
-        R.stop(1)
-      end
-      text=text:gsub("%z",""):gsub("\n+$","")
-    else
-      text=table.concat(args," ")
-    end
-    if M.prompt_control(text) then C.die("send: refusing a prompt containing a terminal control character") end
-    text=text:gsub("[\r\n\t]"," ")
-    if not text:find("[^ ]") then C.die("send: empty prompt") end
-    if text:match("^%s*!") then
-      C.die("send: refusing a prompt that starts with '!': the agent would run it as a shell command without asking; reword it")
-    end
+    local text=P.prompt(args)
     alive("send")
     local rec,screen=input_ready(false)
     local why=C.stopped()

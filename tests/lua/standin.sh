@@ -1,6 +1,8 @@
-#!/bin/bash
+#!/bin/bash -p
 # Token-free program-status emitter. Only live.sh starts it, on its private server.
 set -eu
+# shellcheck source=tests/isolate.inc.sh
+. "${BASH_SOURCE[0]%/*}/../isolate.inc.sh"
 work=$1
 stty -echo
 # shellcheck disable=SC1003 # OSC terminates with ESC followed by a literal backslash.

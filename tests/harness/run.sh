@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -p
 # Run the current shell entry and wrapper checks under both Bash versions.
 # REX_ORCHESTRATOR_SH can point at a historical Bash implementation for the legacy fake-Rex scenarios.
 set -u
@@ -22,9 +22,9 @@ for b in $bashes; do
       "$b" "$here/unit.sh" || echo "FAIL  unit.sh exited $?"
       "$b" "$here/startup.sh" || echo "FAIL  startup.sh exited $?"
     else
-      "$b" "$here/../lua/entry.sh" && echo "PASS  Lua entry checks" || echo "FAIL  entry.sh exited $?"
+      "$b" -p "$here/../lua/entry.sh" && echo "PASS  Lua entry checks" || echo "FAIL  entry.sh exited $?"
     fi
-    "$b" "$here/../cage/agy-token.sh" || echo "FAIL  agy-token.sh exited $?"
+    "$b" -p "$here/../cage/agy-token.sh" || echo "FAIL  agy-token.sh exited $?"
   ) >"$runs/bash-$v.log" 2>&1 &
 done
 wait

@@ -82,7 +82,7 @@ return function(M,J,F,N)
         end_time=os.date("!%Y-%m-%dT%H:%M:%S",secs) .. suffix .. "+00:00"}
       for _,key in ipairs({"account","block","DIR","start_time"}) do manifest[key]=meta[key] or "unknown" end
       if not F.put(dest .. "/manifest.json",J.encode(manifest) .. "\n") then return nil,"cannot write archive manifest" end
-      for _,message in ipairs(errors) do io.stderr:write("rex-orchestrator: harvest: ",message,"\n") end
+      for _,message in ipairs(errors) do io.stderr:write("rex-orchestrator: harvest: ",M.terminal_text(message),"\n") end
       return true
     end
     local ok,result,why=pcall(archive)

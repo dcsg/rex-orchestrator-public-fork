@@ -1,6 +1,8 @@
-#!/bin/bash
+#!/bin/bash -p
 # Entry-point serialization tests; fake rex never connects to any server.
 set -euo pipefail
+# shellcheck source=tests/isolate.inc.sh
+. "${BASH_SOURCE[0]%/*}/../isolate.inc.sh"
 ROOT=$(cd "$(dirname "$0")/../.." && pwd -P)
 T=$(mktemp -d /tmp/rex-lua-entry.XXXXXX)
 trap 'rm -rf "$T"' EXIT

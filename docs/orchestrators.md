@@ -1,8 +1,8 @@
 # Choosing an orchestrator
 
 The orchestrator is **whichever agent runs `rex-orchestrator` from a Rex pane**. Nothing in the tool assumes a particular agent:
-it identifies the caller by Rex's `REX_BLOCK` and session ID. Every Rex pane sets `REX_BLOCK`; when `REX_SESSION` is
-empty, the CLI resolves the session once with `rex whoami --json`. An explicit `REX_SESSION` is used unchanged.
+it identifies the caller by Rex's `REX_BLOCK` and session ID. Every Rex pane sets `REX_BLOCK`. When `REX_SESSION` is
+empty, the CLI resolves the session from `REX_BLOCK`. An explicit `REX_SESSION` selects the session.
 
 ## Designating the orchestrator
 

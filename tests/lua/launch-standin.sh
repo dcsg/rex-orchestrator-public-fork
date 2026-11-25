@@ -1,6 +1,8 @@
-#!/bin/bash
+#!/bin/bash -p
 # Reports program status from a private Rex server without running an agent.
 set -eu
+# shellcheck source=tests/isolate.inc.sh
+. "${BASH_SOURCE[0]%/*}/../isolate.inc.sh"
 app=$1 mode=$2
 root=$(cd "$3" && pwd -P)
 shift 3

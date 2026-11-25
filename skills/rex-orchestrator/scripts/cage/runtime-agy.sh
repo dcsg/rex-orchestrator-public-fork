@@ -89,9 +89,15 @@ if [ -n "$AGY_CMD_FILE" ]; then
   } 2>/dev/null
   AGY_PID=
   /bin/rm -f "$AGY_CMD_FILE"
-  if [ "$AGY_TOKEN_RC" -ne 0 ] ||
-    ! /bin/bash -p "$LOCAL_LUA" validate-agy "$AGY_TOKEN_FILE" >/dev/null 2>&1 ||
-    ! chmod 600 "$AGY_TOKEN_FILE"; then
+  validation_status=0
+  if [ "$AGY_TOKEN_RC" -eq 0 ]; then
+    /bin/bash -p "$LOCAL_LUA" validate-agy "$AGY_TOKEN_FILE" >/dev/null 2>&1 || validation_status=$?
+  fi
+  if [ "$validation_status" -eq 69 ]; then
+    echo 'rex-orchestrator cage: agy token validation requires LuaJIT. Install it with brew install luajit.' >&2
+    exit 71
+  fi
+  if [ "$AGY_TOKEN_RC" -ne 0 ] || [ "$validation_status" -ne 0 ] || ! chmod 600 "$AGY_TOKEN_FILE"; then
     echo 'rex-orchestrator cage: REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD failed or returned invalid token JSON; agy not started' >&2
     exit 71
   fi

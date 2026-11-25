@@ -99,23 +99,40 @@ function M.mode(s)
   end
   return last
 end
+-- A C1 byte can also be the continuation of an ordinary UTF-8 character.
+local function control_at(text,i)
+  local b=text:byte(i)
+  if b<32 or b>=127 and b<=159 then return 1,b end
+  local width=b>=194 and b<=223 and 2 or b>=224 and b<=239 and 3 or b>=240 and b<=244 and 4 or 1
+  local tail=text:sub(i+1,i+width-1)
+  if width>1 and #tail==width-1 and not tail:find("[^\128-\191]") then
+    if b==194 and tail:byte()<=159 then return width,tail:byte() end
+    return width
+  end
+  return 1
+end
 function M.prompt_control(text)
-  if text:find("[%z\1-\8\11\12\14-\31\127]") then return true end
-  -- A C1 byte can also be the continuation of an ordinary UTF-8 character.
   local i=1
   while i<=#text do
-    local b=text:byte(i)
-    local n=b>=194 and b<=223 and 2 or b>=224 and b<=239 and 3 or b>=240 and b<=244 and 4 or 1
-    local tail=text:sub(i+1,i+n-1)
-    if n>1 and #tail==n-1 and not tail:find("[^\128-\191]") then
-      if b==194 and tail:byte()<=159 then return true end
-      i=i+n
-    else
-      if b>=128 and b<=159 then return true end
-      i=i+1
-    end
+    local width,code=control_at(text,i)
+    if code and code~=9 and code~=10 and code~=13 then return true end
+    i=i+width
   end
   return false
+end
+function M.terminal_text(text)
+  local chunks,start,i={},1,1
+  while i<=#text do
+    local width,code=control_at(text,i)
+    if code then
+      chunks[#chunks+1]=text:sub(start,i-1)
+      chunks[#chunks+1]=string.format(width==1 and "\\x%02X" or "\\u%04X",code)
+      start=i+width
+    end
+    i=i+width
+  end
+  chunks[#chunks+1]=text:sub(start)
+  return table.concat(chunks)
 end
 function M.dir_control(path)
   return path:find("[\t\r\n]")~=nil or M.prompt_control(path)

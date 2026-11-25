@@ -139,10 +139,11 @@ local function test(options)
   end
   local C=M.new(rex,fs,{out=function(s) out[#out+1]=s end,
     note=function(s) notes[#notes+1]=s end,raw=function(s) notes[#notes+1]=s end})
-  local A=Approval(C,M); local commands=Commands(C,M,A)
+  local args=dofile(dir .. "arguments.lua")(C,M)
+  local A=Approval(C,M); local commands=Commands(C,M,A,args)
   C.rex_bin="/fixture/rex"
   C.script_dir="/fixture"
-  for name,fn in pairs(Mutations(C,M,Input(M),Registry(C,M))) do commands[name]=fn end
+  for name,fn in pairs(Mutations(C,M,Input(M),Registry(C,M),args)) do commands[name]=fn end
   local function run(command,args,events)
     for _,e in ipairs(events or {}) do
       rex.after(e.at,function()
@@ -583,6 +584,8 @@ local function run_launch(args,opts,recovery)
 end
 eq(run_launch({"--nope"}).code,2)
 eq(run_launch({"--ratio","3.2"}).code,2)
+eq(run_launch({"--ratio","100"}).code,2)
+eq(run_launch({"--ratio","100","--tab","target"}).code,0)
 eq(run_launch({"--split","upper"}).code,2)
 eq(run_launch({"--timeout","bad"}).code,2)
 eq(run_launch({"--account","UPPER"}).code,2)

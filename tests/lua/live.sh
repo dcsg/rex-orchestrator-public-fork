@@ -1,9 +1,15 @@
-#!/usr/bin/env bash
+#!/bin/bash -p
 # All Rex operations are confined to this script's throwaway socket and state.
 set -euo pipefail
-unset CDPATH
+# shellcheck source=tests/isolate.inc.sh
+. "${BASH_SOURCE[0]%/*}/../isolate.inc.sh"
 ROOT=$(cd "$(dirname "$0")/../.." && pwd -P)
-REAL_REX=${REX_TEST_REX:-$(command -v rex)}
+if ! REAL_REX=$(test_find_rex); then
+  if [ -n "${REX_TEST_REX:-}" ]; then echo 'REX_TEST_REX must name an executable Rex CLI' >&2; exit 2; fi
+  test_skip 'Lua live suite requires the Rex CLI'
+  exit 0
+fi
+if ! test_has_pty; then test_skip 'Lua live suite cannot allocate a pty in this environment'; exit 0; fi
 T=$(mktemp -d /tmp/rex-lua-live.XXXXXX)
 server_pid=''
 cleanup() { [ -z "$server_pid" ] || { kill "$server_pid" 2>/dev/null || :; wait "$server_pid" 2>/dev/null || :; }; rm -rf "$T"; }
@@ -13,9 +19,6 @@ mkdir -p "$T/home" "$T/config" "$T/data" "$T/cache" "$T/work" "$T/bin"
 export HOME="$T/home" XDG_CONFIG_HOME="$T/config" XDG_DATA_HOME="$T/data" XDG_CACHE_HOME="$T/cache"
 export REX_SERVER="unix://$T/rex.sock" REX_BLOCK='' REX_SESSION='' REX_CONFIG="$T/init.lua"
 export REX_ORCHESTRATOR_STATE_DIR="$T/orchestrator-state"
-unset CLAUDECODE CLAUDE_CONFIG_DIR CODEX_HOME REX_ORCHESTRATOR_CONFIG_DIR
-unset REX_ORCHESTRATOR_CAGE_PROFILE REX_ORCHESTRATOR_CAGE_TPL REX_ORCHESTRATOR_CAGE_SECRETS
-unset REX_ORCHESTRATOR_CAGE_AGY_HOME REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD
 # The entry script and the Bash baseline both use this shim to disable autostart.
 printf '#!/bin/bash\nexec %q --autostart=false "$@"\n' "$REAL_REX" > "$T/bin/rex"
 chmod +x "$T/bin/rex"
@@ -24,7 +27,14 @@ rex_test() { "$REAL_REX" --autostart=false "$@"; }
 "$REAL_REX" --autostart=false server run --listen "$REX_SERVER" --state-dir "$T/state" --restore=false --config "$T/init.lua" > "$T/server.log" 2>&1 &
 server_pid=$!
 for ((n=0;n<100;n++)); do [ ! -S "$T/rex.sock" ] || break; sleep 0.05; done
-[ -S "$T/rex.sock" ] || { cat "$T/server.log" >&2; exit 1; }
+[ -S "$T/rex.sock" ] || {
+  if grep -Eiq 'bind.*(operation not permitted|permission denied)|(operation not permitted|permission denied).*bind' "$T/server.log"; then
+    test_skip 'Lua live suite cannot bind a private Unix socket in this environment'
+    exit 0
+  fi
+  cat "$T/server.log" >&2
+  exit 1
+}
 rex_test session new lua-test --shell none --keep-open --json -- /bin/bash "$ROOT/tests/lua/standin.sh" "$T/work" > "$T/session.json"
 REX_SESSION=$(jq -r .session_id "$T/session.json"); export REX_SESSION
 B=$(jq -r '.initial_windows[0].block_ids[0]' "$T/session.json")
