@@ -43,8 +43,9 @@ if forced_leaf~="" then
     return F.mkdir_new(path) and path or nil
   end
 end
-local C={rex=rex,fs=F,dir=state,script_dir=script_dir,git=F.git(),
-  note=function(text) io.stderr:write(text,"\n") end,put=F.put}
+-- The production context, so notes and refusals reach stderr through its escaping sink.
+local C=M.new(rex,F)
+C.dir,C.script_dir,C.git=state,script_dir,F.git()
 local K=dofile(assets .. "/lua/launch_cage.lua")(C,M)
 -- AGENT is what launch got as --agent: a bare name resolves on PATH, a path (the default, BIN) is used as given.
 local cage,code=K.build(name,bin,{dir=dir,account=account,label=name,agent=agent~="" and agent or bin},function() end)

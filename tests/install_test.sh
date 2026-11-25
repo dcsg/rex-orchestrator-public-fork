@@ -46,5 +46,16 @@ chmod 755 "$T/ro"
 check "a link that cannot be made exits 1" 1 "$rc"
 check "a link that cannot be made is not reported as linked" 0 "$(printf '%s\n' "$out" | grep -c '^linked')"
 
+# Caller-supplied text is printed with its controls escaped, never raw.
+esc=$(printf '\033]0;owned\007')
+out=$(inst "--bogus$esc" 2>&1 >/dev/null); rc=$?
+check "unknown option with controls exits 2" 2 "$rc"
+check "unknown option is shown escaped" 1 "$(printf '%s\n' "$out" | grep -cF 'unknown option --bogus\x1B]0;owned\x07')"
+check "unknown option prints no raw control" 0 "$(printf '%s' "$out" | tr -d '\n' | LC_ALL=C grep -c '[[:cntrl:]]')"
+mkdir -p "$T/bin$esc"
+out=$(inst --agents none --dry-run --bin-dir "$T/bin$esc" 2>&1)
+check "a planned link shows its path escaped" 1 "$(printf '%s\n' "$out" | grep -cF "would link $T/bin\x1B]0;owned\x07/rex-orchestrator")"
+check "a planned link prints no raw control" 0 "$(printf '%s' "$out" | tr -d '\n' | LC_ALL=C grep -c '[[:cntrl:]]')"
+
 printf 'install_test: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -30,6 +30,18 @@ if ! command -v "$REX" >/dev/null 2>&1; then
     exit 2
   fi
 fi
+# Print $1 with its C0 controls and DEL shown as \xNN, never raw, so caller- or filesystem-supplied text can't drive
+# the terminal. Backslashes stay as they are: Lua's diagnostics arrive here already escaped.
+# shellcheck disable=SC2030 # The byte locale is meant to stay in this subshell.
+rex_term_text() (
+  export LC_ALL=C
+  s=$1
+  case $s in *[[:cntrl:]]*) ;; *) printf '%s' "$s"; exit 0 ;; esac
+  while [ -n "$s" ]; do
+    c=${s%"${s#?}"}; s=${s#?}
+    case $c in [[:cntrl:]]) printf '\\x%02X' "'$c" ;; *) printf '%s' "$c" ;; esac
+  done
+)
 # Rex's JSON decoder replaces invalid UTF-8. Transport argv as bytes so
 # diagnostics and file arguments retain the same spelling as in Bash.
 json_string() {
@@ -59,12 +71,12 @@ finish_launch() {
   trap '' HUP INT TERM
   if [ "$launch_reported" = 0 ] && [ -s "$launch_dir/state" ]; then
     local recovery
-    # shellcheck disable=SC2030 # This subshell is only serializing bytes.
+    # shellcheck disable=SC2030,SC2031 # This subshell is only serializing bytes.
     recovery=$(export LC_ALL=C
       printf '{"recover":true,"script_dir":'; json_string "$SCRIPT_DIR" no
       printf ',"journal":'; json_string "$launch_dir/state" no; printf '}')
     if ! REX_SESSION='' REX_BLOCK='' "$REX" --autostart=false "do" "$SCRIPT_DIR/lua/main.lua" --args - --fail-fast <<<"$recovery"; then
-      printf 'rex-orchestrator: launch recovery is pending in %s\n' "$launch_dir/state" >&2
+      printf 'rex-orchestrator: launch recovery is pending in %s\n' "$(rex_term_text "$launch_dir/state")" >&2
       return
     fi
   fi
@@ -127,7 +139,7 @@ run_lua() {
   while IFS= read -r line; do
     case "$line" in
       '' | $'\036rex-orchestrator:started' | $'\036rex-orchestrator:rejected' | 'listening: '*'; Ctrl-C to stop') ;;
-      *) printf '%s\n' "$line" >&2 ;;
+      *) printf '%s\n' "$(rex_term_text "$line")" >&2 ;;
     esac
   done <<<"$diagnostics"
   case "$command" in

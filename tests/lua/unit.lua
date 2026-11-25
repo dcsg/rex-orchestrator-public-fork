@@ -188,6 +188,21 @@ local expected={
 for name,want in pairs(expected) do eq(M.background(fixture("bg/" .. name)):match("^(%d+)") or "",want,"background " .. name) end
 local run,C,A=test()
 eq(M.duration("--timeout","008m",C.die),480)
+-- Every note, refusal and raw diagnostic reaches the terminal escaped at the sink, whatever the caller put in it.
+do
+  local written={}
+  local sink=M.new({stop=function() end},{},{raw=function(text) written[#written+1]=text end,finish=function() end})
+  local path="/tmp/x\27]0;title\7/\226\128\174y\tz\\w"
+  sink.note("no such directory: " .. path)
+  sink.die("clone: no such REPO: " .. path)
+  sink.raw("Error: " .. path .. "\nsecond " .. path)
+  local want="/tmp/x\\x1B]0;title\\x07/\\u202Ey\\x09z\\\\w"
+  eq(written[1],"rex-orchestrator: no such directory: " .. want)
+  eq(written[2],"rex-orchestrator: clone: no such REPO: " .. want)
+  eq(written[3],"Error: " .. want .. "\nsecond " .. want)
+  for _,text in ipairs(written) do eq(text:gsub("\n",""):find("[%c\128-\159]"),nil,"raw control in " .. text) end
+  eq(sink.note("two\nlines"),nil); eq(written[4],"rex-orchestrator: two\\x0Alines")
+end
 -- What runs an executable file: nil for a compiled Mach-O, else the interpreter's basename ("sh" without #!).
 for _,case in ipairs({
   {"\207\250\237\254\7\0\0\1",nil},                      -- Mach-O 64-bit, little-endian (arm64, x86_64)
@@ -676,9 +691,6 @@ reply,seen=run_launch({"--agent","claude","--tab","target"},{missing=true,overri
 eq(reply.code,2); eq(not not reply.text:find("applies to caged launches only",1,true),true); eq(seen.window,nil)
 reply=run_launch({"--agent","claude","--tab","target"},{missing=true})
 eq(reply.code,2)
--- That refusal shows the command with its terminal controls escaped.
-reply=run_launch({"--agent","cl\27]0;x\7aude","--tab","target"},{missing=true,override="/opt/claude"})
-eq(reply.code,2); eq(not not reply.text:find("cl\\x1B]0;x\\x07aude",1,true),true); eq(reply.text:find("[\27\7]"),nil)
 reply,seen,state=run_launch({"--agent","claude","--tab","target"},{missing=true,override="/opt/claude",
   cage={home="/state/cage/claude.test",wrapper="/state/cage/claude.test/bin/claude",meta={},bin="/opt/claude"}})
 eq(reply.code,0); eq(state["/state/block_child.own"][7],"/opt/claude")

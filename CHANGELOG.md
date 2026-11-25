@@ -28,8 +28,10 @@ project uses [Semantic Versioning](https://semver.org/).
   Keep private command files denied after profile read exceptions, including custom state under `~/.config/git`.
 - Resolve the session from `REX_BLOCK` when `REX_SESSION` is empty, supporting Rex server 0.1.0-preview.23.
   An explicit `REX_SESSION` selects the session.
-- Escape terminal controls, invalid UTF-8 and bidi controls in the paths `launch` prints when it picks, skips or
-  refuses a caged agent's executable.
+- Escape terminal controls, invalid UTF-8 and bidi controls in every diagnostic: Lua's notes, refusals and raw
+  diagnostics (screen tails, Rex and git errors) are escaped where they are written, and the shell entry point,
+  installer, cage cleanup and claude wrapper show caller- or filesystem-supplied text with C0 controls and DEL as
+  `\xNN`.
 - Match agent homes and the other protected locations without regard to ASCII case in `launch`'s checks, as the
   home volume and the cage profile do: a DIR in `~/.CODEX`, a link spelled `~/.CODEX`, or a HOME spelled in another
   case no longer slips past them.

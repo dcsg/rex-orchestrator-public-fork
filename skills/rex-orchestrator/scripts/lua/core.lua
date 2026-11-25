@@ -210,6 +210,12 @@ function M.terminal_text(text)
   chunks[#chunks+1]=text:sub(start)
   return table.concat(chunks)
 end
+-- terminal_text for text of several lines: each line escaped, the line breaks kept.
+function M.terminal_lines(text)
+  local lines={}
+  for line in (text .. "\n"):gmatch("(.-)\n") do lines[#lines+1]=M.terminal_text(line) end
+  return table.concat(lines,"\n")
+end
 function M.dir_control(path)
   return path:find("[\t\r\n]")~=nil or M.prompt_control(path)
 end
@@ -221,8 +227,11 @@ end
 function M.new(rex, fs, output)
   local C={rex=rex, fs=fs, session=nil, me="", force=false}
   C.out=(output and output.out) or function(s) io.stdout:write(s .. "\n"); io.stdout:flush() end
-  C.raw=(output and output.raw) or function(s) io.stderr:write(s .. "\n"); io.stderr:flush() end
-  C.note=(output and output.note) or function(s) C.raw("rex-orchestrator: " .. s) end
+  -- Every diagnostic reaches the terminal escaped: notes and refusals carry paths, commands, labels, block ids and
+  -- Rex's own errors, any of which can hold terminal controls. A note is one line; raw text keeps its line breaks.
+  local write=(output and output.raw) or function(s) io.stderr:write(s .. "\n"); io.stderr:flush() end
+  C.raw=function(s) write(M.terminal_lines(s)) end
+  C.note=(output and output.note) or function(s) write("rex-orchestrator: " .. M.terminal_text(s)) end
   C.finish=(output and output.finish) or function(code) rex.stop(code) end
   function C.die(s,code) C.note(s); C.finish(code or 2) end
   local env=M.env
@@ -493,7 +502,8 @@ function M.new(rex, fs, output)
   function C.kill(why,kind)
     local path=C.dir .. "/disabled." .. (kind or "claude")
     if not fs.append(path,os.date("!%Y-%m-%dT%H:%M:%SZ") .. " " .. why .. "\n") then C.note("could not write " .. path) end
-    C.raw("\27[31mrex-orchestrator: stopped: " .. why .. "; " .. path .. " is set: report it, never remove it yourself\27[0m")
+    write("\27[31mrex-orchestrator: stopped: " .. M.terminal_text(why) .. "; " .. M.terminal_text(path) ..
+      " is set: report it, never remove it yourself\27[0m")
   end
   return C
 end

@@ -12,7 +12,7 @@ if command=="clone" then
   dofile(dir .. "/clone.lua")(C,M)(arg)
 elseif command=="harvest" then
   local ok,err=dofile(dir .. "/harvest.lua")(M,J,F,N)(arg[1],arg[2])
-  if not ok then C.die("harvest failed: " .. M.terminal_text(tostring(err)),1) end
+  if not ok then C.die("harvest failed: " .. tostring(err),1) end
 elseif command=="validate-agy" then
   local login=J.decode(N.read(nil,arg[1]))
   local function nonempty(value) return type(value)=="string" and value~="" end

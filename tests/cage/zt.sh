@@ -439,6 +439,22 @@ for a in one two; do
   done
   printf 'export CLAUDE_CODE_OAUTH_TOKEN=zt-dummy-%s\n' "$a" >"$CAGE_SECRETS/claude-$a.env"
 done
+# The claude wrapper names a credential file that sets no token; a cage-secrets folder with terminal controls in its
+# name must show escaped, not raw. cage-cleanup.sh's notes use the same shell escaping.
+ESC=$(printf '\033') SAVED_SECRETS=$CAGE_SECRETS
+CAGE_SECRETS="$WORK/sec${ESC}]0;owned$(printf '\007')"; mkdir -p "$CAGE_SECRETS"
+printf 'OTHER=1\n' >"$CAGE_SECRETS/claude-one.env"
+account=one
+if mk claude "$PD"; then
+  out=$(cg -c 'echo STARTED')
+  chk "claude wrapper: a credential path with controls is shown escaped" yes \
+    "$(printf '%s' "$out" | grep -qF 'sec\x1B]0;owned\x07/claude-one.env sets no' && echo yes || echo no)"
+  chk "claude wrapper: no raw control printed" 0 "$(printf '%s' "$out" | tr -d '\n' | LC_ALL=C grep -c '[[:cntrl:]]')"
+else bad "claude wrapper with a control in CAGE_SECRETS: cage_build failed ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
+CAGE_SECRETS=$SAVED_SECRETS
+# shellcheck disable=SC2016 # The child shell expands its own arguments.
+chk "cage-cleanup.sh escapes controls" 'x\x1B[31my\x09z\w' \
+  "$(/bin/bash -c '. "$1"; rex_term_text "$2"' sh "$SDIR/cage-cleanup.sh" "x${ESC}[31my$(printf '\t')z\w")"
 # shellcheck disable=SC2034  # read by cage_build, as launch's local
 account=""
 CAGE_AGY_HOME="$WORK/agy-home"   # the script's global (REX_ORCHESTRATOR_CAGE_AGY_HOME's value), read by cage_build

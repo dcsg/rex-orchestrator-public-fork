@@ -94,6 +94,22 @@ expect_error 'unknown REX_BLOCK' '' block:01a10000-0000-7000-8000-000000000001 \
   2 'REX_SESSION is empty and no session could be resolved' status "$B"
 expect_error 'bad REX_SESSION' not-a-rex-session '' 2 'no such block in this session' status "$B"
 expect_error 'invalid UTF-8 argv' "$REX_SESSION" '' 2 'no such block in this session' status "$(printf '\377')"
+# Caller-supplied text reaches the terminal escaped, through the Lua sink and the shell's forwarding alike: a path
+# with OSC, BEL and SGR controls in a representative set of refusals.
+CTRL=$(printf '/tmp/rex\033]0;owned\007\033[31mred') CTRL_SHOWN='/tmp/rex\x1B]0;owned\x07\x1B[31mred'
+escaped_error() {
+  local label=$1 caller=$2 message=$3 code=0
+  shift 3
+  REX_BLOCK="$caller" cli "$@" > "$T/esc.out" 2> "$T/esc.err" || code=$?
+  check "$label fails" "$([ "$code" -ne 0 ] && echo yes || echo "no (0)")" yes
+  grep -Fq "$message$CTRL_SHOWN" "$T/esc.err" || { cat -v "$T/esc.err" >&2; echo "FAIL $label: no escaped path" >&2; exit 1; }
+  check "$label prints no raw control" "$(tr -d '\n' < "$T/esc.err" | LC_ALL=C grep -c '[[:cntrl:]]' || :)" 0
+}
+escaped_error 'escaped unknown block' '' 'block ' status "$CTRL"
+escaped_error 'escaped launch directory' "$B" 'launch: no such directory: ' launch --no-cage --agent claude --dir "$CTRL"
+escaped_error 'escaped approve directory' '' 'wait: no such directory: ' wait "$B" --approve-in "$CTRL"
+escaped_error 'escaped line count' '' "screen: LINES takes a whole number, not '" screen "$B" "$CTRL"
+escaped_error 'escaped clone source' '' 'clone: no such REPO: ' clone "$CTRL" "$T/escaped-clone"
 implicit_list=$(REX_SESSION='' REX_BLOCK="$B" cli ls)
 check 'resolve session from REX_BLOCK' "$implicit_list" ''
 mkdir -p "$T/install space/bin"
