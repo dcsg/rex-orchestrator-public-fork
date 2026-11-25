@@ -40,8 +40,10 @@ Every command works with any agent that reports Rex program status. `launch` pic
   reports nothing until `done`. `wait` holds while its footer shows a running turn, but `status`, `ls` and `send` still see
   the old `done`: `wait` before you `send` again.
 - Uncaged, it runs in always-approve.
-- Caged, the same executable rules as codex apply (`REX_ORCHESTRATOR_CAGE_GROK_BIN`). An install under `~/.grok`, such as
-  `~/.local/bin/grok` linking to `~/.grok/bin/grok`, can't start in the cage: `launch` exits 2 and says so.
+- Caged, the same executable rules as codex apply (`REX_ORCHESTRATOR_CAGE_GROK_BIN`). The standard install
+  (`~/.local/bin/grok` → `~/.grok/bin/grok` → `~/.grok/downloads/grok-<version>-<platform>`) runs caged from that one
+  downloaded file, the only part of `~/.grok` the cage opens besides `auth.json`. Any other executable under `~/.grok`
+  makes `launch` exit 2.
 
 ## Gemini (`agy` CLI)
 

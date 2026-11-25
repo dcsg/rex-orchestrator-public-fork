@@ -35,6 +35,9 @@
 #     skipped and never run while a Node script is taken, a PATH of shims only is refused
 #     naming the override, REX_ORCHESTRATOR_CAGE_CODEX_BIN picks the executable, an agent executable elsewhere
 #     under an agent home is refused, and one outside them reached through a link inside one runs by its physical path;
+#   - a grok download, HOME/.grok/downloads/<file> reached through ~/.local/bin/grok and ~/.grok/bin/grok, runs in the
+#     cage from its physical path with only that file readable and executable: sibling downloads, the folder, the
+#     links, config, sessions, logs and (with AGENT_AUTH elsewhere) auth.json stay closed;
 #   - a seeding step of the wrapper that fails stops it before the agent starts (its set -e);
 #   - if clang is present, a Mach-O compiled in-cage reaches exactly the 7 allowlisted mach services and can't open
 #     an IOKit user client.
@@ -566,12 +569,55 @@ chk "a grok executable under ~/.grok: refused" 2 "$rc"
 chk "the refusal says the cage can't read it" yes \
   "$(grep -qF "under $FH/.grok, which the cage can't read" "$WORK/build.log" && echo yes || echo no)"
 
+echo "== a grok download under the agent home =="
+# grok's installer keeps each version as one file in ~/.grok/downloads and links ~/.grok/bin/grok to the one in use,
+# with ~/.local/bin/grok linking there. Only that file may open in the cage: not its siblings, the folder, or the rest.
+GD="$FH/.grok/downloads"; GREL="$GD/grok-9.9.9-zt-macos-aarch64"
+mkdir -p "$GD" "$FH/.grok/bin" "$FH/.grok/sessions" "$FH/.grok/logs"
+cp "$ARGPROBE" "$GREL"; cp "$ARGPROBE" "$GD/grok-9.9.8-zt-macos-aarch64"; cp "$ARGPROBE" "$GD/grok-macos-aarch64"
+for p in config.toml sessions/s.json logs/grok.log; do printf 'fixture\n' >"$FH/.grok/$p"; done
+ln -s ../downloads/grok-9.9.9-zt-macos-aarch64 "$FH/.grok/bin/grok"; ln -s "$FH/.grok/bin/grok" "$FH/.local/bin/grok"
+grok_cage() {
+  chk "grok: the cage runs the download's physical path" "REAL='$GREL'" "$(grep -m1 -o "^REAL='[^']*'" "$W")"
+  chk "grok: AGENT_BIN_FILE is that one file" "BINFILE='$GREL'" "$(grep -m1 -o "BINFILE='[^']*'" "$W")"
+  chk "grok: the download starts in the cage" RAN "$(cg -c 'echo RAN')"
+}
+if cage_build grok "$FH/.local/bin/grok" "$PD" >/dev/null 2>"$WORK/build.log"; then
+  W=$cage_wrapper CT=$cage_tmp CWD=$PD
+  grok_cage
+  want r READ "$GREL"
+  want r DENY "$GD/grok-9.9.8-zt-macos-aarch64" "$GD/grok-macos-aarch64" "$GD" "$FH/.grok/bin/grok" "$FH/.grok/bin" \
+    "$FH/.grok/config.toml" "$FH/.grok/sessions/s.json" "$FH/.grok/logs/grok.log"
+  want w DENY "$GREL" "$GD/planted" "$FH/.grok/planted"
+  for p in grok-9.9.8-zt-macos-aarch64 grok-macos-aarch64; do
+    chk "grok: the sibling download $p does not run" DENY "$(cg -c "$(q "$GD/$p") -c 'echo RAN' 2>/dev/null || echo DENY")"
+  done
+  chk "grok: the link in ~/.grok/bin does not run" DENY "$(cg -c "$(q "$FH/.local/bin/grok") -c 'echo RAN' 2>/dev/null || echo DENY")"
+  # The grok recipe re-opens ~/.grok/auth.json as AGENT_AUTH by design. With AGENT_AUTH elsewhere, the wrapper's
+  # own profile parameters must leave it closed: the download file opens nothing else.
+  eval "$(grep -m1 '^REAL=' "$W")"
+  chk "grok: ~/.grok/auth.json stays closed apart from AGENT_AUTH" DENY "$(cd "$PD" && /usr/bin/sandbox-exec \
+    -D DIR="$DIR" -D DIR_RE="$DRE" -D CAGE_TMP="$CT" -D HOME="$RH" -D AGENT_AUTH="$CT" -D AGENT_CFG_RO="$CFGRO" \
+    -D LOCK_RE="$LRE" -D CAGE_ROOT="${CT%/*}" -D TTY="$CT/.notty" -D CAGE_SECRETS="$SEC" -D AGENT_BIN_FILE="$BINFILE" \
+    -f "$PROFILE" /bin/dd if="$FH/.grok/auth.json" bs=1 count=1 >/dev/null 2>&1 && echo READ || echo DENY)"
+else bad "grok download: cage_build failed ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
+# Launched by name, through PATH.
+# shellcheck disable=SC2016 # The child shell expands its own arguments.
+if env PATH="$LINKED" cage_agent=grok "$BASH" -p -c '. "$1"; shift; cage_build "$@" && printf "%s\n" "$cage_tmp"' sa \
+  "$HERE/build.inc.sh" grok grok "$PD" >"$WORK/sa.out" 2>"$WORK/build.log"; then
+  CT=$(cat "$WORK/sa.out") W="$CT/bin/grok" CWD=$PD
+  grok_cage
+else bad "grok by name: cage_build failed ($(tr '\n' ' ' <"$WORK/build.log"))"; fi
+mkdir -p "$GD/nested"; cp "$ARGPROBE" "$GD/nested/grok"
+rc=0; cage_build grok "$GD/nested/grok" "$PD" >/dev/null 2>"$WORK/build.log" || rc=$?
+chk "grok: a file deeper under downloads is refused" 2 "$rc"
+
 }
 if command -v cc >/dev/null 2>&1 && cc -o "$WORK/argprobe" "$HERE/argprobe.c" 2>"$WORK/cc.log"; then
   ARGPROBE=$WORK/argprobe
   standalone_checks
 else
-  test_skip "standalone codex checks require a C compiler ($(tr '\n' ' ' <"$WORK/cc.log" 2>/dev/null))"
+  test_skip "standalone codex and grok download checks require a C compiler ($(tr '\n' ' ' <"$WORK/cc.log" 2>/dev/null))"
 fi
 
 echo "== what runs or is sourced outside the cage stays write-locked, even in a DIR that holds it =="

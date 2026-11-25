@@ -26,7 +26,8 @@ The CLI follows install symlinks to find its cage profile and templates beside t
 A relative `REX_ORCHESTRATOR_CAGE_AGY_HOME` resolves against the launcher's working directory.
 A caged codex, claude or grok runs the first match on `PATH` that is compiled or a Node script (a shim is skipped, never run),
 or `REX_ORCHESTRATOR_CAGE_<AGENT>_BIN` when set. A standalone codex under `~/.codex/packages/standalone/` runs caged
-from its release folder, the only part of `~/.codex` the cage opens.
+from its release folder, the only part of `~/.codex` the cage opens; a grok under `~/.grok/downloads/` runs from that one
+file.
 For a caged agy login from a secret store, set `REX_ORCHESTRATOR_CAGE_AGY_TOKEN_CMD` to a shell command returning the
 token JSON with a non-empty string `.token.refresh_token` (or legacy `.refresh_token`). It runs outside the cage from `/` with a fixed environment;
 the command text is hidden from caged children, and the temporary mode 600 token is removed after child shutdown.

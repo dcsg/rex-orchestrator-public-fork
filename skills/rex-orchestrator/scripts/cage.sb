@@ -15,6 +15,8 @@
 ;     -D CAGE_SECRETS=<the cage credentials folder, read- and write-denied> \
 ;     [-D HOOKSPATH=<a repo core.hooksPath resolving inside DIR, to write-lock>] \
 ;     [-D AGENT_BIN_DIR=<the agent's own release folder under an agent home, to re-open for read and exec, or CAGE_TMP>] \
+;     [-D AGENT_BIN_FILE=<the agent's own executable file under an agent home, to re-open for read and exec, or an unused
+;        CAGE_TMP path>] \
 ;     -f cage.sb <real agent binary> <args...>
 ; DIR, DIR_RE, CAGE_TMP, CAGE_ROOT, TTY, HOME, AGENT_AUTH, AGENT_CFG_RO, LOCK_RE and CAGE_SECRETS are required: a missing one makes
 ; the profile fail to load (rc 65), i.e. fail closed. DIR_RE is DIR with ( ) [ ] { } . ^ $ * + ? | \
@@ -22,7 +24,7 @@
 ; (lua/launch_cage.lua computes it and refuses a DIR with a control character, invalid UTF-8 or a bidi control, which a regex can't express).
 ; HOOKSPATH is OPTIONAL: without it only the extra lock on a custom in-DIR core.hooksPath is skipped; .git/hooks, .husky and .githooks stay locked. An empty -D HOOKSPATH=
 ; fails to load; a relative one silently matches nothing.
-; AGENT_BIN_DIR is OPTIONAL: without it nothing extra is opened. An empty -D AGENT_BIN_DIR= fails to load.
+; AGENT_BIN_DIR and AGENT_BIN_FILE are OPTIONAL: without them nothing extra is opened. An empty one fails to load.
 ;
 ; Every -D path must be PHYSICAL (pwd -P): seatbelt matches resolved paths, so a path through a
 ; symlink (/var -> /private/var, /tmp) or with "//" never matches. For DIR/CAGE_TMP/HOOKSPATH that
@@ -36,8 +38,8 @@
 ; The ONLY writes allowed outside DIR are under CAGE_TMP (the agent's own isolated config,
 ; state, home and temp) and the terminal devices, each justified inline. Nothing else is
 ; writable. The only reads opened outside the default set are the single AGENT_AUTH file and, for a standalone codex,
-; its one release folder (AGENT_BIN_DIR), the only place under an agent home a child may exec from (its own cage
-; home aside).
+; its one release folder (AGENT_BIN_DIR), or for grok its one downloaded executable (AGENT_BIN_FILE): the only places
+; under an agent home a child may exec from (its own cage home aside).
 
 (allow default)
 
@@ -182,6 +184,11 @@
 ; every other release stay unreadable and unexecutable.
 (when (param "AGENT_BIN_DIR")
   (allow file-read* (subpath (param "AGENT_BIN_DIR"))))
+; The same for an agent that ships as ONE file: grok runs GROK_HOME/downloads/grok-<version>-<platform>, which sits
+; beside the other versions it downloaded. Only that file opens (literal), for this launch: the downloads folder, the
+; other downloads, auth.json, config, sessions and logs stay unreadable and unexecutable.
+(when (param "AGENT_BIN_FILE")
+  (allow file-read* (literal (param "AGENT_BIN_FILE"))))
 ; The child's own cage home, read back open after every deny above (it sits under CAGE_ROOT, and under an agent-home
 ; prefix when REX_ORCHESTRATOR_STATE_DIR points there). Siblings stay denied: they are other CAGE_ROOT entries.
 (allow file-read* (subpath (param "CAGE_TMP")))
@@ -206,6 +213,8 @@
   (prefix (string-append (param "HOME") "/.gemini")))
 (when (param "AGENT_BIN_DIR")
   (allow process-exec (subpath (param "AGENT_BIN_DIR"))))
+(when (param "AGENT_BIN_FILE")
+  (allow process-exec (literal (param "AGENT_BIN_FILE"))))
 (allow process-exec (subpath (param "CAGE_TMP")))
 (deny process-exec
   (literal "/usr/bin/sudo") (literal "/bin/launchctl") (literal "/usr/bin/osascript") (literal "/usr/bin/open")

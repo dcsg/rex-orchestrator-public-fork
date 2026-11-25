@@ -152,10 +152,12 @@ return function(C,M)
       " (or to that script, if it is " .. name .. "'s own launcher and runs without your environment)"
   end
 
-  -- The cage denies reads and execution under every agent home by prefix, so an executable there can't start. The one
-  -- exception is a standalone codex release, CODEX_HOME/packages/standalone/releases/<version>/: that folder, and
-  -- nothing else under the home, is re-opened for reading and execution (AGENT_BIN_DIR) for this launch, and the agent
-  -- runs by its physical path, since the current link and any link inside the home can't be followed in the cage.
+  -- The cage denies reads and execution under every agent home by prefix, so an executable there can't start. The
+  -- exceptions are a standalone codex release, CODEX_HOME/packages/standalone/releases/<version>/ (that folder,
+  -- AGENT_BIN_DIR), and a grok download, GROK_HOME/downloads/<file> (that one file, AGENT_BIN_FILE): nothing else
+  -- under the home is re-opened, for reading and execution, for this launch only. The agent runs by its physical
+  -- path, since links inside the home (codex's current, grok's bin/grok) can't be followed in the cage.
+  -- Returns the executable to run, the folder and the file to re-open (either may be nil), or nil and why.
   local function agent_bin_dir(r,name)
     local real=F.realpath(r.bin)
     if not real then return nil,"cage: cannot resolve " .. name .. "'s executable " .. r.bin end
@@ -170,9 +172,20 @@ return function(C,M)
             if version and version~="." and version~=".." then return real,base .. version end
           end
         end
+        -- grok's installer keeps each version as one file, GROK_HOME/downloads/grok-<version>-<platform>, linked
+        -- from ~/.grok/bin/grok: that file alone is re-opened (AGENT_BIN_FILE).
+        if r.runtime=="grok" and not M.dir_control(real) then
+          for _,grok_home in ipairs({env("GROK_HOME") or "",h .. "/.grok"}) do
+            local physical=grok_home~="" and F.canonical(grok_home)
+            local base=physical and physical .. "/downloads/"
+            local file=base and M.starts(real,base) and real:sub(#base+1)
+            if file and file~="" and not file:find("/",1,true) and F.test("-f",real) then return real,nil,real end
+          end
+        end
         return nil,"cage: " .. name .. "'s executable " .. real .. " is under " .. h .. "/" .. leaf ..
           ", which the cage can't read" .. (r.runtime=="codex" and
-          " (of a codex home it opens only a standalone release, packages/standalone/releases/<version>/)" or "") ..
+          " (of a codex home it opens only a standalone release, packages/standalone/releases/<version>/)" or
+          r.runtime=="grok" and " (of a grok home it opens only a download, downloads/<file>)" or "") ..
           "; install " .. name .. " elsewhere" .. (direct[r.runtime] and
           " or point REX_ORCHESTRATOR_CAGE_" .. name:upper() .. "_BIN at a copy outside it" or "")
       end
@@ -213,7 +226,7 @@ return function(C,M)
       {"AUTH",r.auth or ct},{"CFGRO",ct .. "/" .. r.config},{"HOOKS",hooks or ct .. "/.nohooks"},
       {"LRE",lock_regex()},{"SEC",physical_secrets},{"PROF",profile},{"TPL",templates},
       {"CRED",r.account and secrets .. "/claude-" .. r.account .. ".env" or ""},
-      {"BINDIR",r.bindir or ct},{"RH_AGY",r.login},{"AGYSET",agy_settings(r.login)},{"LOCAL_LUA",C.script_dir .. "/local-lua.sh"}
+      {"BINDIR",r.bindir or ct},{"BINFILE",r.binfile or ct .. "/.nobin"},{"RH_AGY",r.login},{"AGYSET",agy_settings(r.login)},{"LOCAL_LUA",C.script_dir .. "/local-lua.sh"}
     }
     local assignments={}
     for _,p in ipairs(bindings) do assignments[#assignments+1]=p[1] .. "=" .. quote(p[2]) end
@@ -243,7 +256,7 @@ return function(C,M)
     local why
     r.bin,why=caged_binary(r,name,opts)
     if not r.bin then return fail(why) end
-    r.bin,r.bindir=agent_bin_dir(r,name)
+    r.bin,r.bindir,r.binfile=agent_bin_dir(r,name)
     if not r.bin then return fail(r.bindir) end
     local dir=opts.dir
     if M.dir_control(dir) then

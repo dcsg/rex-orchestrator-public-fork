@@ -52,9 +52,13 @@ agent installed there can't start. The one exception is codex's standalone insta
 folder, runs it by that path and re-opens exactly that one folder, read and execute only, for this launch
 (`-D AGENT_BIN_DIR`). Nothing else under the codex home opens: `auth.json` (unless it is the login the codex recipe
 re-opens anyway), `config.toml`, sessions, history, logs and other releases stay unreadable and unexecutable, and the
-release folder itself stays unwritable. Any other executable under an agent home (grok's `~/.grok/bin/grok`, for
-example) makes `launch` exit 2 with a message: install the agent elsewhere or point the variable above at a copy outside
-the agent home. An executable outside the agent homes that is reached through a link inside one (a
+release folder itself stays unwritable. grok's installer works the same way with single files: each version is one
+executable in `~/.grok/downloads/` (or `GROK_HOME/downloads/`), `~/.grok/bin/grok` links to the one in use, and
+`~/.local/bin/grok` links there. When the physical path is a file directly in such a downloads folder, `launch` runs
+it by that path and re-opens exactly that one file, read and execute only, for this launch (`-D AGENT_BIN_FILE`). The
+folder, the other downloads, the links in `~/.grok/bin`, config, sessions and logs stay closed; `auth.json` opens only
+as the login the grok recipe re-opens anyway. Any other executable under an agent home makes `launch` exit 2 with a
+message: install the agent elsewhere or point the variable above at a copy outside the agent home. An executable outside the agent homes that is reached through a link inside one (a
 `~/.codex/bin/codex` link on the way to `/opt/x/codex`, say) also can't be followed in the cage, so `launch` runs it by
 its physical path and says so.
 
@@ -183,12 +187,12 @@ home stops the wrapper with exit **70**.
   `.claude/`, `.codex/`, `.gemini/`, `.grok/`, `.cursor/`, `.zed/`, `.vscode/`, `.idea/`, `.husky/`, `.githooks/`,
   `.agents/`, and a repo's own `core.hooksPath`. (So `git init`/`git config` fail in the cage: create the repo first.)
 - **Execution** under every agent home (`~/.claude*`, `~/.codex*`, `~/.grok*`, `~/.gemini*`), except the launched codex
-  release folder and the child's own cage home.
+  release folder or grok download and the child's own cage home.
 - **Reads** of secret stores and agent homes: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.netrc`, `~/.config` (except `git`),
   `~/Library/Keychains`, shell histories, Messages, Mail, every `~/.claude*`, `~/.codex*`, `~/.grok*`, `~/.gemini*`, other
   agents' folders in `~/Library/Application Support`, other cage homes, other Claude sessions' temp files, and every repo
   under `~/Repos` except DIR's. The exceptions are the agent's one login file (codex, grok) and a launched codex
-  release folder.
+  release folder or grok download.
 - **Network** on any port but 443, 80 and 53, loopback included; every unix socket but DNS's (so no Rex, no ssh-agent).
 - **Mach services** outside a 7-name allowlist (TLS, DNS, user lookup): no LaunchServices, AppleEvents, clipboard,
   WindowServer, TCC; no `iokit-open`; no signals outside the cage; no `sudo`, `launchctl`, `osascript`, `open`, `ssh`,
